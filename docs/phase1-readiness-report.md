@@ -1,6 +1,6 @@
 # Phase 1 준비 상태 보고서
 
-갱신: 2026-09-23 14:00 KST. 브랜치: `codex/phase1-operating-foundation` (`f57c3d1` 기반).
+갱신: 2026-09-23 14:07 KST. 브랜치: `codex/phase1-operating-foundation` (`f57c3d1` 기반).
 
 **전체 상태: 미완료.** 코드·로컬 검사·원격 스키마 준비를 진행했으며, DB 전용 계정 접속 승인 뒤 실제 Preview 배포/E2E/원격 부하 측정이 남아 있다. 현재 200명 동시 이용을 검증했다고 판단할 수 없다.
 
@@ -28,7 +28,7 @@
 | 조회 인덱스 migration | 랭킹·READY 수령 만료·행사별 경품 인덱스 3개 적용 및 정의 조회 확인 |
 | 기존 데이터 | public 11개 테이블의 기존 행 수 유지, Storage 객체 47개 유지 |
 | Auth | 기존 3명 유지, 합성 테스트 계정 2개 추가 및 실제 password grant 성공 |
-| DB 전용 계정 | dino_app NOLOGIN 유지; 환경 guard 0행·참가자 0명 |
+| DB 전용 계정 | dino_app NOLOGIN 유지; 기존 public 11개 테이블 SELECT/INSERT/UPDATE/DELETE 모두 권한 없음; 환경 guard 0행·참가자 0명 |
 | Web Analytics | 사용자 추가 승인 후 CLI 활성화 성공; 실제 Preview 수집은 아직 미검증 |
 | 백업 | 대시보드의 물리 백업 7개 확인; 실제 복원 미실행 |
 
@@ -136,7 +136,8 @@ FK index INFO는 기존 UNIQUE/선두 인덱스 및 실제 조회 경로로 검�
 
 - 저장소: https://github.com/CODEhenryKIL/gemini-dino-jump
 - 작업 브랜치: codex/phase1-operating-foundation
-- commit/PR: 작성 중
+- 구현 commit: `0b3ccd03de87671157bb2707eba911095a9ecf0c`
+- 초안 PR: https://github.com/CODEhenryKIL/gemini-dino-jump/pull/1 (병합 안 함)
 - Preview URL/deployment: 아직 없음
 - 원격 실행 보고서: 아직 없음
 - 실행·관리자·백업·복구: [운영 런북](phase1-operations-runbook.md)
