@@ -1,0 +1,126 @@
+[
+  {
+    "seed": 1,
+    "jump_ticks": [],
+    "score": 32,
+    "valid_ticks": 194
+  },
+  {
+    "seed": 1,
+    "jump_ticks": [
+      100,
+      150
+    ],
+    "score": 32,
+    "valid_ticks": 195
+  },
+  {
+    "seed": 1,
+    "jump_ticks": [
+      {
+        "tick": 100,
+        "high": false
+      },
+      {
+        "tick": 160,
+        "high": true
+      },
+      {
+        "tick": 245,
+        "high": false
+      }
+    ],
+    "score": 45,
+    "valid_ticks": 272
+  },
+  {
+    "seed": 42,
+    "jump_ticks": [],
+    "score": 32,
+    "valid_ticks": 194
+  },
+  {
+    "seed": 42,
+    "jump_ticks": [
+      100,
+      150
+    ],
+    "score": 32,
+    "valid_ticks": 195
+  },
+  {
+    "seed": 42,
+    "jump_ticks": [
+      {
+        "tick": 100,
+        "high": false
+      },
+      {
+        "tick": 160,
+        "high": true
+      }
+    ],
+    "score": 39,
+    "valid_ticks": 238
+  },
+  {
+    "seed": 12345,
+    "jump_ticks": [],
+    "score": 32,
+    "valid_ticks": 194
+  },
+  {
+    "seed": 12345,
+    "jump_ticks": [
+      100,
+      150
+    ],
+    "score": 32,
+    "valid_ticks": 195
+  },
+  {
+    "seed": 12345,
+    "jump_ticks": [
+      {
+        "tick": 100,
+        "high": false
+      },
+      {
+        "tick": 160,
+        "high": true
+      }
+    ],
+    "score": 39,
+    "valid_ticks": 238
+  },
+  {
+    "seed": 4294967295,
+    "jump_ticks": [],
+    "score": 32,
+    "valid_ticks": 194
+  },
+  {
+    "seed": 4294967295,
+    "jump_ticks": [
+      100,
+      150
+    ],
+    "score": 32,
+    "valid_ticks": 195
+  },
+  {
+    "seed": 4294967295,
+    "jump_ticks": [
+      {
+        "tick": 100,
+        "high": false
+      },
+      {
+        "tick": 160,
+        "high": true
+      }
+    ],
+    "score": 39,
+    "valid_ticks": 235
+  }
+]

@@ -1,49 +1,40 @@
-# 🦖 Team Gemini 공룡 점프 챌린지 2026 (v1.1)
+# Team Gemini 공룡 점프
 
-> **2026 Google Student Ambassador 공모전 / 캠페인 출품작 (#TeamGemini)**  
-> **운영 주체**: Google Student Ambassador 서울과학기술대학교 팀 운영  
-> **사양 정의서**: [docs/spec_v1.1.md](docs/spec_v1.1.md)
+Python API·JavaScript 게임·Supabase PostgreSQL로 구성한 이벤트 사이트입니다.
+현재 Phase 1 개발 중이며 합성 데이터와 테스트 경품만 사용합니다.
 
----
+## 로컬 실행
 
-## 🌟 핵심 특징 및 v1.1 반영 사항
+Python 3.11과 PostgreSQL 17이 필요합니다. Supabase CLI + Docker를 우선 사용합니다.
 
-1. **모바일 퍼스트 반응형 공룡 점프 러너**:
-   - 960×540 논리 해상도, 60 tick/s 고정 시뮬레이션 (30/60/120Hz 주사율 무관 일관된 물리).
-   - 1~6단계 자동 점진 속도 커브 (280 → 최대 800 px/s).
-   - 장애물 최소 간격 공식(1.15s → 0.65s) 및 100ms 점프 입력 버퍼링.
-   - 앱 전환 및 탭 숨김 시 자동 일시정지, 복귀 시 3초 카운트다운.
-2. **서버사이드 물리 시뮬레이션 및 점수 재현 검증 (Anti-Cheat)**:
-   - 클라이언트와 서버가 동일한 PRNG 시드 및 물리 엔진 공유.
-   - 점프 tick 로그를 서버에서 재현하여 점수 변조 및 치트 방지.
-3. **[v1.1 확정] 복주머니 3개 중 1개 선택 & 은색 스크래치 복권**:
-   - 게임 완료 후 3개의 복주머니 중 1개 선택.
-   - 주머니 개봉 애니메이션 후 캔버스 즉석 복권 등장.
-   - 마우스 / 터치로 은색 코팅 문지르기 (50% 이상 스크래치 시 부드러운 자동 공개).
-   - 접근성 보조 버튼 ‘한 번에 확인하기’ 지원, 터치 시 모바일 스크롤 락.
-   - 100% 꽝 없는 즉석 경품 풀 (메가커피, GS25, 배민, 굿즈 등).
-4. **바이럴 추천 루프**:
-   - 개인 고유 난수 추천 링크 (`/invite/{opaque_code}`).
-   - 초대받은 신규 친구가 첫 유효 게임을 완료하면 초대자에게 게임권 +1장 즉시 충전 (일 3장 / 전체 10장 한도).
-5. **운영 관리자 대시보드 (`/admin.html`)**:
-   - 행사 상태(ACTIVE, MAINTENANCE, ENDED) 원클릭 제어.
-   - 경품 재고, 예약량, 지급량 실시간 트랜잭션 모니터링.
-   - 게임권 수동 보정 및 이상 검증 기록 확인.
-
----
-
-## 🚀 로컬 서버 실행 방법
-
-외부 복잡한 패키지 설치 없이, Python 3.9+ 표준 라이브러리만으로 즉시 구동됩니다.
+1. [운영 런북](docs/phase1-operations-runbook.md)에 따라 migration → 환경 guard → seed를 적용합니다.
+2. 승인된 전용 DB 계정의 접속 정보를 준비합니다.
+3. 다음 명령으로 Python 환경과 로컬 설정 파일을 만듭니다.
 
 ```bash
-# 1. 프로젝트 폴더로 이동
-cd gemini-dino-jump
-
-# 2. 서버 실행 (포트 8080)
-python3 server/app.py
-# 또는 ./run.sh
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env.local
+chmod 600 .env.local
 ```
 
-- **이벤트 메인 웹 데모 (모바일 최적화)**: [http://localhost:8080](http://localhost:8080)
-- **운영 관리자 콘솔**: [http://localhost:8080/admin.html](http://localhost:8080/admin.html)
+`.env.local` 예시를 실제 **로컬** 값으로 바꾼 뒤 `./run.sh`를 실행합니다.
+게임은 <http://127.0.0.1:3000>, 관리자는 <http://127.0.0.1:3000/admin.html>입니다.
+DB 없이 기록을 저장하거나 관리자 인증을 생략하는 실행 모드는 없습니다.
+
+## 구성
+
+- `public/`: 공룡 점프 화면·엔진·관리자 화면
+- `api/index.py`, `server/`: Vercel Python Function과 로컬 서버
+- `supabase/migrations/`: 테이블·제약·권한·RLS
+- `supabase/seed.sql`, `supabase/preview_seed.sql`: 환경을 검사하는 합성 seed
+- `tests/`, `scripts/phase1_load.py`: 기능·보안·부하 검사
+
+기본 게임권·추천 보상·경품 확률은 테스트 설정입니다. 기존 사양 문서의 수치를 확정 운영 정책으로 사용하지 않습니다.
+
+## 문서
+
+- [원본 작업 지시서](docs/phase1-work-instructions.md)
+- [API 계약](docs/phase1-api-contract.md)
+- [실행·관리자·배포·백업·복구](docs/phase1-operations-runbook.md)
+- [구현 및 실제 검증 결과](docs/phase1-readiness-report.md)

@@ -6,12 +6,17 @@ import { api } from '../api.js';
 import { ui } from '../ui.js';
 import { audio } from '../game/audio.js';
 import { ScratchCard } from '../components/scratch_card.js';
+import { track } from '../analytics.js';
 
 export const DrawView = {
   selectedPouch: null,
   drawResult: null,
+  revealTimer: null,
+  abortController: null,
+  scratchCard: null,
 
-  async render(container, router) {
+  async render(container, router, epoch) {
+    this.cleanup(); this.abortController = new AbortController();
     const lastResult = router.state.lastResult || {};
     const sessionId = lastResult.sessionId;
 
@@ -104,6 +109,12 @@ export const DrawView = {
     const openBtn = container.querySelector('#btn-open-pouch');
     const pouchItems = container.querySelectorAll('.pouch-item');
 
+    try {
+      const existing = await api.getSession(sessionId, { signal: this.abortController.signal });
+      if (!router.isCurrent(epoch, 'draw')) return;
+      if (existing.draw) { selectStage.style.display = 'none'; scratchStage.style.display = 'flex'; this.drawResult = existing.draw; this.initScratchTicket(container, router, existing.draw); return; }
+    } catch (error) { if (error.name === 'AbortError') return; }
+
     // 1. Pouch selection handlers
     pouchItems.forEach((item) => {
       item.onclick = () => {
@@ -131,19 +142,20 @@ export const DrawView = {
 
       try {
         // Call backend atomic draw API
-        const drawRes = await api.drawPouch(sessionId, this.selectedPouch);
+        track('draw_open', { screen: 'draw' });
+        const drawRes = await api.drawPouch(sessionId, this.selectedPouch, { signal: this.abortController.signal });
+        if (!router.isCurrent(epoch, 'draw')) return;
         this.drawResult = drawRes;
 
         // 1.2s pouch opening animation delay
-        setTimeout(() => {
+        this.revealTimer = setTimeout(() => {
           selectStage.style.display = 'none';
           scratchStage.style.display = 'flex';
           this.initScratchTicket(container, router, drawRes);
         }, 1200);
 
       } catch (err) {
-        ui.showToast(err.message || '추첨 처리 중 오류가 발생했습니다.');
-        router.navigate('home');
+        if (err.name !== 'AbortError') { openBtn.textContent = '같은 결과 다시 확인'; openBtn.style.pointerEvents = 'auto'; ui.showToast(err.message || '추첨 결과를 확인하지 못했습니다. 다시 시도해 주세요.'); }
       }
     };
   },
@@ -159,19 +171,19 @@ export const DrawView = {
 
     // Populate underlay content based on draw result
     if (drawRes.is_won) {
-      underlayImg.src = drawRes.prize.image_url || '/assets/icons/Heart-Dark.png';
-      underlayTitle.textContent = drawRes.prize.name;
+      underlayImg.src = ui.safeImageUrl(drawRes.prize?.image_url, '/assets/icons/Heart-Dark.png');
+      underlayTitle.textContent = drawRes.prize?.name || '테스트 경품';
       underlayTitle.style.color = 'var(--primary)';
-      underlaySub.textContent = '🎉 축하해요! 즉석 경품에 당첨되었어요.';
+      underlaySub.textContent = drawRes.is_test ? '개발용 테스트 추첨 결과입니다.' : '추첨 결과를 확인했습니다.';
       actionBtn.innerHTML = '<span>🎁 경품 수령함 확인하기</span>';
       actionBtn.classList.remove('btn-secondary');
       actionBtn.classList.add('btn-primary');
     } else {
       underlayImg.src = '/assets/icons/Rocket-Dark.png';
-      underlayTitle.textContent = '제미나이 1년 무료 이용권';
+      underlayTitle.textContent = '이번 추첨은 미당첨입니다';
       underlayTitle.style.color = '#1967D2';
-      underlaySub.textContent = '100% 보장 혜택! Google Gemini 학생 플랜을 지금 무료로 확인하세요.';
-      actionBtn.innerHTML = '<span>🌐 제미나이 1년 무료 혜택 받기</span>';
+      underlaySub.textContent = '공식 Gemini 학생 혜택은 별도 안내에서 확인할 수 있습니다.';
+      actionBtn.innerHTML = '<span>🌐 Gemini 학생 혜택 확인하기</span>';
       actionBtn.classList.remove('btn-secondary');
       actionBtn.classList.add('btn-primary');
     }
@@ -182,20 +194,21 @@ export const DrawView = {
       onReveal: async () => {
         // Complete scratch on backend
         if (drawRes.draw_id) {
-          api.completeScratch(drawRes.draw_id).catch(() => {});
+          api.completeScratch(drawRes.draw_id).catch(() => ui.showToast('긁기 완료 저장에 실패했습니다. 수령함에서 다시 확인해 주세요.'));
         }
         instantBtn.style.display = 'none';
         actionContainer.style.display = 'block';
 
         if (drawRes.is_won) {
           audio.playWin();
-          ui.showToast(`🎉 즉석 당첨: ${drawRes.prize.name}!`);
+          ui.showToast(`🎉 ${drawRes.is_test ? '테스트 추첨' : '추첨'} 당첨: ${drawRes.prize?.name || '경품'}!`);
         } else {
           audio.playWin();
-          ui.showToast('✨ 100% 보장: 제미나이 1년 무료 혜택 당첨!');
+          ui.showToast('추첨 결과를 확인했습니다.');
         }
       }
     });
+    this.scratchCard = scratchCard;
 
     instantBtn.onclick = () => {
       scratchCard.revealInstantly();
@@ -208,5 +221,6 @@ export const DrawView = {
         router.navigate('benefit');
       }
     };
-  }
+  },
+  cleanup() { clearTimeout(this.revealTimer); this.revealTimer = null; this.abortController?.abort(); this.abortController = null; this.scratchCard?.destroy(); this.scratchCard = null; this.selectedPouch = null; }
 };

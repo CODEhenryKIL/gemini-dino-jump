@@ -73,7 +73,7 @@ export class ScratchCard {
       };
     };
 
-    const startScratch = (e) => {
+    this.startScratchHandler = (e) => {
       if (this.isRevealed) return;
       this.isDrawing = true;
       e.preventDefault();
@@ -81,24 +81,24 @@ export class ScratchCard {
       this.scratch(pos.x, pos.y);
     };
 
-    const moveScratch = (e) => {
+    this.moveScratchHandler = (e) => {
       if (!this.isDrawing || this.isRevealed) return;
       e.preventDefault();
       const pos = getPos(e);
       this.scratch(pos.x, pos.y);
     };
 
-    const endScratch = () => {
+    this.endScratchHandler = () => {
       this.isDrawing = false;
     };
 
-    this.canvas.addEventListener('mousedown', startScratch);
-    window.addEventListener('mousemove', moveScratch);
-    window.addEventListener('mouseup', endScratch);
+    this.canvas.addEventListener('mousedown', this.startScratchHandler);
+    window.addEventListener('mousemove', this.moveScratchHandler);
+    window.addEventListener('mouseup', this.endScratchHandler);
 
-    this.canvas.addEventListener('touchstart', startScratch, { passive: false });
-    window.addEventListener('touchmove', moveScratch, { passive: false });
-    window.addEventListener('touchend', endScratch);
+    this.canvas.addEventListener('touchstart', this.startScratchHandler, { passive: false });
+    window.addEventListener('touchmove', this.moveScratchHandler, { passive: false });
+    window.addEventListener('touchend', this.endScratchHandler);
   }
 
   scratch(x, y) {
@@ -164,8 +164,21 @@ export class ScratchCard {
     }
 
     audio.playWin();
-    setTimeout(() => {
+    this.revealTimer = setTimeout(() => {
       this.onReveal();
     }, 300);
+  }
+
+  destroy() {
+    clearTimeout(this.revealTimer);
+    this.revealTimer = null;
+    this.canvas.removeEventListener('mousedown', this.startScratchHandler);
+    this.canvas.removeEventListener('touchstart', this.startScratchHandler);
+    window.removeEventListener('mousemove', this.moveScratchHandler);
+    window.removeEventListener('mouseup', this.endScratchHandler);
+    window.removeEventListener('touchmove', this.moveScratchHandler);
+    window.removeEventListener('touchend', this.endScratchHandler);
+    this.isDrawing = false;
+    this.onReveal = () => {};
   }
 }

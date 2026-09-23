@@ -30,6 +30,8 @@ DINO_HB = CONSTANTS['physics']['dino']['hitbox']
 OBSTACLE_TYPES = CONSTANTS['obstacleTypes']
 STAGES = CONSTANTS['stages']
 SAFE_TIME_SEC = CONSTANTS['rules']['initialSafeTimeSec'] # 1.2
+MAX_TICKS = 60 * 600
+MAX_JUMPS = 2048
 
 class PRNG:
     def __init__(self, seed: int):
@@ -80,6 +82,22 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
     """
     Simulates game deterministically. jump_ticks can be either [tick, ...] or [{'tick': t, 'high': bool}, ...]
     """
+    if type(seed) is not int or not 0 <= seed <= 0xFFFFFFFF:
+        raise ValueError('INVALID_SEED')
+    if type(submitted_ticks) is not int or not 1 <= submitted_ticks <= MAX_TICKS:
+        raise ValueError('INVALID_TICKS')
+    if type(submitted_score) is not int or not 0 <= submitted_score <= 6000:
+        raise ValueError('INVALID_SCORE')
+    if not isinstance(jump_ticks, list) or len(jump_ticks) > MAX_JUMPS:
+        raise ValueError('INVALID_JUMPS')
+    previous_tick = -1
+    for item in jump_ticks:
+        tick = item.get('tick') if isinstance(item, dict) else item
+        if type(tick) is not int or not previous_tick < tick <= submitted_ticks:
+            raise ValueError('INVALID_JUMP_TICK')
+        if isinstance(item, dict) and type(item.get('high', False)) is not bool:
+            raise ValueError('INVALID_JUMP_TYPE')
+        previous_tick = tick
     prng = PRNG(seed)
     dino_y = GROUND_Y - DINO_H
     dino_vy = 0.0
@@ -101,7 +119,7 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
     next_spawn_time = SAFE_TIME_SEC
     last_was_combo = False
 
-    max_sim_ticks = max(submitted_ticks + 120, 60 * 600)
+    max_sim_ticks = min(submitted_ticks + 16, MAX_TICKS + 1)
     collision_tick = -1
 
     for tick in range(max_sim_ticks):
@@ -221,7 +239,7 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
             break
 
     if collision_tick < 0:
-        collision_tick = submitted_ticks
+        return False, 0, submitted_ticks, 'NO_COLLISION'
 
     calculated_score = int(math.floor((collision_tick / TICK_RATE) * CONSTANTS['rules']['pointsPerSecond']))
 
@@ -231,6 +249,4 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
     if tick_diff <= 15 and score_diff <= 5:
         return True, calculated_score, collision_tick, "VERIFIED"
     else:
-        if submitted_ticks < collision_tick and submitted_score <= calculated_score:
-            return True, submitted_score, submitted_ticks, "EARLY_TERMINATION_VERIFIED"
         return False, calculated_score, collision_tick, f"SCORE_MISMATCH: server={calculated_score}, client={submitted_score}"

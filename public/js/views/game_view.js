@@ -10,8 +10,18 @@ import { DinoGameEngine } from '../game/engine.js';
 export const GameView = {
   engine: null,
   sessionId: null,
+  sessionStarted: false,
+  finishSubmitted: false,
+  countdownTimer: null,
+  flashTimer: null,
+  abortController: null,
 
-  async render(container, router) {
+  async render(container, router, epoch) {
+    this.cleanup(false);
+    this.abortController = new AbortController();
+    this.sessionId = null;
+    this.sessionStarted = false;
+    this.finishSubmitted = false;
     container.innerHTML = `
       <div class="game-screen-wrapper">
         <!-- Strictly Centered Game Play Section -->
@@ -83,12 +93,13 @@ export const GameView = {
         flashBadge.querySelector('.stage-name').textContent = stage.title;
         flashBadge.querySelector('.stage-sub').textContent = stage.sub;
         flashBadge.classList.add('show');
-        setTimeout(() => {
+        clearTimeout(this.flashTimer);
+        this.flashTimer = setTimeout(() => {
           flashBadge.classList.remove('show');
         }, 1500);
       },
       onGameOver: async (result) => {
-        this.handleGameOver(result, router);
+        this.handleGameOver(result, router, epoch);
       }
     });
 
@@ -163,26 +174,26 @@ export const GameView = {
 
     // 2. Start game session flow
     try {
-      const sessionData = await api.createSession();
+      const sessionData = await api.createSession({ signal: this.abortController.signal });
+      if (!router.isCurrent(epoch, 'game')) return;
       this.sessionId = sessionData.session_id;
-
-      // Keep unlimited tickets visual
-      router.updateNav();
 
       // Run initial 3s countdown
       this.runCountdown(3, async () => {
         try {
-          await api.startSession(this.sessionId);
+          const started = await api.startSession(this.sessionId, { signal: this.abortController.signal });
+          if (!router.isCurrent(epoch, 'game')) return;
+          this.sessionStarted = true;
+          router.state.tickets = Number(started.tickets ?? router.state.tickets);
+          router.updateNav();
           this.engine.start(sessionData.seed);
         } catch (err) {
-          ui.showToast('게임 시작 중 오류가 발생했습니다.');
-          router.navigate('home');
+          if (err.name !== 'AbortError' && router.isCurrent(epoch, 'game')) { ui.showToast(err.message || '게임 시작 중 오류가 발생했습니다.'); router.navigate('home'); }
         }
       }, countdownOverlay, countdownNum);
 
     } catch (err) {
-      ui.showToast(err.message || '세션 생성에 실패했습니다.');
-      router.navigate('home');
+      if (err.name !== 'AbortError') { ui.showToast(err.message || '세션 생성에 실패했습니다.'); router.navigate('home'); }
     }
   },
 
@@ -191,24 +202,27 @@ export const GameView = {
     let count = seconds;
     numEl.textContent = count;
 
-    const timer = setInterval(() => {
+    clearInterval(this.countdownTimer);
+    this.countdownTimer = setInterval(() => {
       count--;
       if (count > 0) {
         numEl.textContent = count;
       } else {
-        clearInterval(timer);
+        clearInterval(this.countdownTimer);
+        this.countdownTimer = null;
         overlay.classList.remove('active');
         callback();
       }
     }, 1000);
   },
 
-  async handleGameOver(result, router) {
-    this.cleanup();
+  async handleGameOver(result, router, epoch) {
+    this.finishSubmitted = true;
+    this.cleanup(false);
     ui.showToast('💥 장애물에 충돌했습니다!');
 
     try {
-      const verifyRes = await api.finishSession(this.sessionId, result);
+      const verifyRes = await api.finishSession(this.sessionId, result, { version: api.config?.game_version });
       // Update global router state
       router.state.bestScore = Math.max(router.state.bestScore || 0, verifyRes.best_score);
       router.state.lastResult = {
@@ -216,20 +230,23 @@ export const GameView = {
         score: verifyRes.score,
         bestScore: verifyRes.best_score,
         rank: verifyRes.rank,
-        verificationResult: verifyRes.verification_result
+        verificationResult: verifyRes.verification_result,
+        eligibleForDraw: Boolean(verifyRes.eligible_for_draw)
       };
       router.updateNav();
 
-      setTimeout(() => {
-        router.navigate('result');
-      }, 1000);
+      if (router.isCurrent(epoch, 'game')) router.navigate('result');
+      return true;
     } catch (err) {
-      ui.showToast('점수 저장 중 오류가 발생했습니다.');
-      router.navigate('home');
+      if (router.isCurrent(epoch, 'game')) ui.showModal({ title: '점수 저장 대기', content: '연결이 끊겨 결과를 아직 확인하지 못했습니다. 같은 결과로 다시 전송하거나 내 결과를 조회할 수 있습니다.', confirmText: '다시 전송', onConfirm: () => this.handleGameOver(result, router, epoch), cancelText: '홈으로', onCancel: () => router.navigate('home') });
+      return false;
     }
   },
 
-  cleanup() {
+  cleanup(abortSession = true) {
+    clearInterval(this.countdownTimer); this.countdownTimer = null;
+    clearTimeout(this.flashTimer); this.flashTimer = null;
+    this.abortController?.abort(); this.abortController = null;
     if (this.engine) {
       this.engine.stop();
       this.engine = null;
@@ -246,5 +263,6 @@ export const GameView = {
     if (this.visibilityHandler) {
       document.removeEventListener('visibilitychange', this.visibilityHandler);
     }
+    if (abortSession && this.sessionId && !this.finishSubmitted) api.abortSession(this.sessionId).catch(() => {});
   }
 };
