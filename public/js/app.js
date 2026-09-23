@@ -4,7 +4,6 @@
 
 import { api } from './api.js';
 import { ui } from './ui.js';
-import { GameChoiceModal } from './components/game_choice_modal.js';
 
 import { HomeView } from './views/home.js';
 import { GameView } from './views/game_view.js';
@@ -91,12 +90,6 @@ class AppRouter {
     const initialView = entryViews.includes(requestedView) ? requestedView : 'home';
     this.navigate(initialView);
 
-    // 7. 로딩 완료 직후 게임 선택 팝업 (주 1위 CJ 1만원권 챌린지) 자동 노출
-    if (initialView === 'home') {
-      setTimeout(() => {
-        GameChoiceModal.open(this);
-      }, 300);
-    }
   }
 
   runSplashScreen(durationMs = 2000) {

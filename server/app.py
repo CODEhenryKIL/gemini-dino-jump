@@ -39,6 +39,20 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         # Concise logging
         sys.stderr.write(f"[{time.strftime('%X')}] {format % args}\n")
 
+    def redirect_legacy_gate(self, path):
+        if path not in ('/gate-runner', '/gate-runner/', '/gate_runner.html'):
+            return False
+        self.send_response(302)
+        self.send_header('Location', '/')
+        self.end_headers()
+        return True
+
+    def do_HEAD(self):
+        path = urllib.parse.urlparse(self.path).path
+        if self.redirect_legacy_gate(path):
+            return
+        return super().do_HEAD()
+
     def send_json(self, status_code: int, data: dict):
         response_bytes = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.send_response(status_code)
@@ -122,7 +136,11 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             return
 
-        # 3. Static files
+        # 3. Old game links return to the Dino Jump home page.
+        if self.redirect_legacy_gate(path):
+            return
+
+        # 4. Static files
         return super().do_GET()
 
     def do_POST(self):

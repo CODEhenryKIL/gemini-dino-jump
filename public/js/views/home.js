@@ -2,14 +2,10 @@
  * S01 Home & S02 Guide View Component
  */
 
-import { api } from '../api.js';
 import { ui } from '../ui.js';
-import { GameChoiceModal } from '../components/game_choice_modal.js';
 
 export const HomeView = {
   render(container, router) {
-    const participant = api.participant || {};
-    const tickets = router.state.tickets || 1;
     const bestScore = router.state.bestScore || 0;
 
     container.innerHTML = `
@@ -63,22 +59,12 @@ export const HomeView = {
           </div>
         </div>
 
-        <!-- Main Action: Open Game Choice Modal -->
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          <button id="btn-open-choice-modal" class="btn btn-primary" style="font-size: 15px; height: 52px; background: #1967D2; box-shadow: 0 4px 14px rgba(25, 103, 210, 0.25); border-radius: 14px; border: none; cursor: pointer; color: #FFF; font-weight: 700;">
-            <span>챌린지 종목 선택하기</span>
+        <!-- Start Dino Jump -->
+        <div>
+          <button id="btn-start-jump" class="btn btn-primary" style="font-size: 15px; width: 100%; height: 52px; background: #1967D2; box-shadow: 0 4px 14px rgba(25, 103, 210, 0.25); border-radius: 14px; border: none; cursor: pointer; color: #FFF; font-weight: 700;">
+            <span>공룡 점프 시작</span>
             <span style="font-size: 14px; margin-left: 4px;">➔</span>
           </button>
-          
-          <!-- Direct Quick Links -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <button id="btn-quick-jump" class="btn" style="min-height: 42px; padding: 8px 12px; font-size: 12.5px; border: 1px solid #E8EAED; color: #3C4043; background: #F8F9FA; border-radius: 12px; font-weight: 700; cursor: pointer;">
-              <span>🦖 클래식 점프</span>
-            </button>
-            <a href="/gate_runner.html" class="btn" style="text-decoration: none; min-height: 42px; padding: 8px 12px; font-size: 12.5px; background: #F8F9FA; color: #3C4043; border: 1px solid #E8EAED; border-radius: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-              <span>⚡ 게이트 러너</span>
-            </a>
-          </div>
         </div>
 
         <button id="btn-how-to-play" class="btn btn-outline btn-sm" style="margin-top: 14px; border-color: rgba(25, 103, 210, 0.3); font-size: 13px;">
@@ -118,11 +104,7 @@ export const HomeView = {
     `;
 
     // Event Listeners
-    container.querySelector('#btn-open-choice-modal').onclick = () => {
-      GameChoiceModal.open(router);
-    };
-
-    container.querySelector('#btn-quick-jump').onclick = () => {
+    container.querySelector('#btn-start-jump').onclick = () => {
       const hasSeenGuide = localStorage.getItem('gemini_dino_guide_seen');
       if (!hasSeenGuide) {
         this.showGuideModal(router);

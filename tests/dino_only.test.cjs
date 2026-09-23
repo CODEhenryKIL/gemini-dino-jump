@@ -1,0 +1,79 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const vm = require('node:vm');
+
+const root = path.resolve(__dirname, '..');
+
+function loadHome(guideSeen = false) {
+  const source = fs.readFileSync(path.join(root, 'public/js/views/home.js'), 'utf8')
+    .replace(/^import .*;\s*$/gm, '')
+    .replace('export const HomeView', 'const HomeView');
+  let modal;
+  const navigations = [];
+  const context = {
+    api: { participant: {} },
+    ui: { showModal: (options) => { modal = options; } },
+    window: { location: { hostname: 'localhost', protocol: 'http:' } },
+    localStorage: {
+      getItem: () => guideSeen ? 'true' : null,
+      setItem: () => {},
+    },
+  };
+  vm.runInNewContext(`${source}\nglobalThis.home = HomeView;`, context);
+
+  const elements = new Map();
+  const container = {
+    innerHTML: '',
+    querySelector(selector) {
+      const id = selector.slice(1);
+      if (!this.innerHTML.includes(`id="${id}"`)) return null;
+      if (!elements.has(selector)) elements.set(selector, { onclick: null });
+      return elements.get(selector);
+    },
+  };
+  const router = {
+    state: { tickets: 1, bestScore: 42 },
+    navigate: (view) => navigations.push(view),
+  };
+  context.home.render(container, router);
+  return { container, elements, navigations, getModal: () => modal };
+}
+
+test('home presents only Dino Jump and starts it after the guide', () => {
+  const page = loadHome();
+  assert.match(page.container.innerHTML, /공룡 점프 시작/);
+  assert.doesNotMatch(page.container.innerHTML, /게이트 러너|종목 선택/);
+  const start = page.elements.get('#btn-start-jump');
+  assert.ok(start, 'a direct Dino Jump start button is present');
+  start.onclick();
+  assert.ok(page.getModal(), 'first play opens the existing guide');
+  page.getModal().onConfirm();
+  assert.deepEqual(page.navigations, ['game']);
+});
+
+test('returning players start Dino Jump directly', () => {
+  const page = loadHome(true);
+  page.elements.get('#btn-start-jump').onclick();
+  assert.deepEqual(page.navigations, ['game']);
+  assert.equal(page.getModal(), undefined);
+});
+
+test('Dino Jump runtime has no Gate Runner navigation or port dependency', () => {
+  const runtimeFiles = [
+    'public/js/app.js',
+    'public/js/views/home.js',
+  ];
+  for (const file of runtimeFiles) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    assert.equal(/gate[_-]runner|GameChoiceModal|3001/i.test(source), false, file);
+  }
+  const server = fs.readFileSync(path.join(root, 'server/app.py'), 'utf8');
+  assert.equal(/3001/.test(server), false);
+  assert.match(server, /self\.send_header\('Location', '\/'\)/);
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
+  assert.equal(config.rewrites.some(({ source }) => /gate[_-]runner/i.test(source)), false);
+  assert.deepEqual(config.redirects.map(({ destination }) => destination), ['/', '/', '/']);
+  assert.equal(fs.existsSync(path.join(root, 'public/gate_runner.html')), false);
+});
