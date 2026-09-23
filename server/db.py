@@ -1,5 +1,6 @@
 """Short-lived PostgreSQL connections; schema and seed are explicit setup steps."""
 from contextlib import contextmanager
+from pathlib import Path
 from threading import BoundedSemaphore
 import psycopg
 from psycopg.rows import dict_row
@@ -21,7 +22,8 @@ def connection(settings):
                    'prepare_threshold': None, 'row_factory': dict_row,
                    'application_name': 'gemini-dino-jump'}
         if settings.environment in ('preview', 'production'):
-            options.update(sslmode='verify-full', sslrootcert='system')
+            options.update(sslmode='verify-full',
+                           sslrootcert=str(Path(__file__).resolve().parent / 'certs/supabase-ca-2021.crt'))
         with psycopg.connect(settings.database_url, **options) as conn:
             yield conn
     finally:
