@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.py" },
+    { "source": "/invite/(.*)", "destination": "/public/index.html?invite=$1" },
+    { "source": "/", "destination": "/public/index.html" },
+    { "source": "/admin.html", "destination": "/public/admin.html" },
+    { "source": "/preview.html", "destination": "/public/preview.html" },
+    { "source": "/gate_runner.html", "destination": "/public/gate_runner.html" },
+    { "source": "/css/(.*)", "destination": "/public/css/$1" },
+    { "source": "/js/(.*)", "destination": "/public/js/$1" },
+    { "source": "/assets/(.*)", "destination": "/public/assets/$1" }
+  ]
+}

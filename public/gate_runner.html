@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#F8FAFF">
+  <meta name="description" content="Team Gemini 공룡 군단과 Claude Code가 맞붙는 게이트 러너 게임">
+  <title>공룡 군단 대격돌 | #TeamGemini</title>
+  <link rel="icon" href="/assets/icons/Dino-Dark.png" type="image/png">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/gate-runner.css">
+</head>
+<body>
+  <div id="app-container">
+    <header class="app-header">
+      <a class="brand-logo-area" href="/?view=home" aria-label="Team Gemini 홈">
+        <img src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
+      </a>
+      <div class="header-actions">
+        <div class="ticket-pill" aria-label="플레이 횟수 무제한">🎟️ 무제한</div>
+      </div>
+    </header>
+
+    <main class="runner-main">
+      <section class="runner-intro" aria-labelledby="runner-title">
+        <div>
+          <span class="game-number">GAME 02</span>
+          <h1 id="runner-title">공룡 군단 대격돌</h1>
+        </div>
+        <nav class="mode-switch" aria-label="게임 모드 선택">
+          <a href="/">점프</a>
+          <a class="active" href="/gate_runner.html" aria-current="page">게이트</a>
+        </nav>
+      </section>
+
+      <section class="runner-card" aria-label="게이트 러너 게임">
+        <div class="game-viewport" id="viewport">
+          <canvas id="runner-canvas" tabindex="0" aria-label="게이트를 통과하며 공룡 군단을 키우는 러너 게임"></canvas>
+
+          <div class="game-hud" aria-live="polite">
+            <div class="hud-left">
+              <span class="stage-tag" id="stage-badge">STAGE 1 / 5</span>
+              <span class="environment-pill" id="environment-name">맑은 하늘</span>
+            </div>
+            <div class="hud-right">
+              <div class="army-score">
+                <span>🦖</span>
+                <strong id="army-count-text">1</strong>
+              </div>
+              <button class="round-hud-button" id="btn-sound" type="button" aria-label="소리 끄기" aria-pressed="false"><span aria-hidden="true">🔊</span></button>
+              <button class="round-hud-button" id="btn-pause" type="button" aria-label="게임 일시정지" aria-pressed="false"><span aria-hidden="true">Ⅱ</span></button>
+            </div>
+          </div>
+
+          <div class="stage-progress-wrap" aria-label="현재 스테이지 진행도">
+            <div class="progress-labels"><span>START</span><span id="distance-text">0%</span></div>
+            <div class="mission-progress"><span id="stage-progress"></span></div>
+          </div>
+
+          <div class="stage-toast" id="stage-toast"><span id="toast-text">STAGE 1 CLEAR</span></div>
+
+          <div class="game-overlay start-screen" id="start-screen">
+            <div class="runner-event-banner" style="background: #F8FAFF; border: 1px solid #D2E3FC; color: #1967D2; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 12px; margin-bottom: 10px; display: inline-flex; align-items: center; gap: 5px;">
+              <span>🏆</span><span>주간 1위 유지 시 CJ 1만 원 증정</span>
+            </div>
+            <div class="versus-visual" aria-hidden="true">
+              <div class="fighter fighter--dino"><img src="/assets/icons/Dino-Dark.png" alt="Gemini Dino"></div>
+              <span class="versus-label">VS</span>
+              <div class="fighter fighter--claude"><img src="/assets/icons/claude_code.svg" alt="Claude Code"></div>
+            </div>
+            <span class="start-badge">GAME 02 · GATE RUNNER</span>
+            <h2>배수 문을 뚫고<br>공룡 군단을 키워요!</h2>
+            <p>공식 Claude Code 픽셀 군단을 격파하고 주간 1위에 도전하세요!</p>
+            <button class="start-button" id="btn-start" type="button">게임 시작 <span aria-hidden="true">→</span></button>
+          </div>
+
+          <div class="game-overlay pause-screen" id="pause-screen" hidden>
+            <div class="pause-icon" aria-hidden="true">Ⅱ</div>
+            <h2>잠시 멈췄어요</h2>
+            <button class="start-button" id="btn-resume" type="button">계속 달리기 <span aria-hidden="true">▶</span></button>
+          </div>
+
+          <div class="result-modal" id="result-modal">
+            <div class="result-card">
+              <div class="result-emoji" id="res-emoji">🏆</div>
+              <span class="result-kicker">게임 결과</span>
+              <h2 class="result-title" id="res-title">5단계 최종 정복!</h2>
+              <div style="background: #F8FAFF; border: 1px solid #D2E3FC; color: #1967D2; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 10px; margin: 4px auto 8px; display: inline-block;">
+                🏆 주간 1위 달성 시 CJ 1만원권 증정
+              </div>
+              <p class="result-subtitle" id="res-subtitle">공룡 군단이 Claude Code 요새를 함락시키고 승리했습니다!</p>
+              <div class="result-stat-box">
+                <div class="stat-item"><span class="stat-label">최종 공룡 수</span><span class="stat-val" id="res-final-count">85마리</span></div>
+                <div class="stat-item"><span class="stat-label">돌파 스테이지</span><span class="stat-val" id="res-stage-val">5 / 5</span></div>
+              </div>
+              <button class="modal-btn btn-primary" id="btn-restart" type="button">다시 도전하기</button>
+              <a class="modal-btn btn-secondary" href="/">점프 게임으로</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="runner-controls" aria-label="이동 컨트롤">
+          <button class="direction-button" id="btn-left" type="button" aria-label="왼쪽으로 이동"><span aria-hidden="true">←</span><small>왼쪽</small></button>
+          <button class="direction-button" id="btn-right" type="button" aria-label="오른쪽으로 이동"><small>오른쪽</small><span aria-hidden="true">→</span></button>
+        </div>
+        <p class="control-hint" id="hint-banner">💡 버튼을 누르거나 화면을 좌우로 밀어 이동하세요.</p>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="주요 메뉴">
+      <a class="nav-item active" href="/?view=home"><span class="icon">🏠</span><span>홈</span></a>
+      <a class="nav-item" href="/?view=ranking"><span class="icon">🏆</span><span>랭킹</span></a>
+      <a class="nav-item" href="/?view=claims"><span class="icon">🎁</span><span>수령함</span></a>
+      <a class="nav-item" href="/?view=invite"><span class="icon">👥</span><span>친구초대</span></a>
+      <a class="nav-item" href="/?view=benefit"><span class="icon">💡</span><span>혜택안내</span></a>
+    </nav>
+  </div>
+
+  <script src="/js/game/gate_runner.js"></script>
+</body>
+</html>

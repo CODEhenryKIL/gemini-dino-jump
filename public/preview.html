@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>현재 게임 원본 시간대별 화면 프리뷰</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-3">
+  <div class="bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl p-4 shadow-lg max-w-2xl mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-3 border-b border-[var(--border)] pb-2">
+      <div>
+        <h2 class="font-bold text-base flex items-center gap-2">
+          <span>🦅</span> 밤하늘 화이트 새(익룡) 실시간 프리뷰
+        </h2>
+        <p class="text-xs text-[var(--muted-foreground)]">낮에는 클래식 먹색 새, 밤하늘(52초~)부터는 깔끔한 순백색 새로 선명하게 전환됩니다.</p>
+      </div>
+      <div id="stage-badge" class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-blue-600 text-white shadow-sm">
+        STAGE 1: 상쾌한 낮 (5s)
+      </div>
+    </div>
+
+    <!-- Stage Buttons -->
+    <div class="flex flex-wrap gap-1.5 mb-2.5">
+      <button class="stage-btn px-2.5 py-1 text-xs rounded-lg font-semibold bg-blue-600 text-white transition active" data-time="5">
+        ☀️ 1. 낮 (5s)
+      </button>
+      <button class="stage-btn px-2.5 py-1 text-xs rounded-lg font-semibold bg-[var(--sidebar)] hover:bg-blue-500 hover:text-white transition" data-time="22">
+        🌤️ 2. 오후 (22s)
+      </button>
+      <button class="stage-btn px-2.5 py-1 text-xs rounded-lg font-semibold bg-[var(--sidebar)] hover:bg-blue-500 hover:text-white transition" data-time="36">
+        🌅 3. 노을 (36s)
+      </button>
+      <button class="stage-btn px-2.5 py-1 text-xs rounded-lg font-semibold bg-[var(--sidebar)] hover:bg-blue-500 hover:text-white transition" data-time="50">
+        🌆 4. 황혼 (50s)
+      </button>
+      <button class="stage-btn px-2.5 py-1 text-xs rounded-lg font-semibold bg-[var(--sidebar)] hover:bg-blue-500 hover:text-white transition" data-time="66">
+        🌙 5. 밤하늘 (66s)
+      </button>
+      <button class="stage-btn px-2.5 py-1 text-xs rounded-lg font-semibold bg-[var(--sidebar)] hover:bg-blue-500 hover:text-white transition" data-time="82">
+        🌌 6. 은하수 (82s)
+      </button>
+    </div>
+
+    <!-- Time Range Slider -->
+    <div class="mb-3 flex items-center gap-3 bg-[var(--sidebar)] px-3 py-1.5 rounded-lg border border-[var(--border)] text-xs">
+      <span class="text-[var(--muted-foreground)] font-bold whitespace-nowrap">시간 조절:</span>
+      <input id="time-slider" type="range" min="0" max="90" step="1" value="5" class="w-full accent-blue-600 cursor-pointer">
+      <span id="time-label" class="font-mono font-bold w-12 text-right">5.0초</span>
+    </div>
+
+    <!-- Canvas Preview Box -->
+    <div class="relative rounded-xl overflow-hidden border border-[var(--border)] shadow-inner aspect-[16/10] w-full bg-white">
+      <canvas id="preview-canvas" width="800" height="500" class="w-full h-full block"></canvas>
+      
+      <!-- Label overlay on canvas -->
+      <div class="absolute bottom-2 left-3 right-3 flex justify-between items-center pointer-events-none text-[11px] font-bold">
+        <div class="bg-black/60 backdrop-blur-md px-2.5 py-1 rounded text-white border border-white/20">
+          🦅 낮게 나는 새 (Y: 325)
+        </div>
+        <div class="bg-black/60 backdrop-blur-md px-2.5 py-1 rounded text-white border border-white/20">
+          🦅 높게 나는 새 (Y: 270)
+        </div>
+      </div>
+    </div>
+
+    <!-- Description -->
+    <div class="mt-3 pt-2 border-t border-[var(--border)] text-xs text-[var(--muted-foreground)] flex justify-between items-center">
+      <div>현재 코드 그대로 작동 중 (실제 게임 엔진 100% 동일 로직)</div>
+      <div class="font-semibold text-[var(--foreground)]">※ 상단 버튼이나 슬라이더로 시간대를 변경해보세요.</div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('preview-canvas');
+    const ctx = canvas.getContext('2d');
+    const stageBadge = document.getElementById('stage-badge');
+    const timeSlider = document.getElementById('time-slider');
+    const timeLabel = document.getElementById('time-label');
+
+    let previewTime = 5;
+    let tick = 0;
+
+    // Actual Engine TIME_KEYFRAMES from engine.js
+    const TIME_KEYFRAMES = [
+      {
+        time: 0,
+        skyTop: [225, 238, 255],
+        skyBottom: [255, 255, 255],
+        sunX: 620, sunY: 75, sunR: 36,
+        sunColor: '#FBBC04',
+        sunGlow: 'rgba(255, 235, 150, 0.45)',
+        moonX: 670, moonY: 550, moonAlpha: 0,
+        starAlpha: 0,
+        groundColor: [25, 103, 210],
+        dashColor: 'rgba(25, 103, 210, 0.35)',
+        gridColor: 'rgba(25, 103, 210, 0.04)',
+        dinoGlow: 0,
+        title: 'STAGE 1: 상쾌한 낮 (0~15s)'
+      },
+      {
+        time: 15,
+        skyTop: [255, 232, 205],
+        skyBottom: [255, 246, 236],
+        sunX: 640, sunY: 140, sunR: 40,
+        sunColor: '#F9AB00',
+        sunGlow: 'rgba(255, 210, 130, 0.5)',
+        moonX: 670, moonY: 550, moonAlpha: 0,
+        starAlpha: 0,
+        groundColor: [227, 116, 0],
+        dashColor: 'rgba(227, 116, 0, 0.35)',
+        gridColor: 'rgba(227, 116, 0, 0.04)',
+        dinoGlow: 0,
+        title: 'STAGE 2: 기울어지는 오후 햇살 (15~30s)'
+      },
+      {
+        time: 30,
+        skyTop: [142, 85, 168],
+        skyBottom: [255, 115, 75],
+        sunX: 660, sunY: 250, sunR: 46,
+        sunColor: '#EA4335',
+        sunGlow: 'rgba(255, 138, 101, 0.6)',
+        moonX: 670, moonY: 500, moonAlpha: 0,
+        starAlpha: 0,
+        groundColor: [171, 71, 188],
+        dashColor: 'rgba(171, 71, 188, 0.4)',
+        gridColor: 'rgba(255, 112, 67, 0.05)',
+        dinoGlow: 0,
+        title: 'STAGE 3: 황금빛 노을 & 다홍빛 석양 (30~45s)'
+      },
+      {
+        time: 45,
+        skyTop: [36, 26, 72],
+        skyBottom: [165, 62, 112],
+        sunX: 680, sunY: 440, sunR: 46,
+        sunColor: '#D93025',
+        sunGlow: 'rgba(234, 67, 53, 0.2)',
+        moonX: 670, moonY: 250, moonAlpha: 0.6,
+        starAlpha: 0.45,
+        groundColor: [126, 87, 194],
+        dashColor: 'rgba(126, 87, 194, 0.45)',
+        gridColor: 'rgba(126, 87, 194, 0.05)',
+        dinoGlow: 6,
+        title: 'STAGE 4: 보랏빛 황혼 매직아워 (45~60s)'
+      },
+      {
+        time: 60,
+        skyTop: [12, 20, 48],
+        skyBottom: [28, 38, 70],
+        sunX: 680, sunY: 600, sunR: 40,
+        sunColor: 'transparent',
+        sunGlow: 'transparent',
+        moonX: 670, moonY: 110, moonAlpha: 0.95,
+        starAlpha: 0.85,
+        groundColor: [66, 133, 244],
+        dashColor: 'rgba(66, 133, 244, 0.45)',
+        gridColor: 'rgba(66, 133, 244, 0.06)',
+        dinoGlow: 10,
+        title: 'STAGE 5: 별빛과 달빛의 밤하늘 (60~75s)'
+      },
+      {
+        time: 75,
+        skyTop: [5, 9, 24],
+        skyBottom: [15, 23, 44],
+        sunX: 680, sunY: 600, sunR: 40,
+        sunColor: 'transparent',
+        sunGlow: 'transparent',
+        moonX: 670, moonY: 80, moonAlpha: 1.0,
+        starAlpha: 1.0,
+        groundColor: [138, 180, 248],
+        dashColor: 'rgba(138, 180, 248, 0.55)',
+        gridColor: 'rgba(138, 180, 248, 0.08)',
+        dinoGlow: 14,
+        title: 'STAGE 6: 신비로운 제미나이 은하수 (75s+)'
+      }
+    ];
+
+    const stars = [];
+    for (let i = 0; i < 50; i++) {
+      stars.push({
+        x: Math.random() * 800,
+        y: Math.random() * 300,
+        r: Math.random() * 2.0 + 0.8,
+        twinklePhase: Math.random() * Math.PI * 2,
+        color: ['#FFFFFF', '#E8F0FE', '#FFF8E1', '#8AB4F8'][Math.floor(Math.random() * 4)]
+      });
+    }
+
+    function getEnv(timeSec) {
+      if (timeSec <= 0) return { ...TIME_KEYFRAMES[0], sunAlpha: 1.0 };
+      if (timeSec >= 75) return { ...TIME_KEYFRAMES[5], sunAlpha: 0.0 };
+      let kf1 = TIME_KEYFRAMES[0], kf2 = TIME_KEYFRAMES[1];
+      for (let i = 0; i < TIME_KEYFRAMES.length - 1; i++) {
+        if (timeSec >= TIME_KEYFRAMES[i].time && timeSec <= TIME_KEYFRAMES[i + 1].time) {
+          kf1 = TIME_KEYFRAMES[i];
+          kf2 = TIME_KEYFRAMES[i + 1];
+          break;
+        }
+      }
+      const dur = kf2.time - kf1.time;
+      const t = Math.max(0, Math.min(1, (timeSec - kf1.time) / dur));
+      const lerp = (a, b) => a + (b - a) * t;
+      const lerpArr = (a, b) => [
+        Math.round(a[0] + (b[0] - a[0]) * t),
+        Math.round(a[1] + (b[1] - a[1]) * t),
+        Math.round(a[2] + (b[2] - a[2]) * t)
+      ];
+
+      let sunAlpha = 1.0;
+      if (timeSec >= 46) {
+        sunAlpha = Math.max(0, 1.0 - (timeSec - 46) / 8);
+      }
+
+      return {
+        skyTop: lerpArr(kf1.skyTop, kf2.skyTop),
+        skyBottom: lerpArr(kf1.skyBottom, kf2.skyBottom),
+        sunAlpha,
+        sunX: lerp(kf1.sunX, kf2.sunX),
+        sunY: lerp(kf1.sunY, kf2.sunY),
+        sunR: lerp(kf1.sunR, kf2.sunR),
+        sunColor: kf1.sunColor,
+        sunGlow: kf1.sunGlow,
+        moonAlpha: lerp(kf1.moonAlpha, kf2.moonAlpha),
+        moonX: lerp(kf1.moonX, kf2.moonX),
+        moonY: lerp(kf1.moonY, kf2.moonY),
+        starAlpha: lerp(kf1.starAlpha, kf2.starAlpha),
+        groundColor: lerpArr(kf1.groundColor, kf2.groundColor),
+        dashColor: kf2.dashColor,
+        gridColor: kf2.gridColor,
+        dinoGlow: lerp(kf1.dinoGlow, kf2.dinoGlow),
+        title: kf2.title
+      };
+    }
+
+    // Authentic engine bird renderer with Night White Mode
+    function drawBird(x, y, type, isWingUp, timeSec) {
+      ctx.save();
+
+      const isWhiteBird = timeSec >= 52; // 밤하늘부터 깔끔한 하얀색으로 전환
+
+      // Bird body color
+      ctx.fillStyle = isWhiteBird ? '#FFFFFF' : '#3C4043';
+      ctx.strokeStyle = isWhiteBird ? '#BDC1C6' : '#202124';
+      ctx.lineWidth = 2;
+
+      // Torso
+      ctx.beginPath();
+      ctx.ellipse(x + 26, y + 22, 14, 8, -0.15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Head and sharp beak
+      ctx.beginPath();
+      ctx.moveTo(x + 8, y + 18);
+      ctx.lineTo(x - 2, y + 20); // beak tip pointing left
+      ctx.lineTo(x + 8, y + 24);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Glowing Eye (Gemini Blue)
+      ctx.fillStyle = isWhiteBird ? '#1967D2' : '#4285F4';
+      ctx.beginPath();
+      ctx.arc(x + 6, obsY_center(y), 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Animated Wings
+      ctx.fillStyle = isWhiteBird ? '#E8EAED' : '#5F6368';
+      ctx.beginPath();
+      if (isWingUp) {
+        ctx.moveTo(x + 22, y + 18);
+        ctx.lineTo(x + 30, y + 2);
+        ctx.lineTo(x + 38, y + 18);
+      } else {
+        ctx.moveTo(x + 22, y + 24);
+        ctx.lineTo(x + 30, y + 38);
+        ctx.lineTo(x + 38, y + 24);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Tail feather
+      ctx.beginPath();
+      ctx.moveTo(x + 40, y + 20);
+      ctx.lineTo(x + 50, y + 18);
+      ctx.lineTo(x + 40, y + 24);
+      ctx.closePath();
+      ctx.fillStyle = isWhiteBird ? '#E8EAED' : '#3C4043';
+      ctx.fill();
+      ctx.stroke();
+
+      // Airflow cue for High Bird
+      if (type === 'bird_high') {
+        ctx.strokeStyle = isWhiteBird ? 'rgba(255, 255, 255, 0.65)' : 'rgba(66, 133, 244, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x + 54, y + 20);
+        ctx.lineTo(x + 68, y + 20);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function obsY_center(y) {
+      return y + 19;
+    }
+
+    function render() {
+      tick++;
+      const env = getEnv(previewTime);
+      const groundY = 410;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 1. Sky Gradient
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, groundY);
+      skyGrad.addColorStop(0, `rgb(${env.skyTop.join(',')})`);
+      skyGrad.addColorStop(1, `rgb(${env.skyBottom.join(',')})`);
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Grid
+      ctx.strokeStyle = env.gridColor;
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 32) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 32) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      // Stars
+      if (env.starAlpha > 0.02) {
+        for (const s of stars) {
+          s.twinklePhase += 0.05;
+          const twinkle = 0.5 + 0.5 * Math.sin(s.twinklePhase);
+          ctx.save();
+          ctx.globalAlpha = env.starAlpha * (0.35 + 0.65 * twinkle);
+          ctx.fillStyle = s.color;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      // Sun
+      if (env.sunAlpha > 0.01 && env.sunY < groundY + 80) {
+        ctx.save();
+        ctx.globalAlpha = env.sunAlpha;
+        const glow = ctx.createRadialGradient(env.sunX, env.sunY, env.sunR * 0.3, env.sunX, env.sunY, env.sunR * 2.6);
+        glow.addColorStop(0, env.sunGlow);
+        glow.addColorStop(1, 'transparent');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(env.sunX, env.sunY, env.sunR * 2.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = env.sunColor;
+        ctx.beginPath();
+        ctx.arc(env.sunX, env.sunY, env.sunR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Moon
+      if (env.moonAlpha > 0.02) {
+        ctx.save();
+        ctx.globalAlpha = env.moonAlpha;
+        const mglow = ctx.createRadialGradient(env.moonX, env.moonY, 25, env.moonX, env.moonY, 110);
+        mglow.addColorStop(0, 'rgba(255, 248, 225, 0.4)');
+        mglow.addColorStop(0.5, 'rgba(138, 180, 248, 0.18)');
+        mglow.addColorStop(1, 'transparent');
+        ctx.fillStyle = mglow;
+        ctx.beginPath();
+        ctx.arc(env.moonX, env.moonY, 110, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFF9C4';
+        ctx.beginPath();
+        ctx.arc(env.moonX, env.moonY, 46, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#FFE082';
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Ground Line
+      ctx.strokeStyle = `rgb(${env.groundColor.join(',')})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      ctx.lineTo(canvas.width, groundY);
+      ctx.stroke();
+
+      // Moving Dashes
+      ctx.fillStyle = env.dashColor;
+      const gOffset = (tick * 5) % 40;
+      for (let x = -gOffset; x < canvas.width; x += 40) {
+        ctx.fillRect(x, groundY + 8, 18, 3);
+        ctx.fillRect(x + 22, groundY + 20, 10, 2);
+      }
+
+      // Dino (Left)
+      ctx.save();
+      if (env.dinoGlow > 0) {
+        ctx.shadowColor = 'rgba(138, 180, 248, 0.85)';
+        ctx.shadowBlur = env.dinoGlow;
+      }
+      ctx.fillStyle = '#202124';
+      ctx.beginPath();
+      ctx.roundRect(80, groundY - 60, 48, 60, 8);
+      ctx.fill();
+      ctx.fillStyle = '#4285F4';
+      ctx.fillRect(108, groundY - 50, 5, 5);
+      ctx.restore();
+
+      // Cactus
+      ctx.fillStyle = '#34A853';
+      ctx.strokeStyle = '#1E8E3E';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(260, groundY - 48, 28, 48, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // 1. Low Flying Bird
+      const wing1 = Math.floor(tick / 8) % 2 === 0;
+      drawBird(430, groundY - 85, 'bird_low', wing1, previewTime);
+
+      // 2. High Flying Bird
+      const wing2 = Math.floor((tick + 4) / 8) % 2 === 0;
+      drawBird(600, groundY - 140, 'bird_high', wing2, previewTime);
+
+      requestAnimationFrame(render);
+    }
+
+    render();
+
+    function setTime(sec) {
+      previewTime = sec;
+      timeSlider.value = sec;
+      timeLabel.textContent = sec.toFixed(1) + '초';
+      const env = getEnv(sec);
+      stageBadge.textContent = env.title;
+    }
+
+    document.querySelectorAll('.stage-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.stage-btn').forEach(b => {
+          b.classList.remove('bg-blue-600', 'text-white');
+          b.classList.add('bg-[var(--sidebar)]');
+        });
+        btn.classList.remove('bg-[var(--sidebar)]');
+        btn.classList.add('bg-blue-600', 'text-white');
+        setTime(parseFloat(btn.dataset.time));
+      });
+    });
+
+    timeSlider.addEventListener('input', (e) => {
+      setTime(parseFloat(e.target.value));
+    });
+  </script>
+</body>
+</html>
