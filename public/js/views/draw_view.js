@@ -72,7 +72,13 @@ export const DrawView = {
       try {
         const response = await api.drawPouch(this.selectedPouch);
         const draw = response.draw || response;
-        if (router.isCurrent(requestToken)) this.renderScratch(container, router, draw, requestToken);
+        router.announceStateChange();
+        if (router.isCurrent(requestToken)) {
+          router.state.draw = { status: 'DRAWN', draw_id: draw.draw_id, draw };
+          this.renderScratch(container, router, draw, requestToken);
+        } else {
+          await router.refreshState({ quiet: true });
+        }
       } catch (error) {
         if (!router.isCurrent(requestToken)) return;
         open.disabled = false;

@@ -174,7 +174,8 @@ test('an old pouch request cannot pass after leaving and re-entering draw', asyn
   });
   view.renderScratch = () => { scratchRenders += 1; };
   view.renderToken = 1;
-  const router = { isCurrent: (token) => token === currentToken };
+  let refreshes = 0, broadcasts = 0;
+  const router = { isCurrent: (token) => token === currentToken, announceStateChange() { broadcasts += 1; }, async refreshState() { refreshes += 1; } };
   view.renderSelection(container, router, 1);
   pouches[0].onclick();
   const opening = open.onclick();
@@ -183,6 +184,32 @@ test('an old pouch request cannot pass after leaving and re-entering draw', asyn
   request.resolve({ draw_id: 'old-draw', pouch_index: 0 });
   await opening;
   assert.equal(scratchRenders, 0);
+  assert.equal(refreshes, 1, 'the current screen reads the committed draw without rendering the old screen');
+  assert.equal(broadcasts, 1);
+});
+
+test('a newly committed draw updates current state before rendering scratch', async () => {
+  const open = element('button');
+  const pouch = element('button'); pouch.dataset.index = '1';
+  const container = { innerHTML: '', querySelector: () => open, querySelectorAll: () => [pouch] };
+  const draw = { draw_id: 'draw-new', pouch_index: 1, is_won: false };
+  const view = loadView('public/js/views/draw_view.js', 'DrawView', {
+    api: { drawPouch: async () => draw }, analytics: { track() {} },
+    ui: { showToast(message) { throw new Error(message); } },
+  });
+  let renders = 0, broadcasts = 0;
+  const router = { state: { draw: { status: 'AVAILABLE' } }, isCurrent: () => true, announceStateChange() { broadcasts += 1; } };
+  view.renderScratch = (_container, _router, saved) => {
+    assert.equal(router.state.draw.status, 'DRAWN');
+    assert.equal(router.state.draw.draw_id, draw.draw_id);
+    assert.equal(saved, draw);
+    renders += 1;
+  };
+  view.renderSelection(container, router, 1);
+  pouch.onclick();
+  await open.onclick();
+  assert.equal(renders, 1);
+  assert.equal(broadcasts, 1);
 });
 
 test('an old scratch save cannot complete after draw is re-entered', async () => {
