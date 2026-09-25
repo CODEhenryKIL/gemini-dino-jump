@@ -87,11 +87,12 @@ async function loadMetrics() {
     value.textContent = metric.denominator === 0 || metric.value === null || (metric.rate === null && metric.value == null) ? '계산 대상 없음' : formatMetricValue(metric);
     const windowSeconds = metric.observation_window_seconds ?? data.observation_window_seconds ?? data.observation_window?.seconds;
     const detail = document.createElement('p');
-    detail.textContent = `분자 ${metric.numerator ?? '-'} / 분모 ${metric.denominator ?? '-'} · 고유 ${metric.unique_participants ?? '-'} · 이벤트 ${metric.event_count ?? '-'} · 관찰 ${windowSeconds == null ? '-' : `${windowSeconds}초`} · ${metric.estimated ? '추정값' : '원 집계'}`;
+    detail.textContent = `분자 ${metric.numerator ?? '해당 없음'} / 분모 ${metric.denominator ?? '해당 없음'} · 고유 ${metric.unique_participants ?? '해당 없음'} · 이벤트 ${metric.event_count ?? '해당 없음'} · 관찰 ${windowSeconds == null ? '해당 없음' : `${windowSeconds}초`} · ${metric.estimated ? '추정값' : '원 집계'}`;
     card.append(title, value, detail); grid.appendChild(card);
   }
   renderSourceFunnel(data.source_funnel || []);
   renderScoreDistribution(data.score_distribution || []);
+  renderLeaderboard(data.leaderboard || []);
   renderTicketLedger(data.ticket_ledger || []);
   renderClaimSummary(data.claims || []);
   renderOperationalBreakdowns(data);
@@ -191,6 +192,15 @@ function renderScoreDistribution(rows) {
   ], rows, '조회된 점수 분포가 없습니다.');
 }
 
+function renderLeaderboard(rows) {
+  renderTable(document.querySelector('#leaderboard-summary'), [
+    { label: '현재 순위', value: (row) => row.rank },
+    { label: '참가자', value: (row) => row.nickname || '익명 참가자' },
+    { label: '최고점', value: (row) => row.best_score },
+    { label: '동점', value: (row) => row.tied ? '예' : '아니오' },
+  ], rows, '조회된 최고점 기록이 없습니다.');
+}
+
 function renderTicketLedger(rows) {
   renderTable(document.querySelector('#ticket-ledger'), [
     { label: '원장 사유', value: (row) => row.source_type },
@@ -221,6 +231,7 @@ function renderOperationalBreakdowns(data) {
     { label: '준비 완료', value: (row) => row.ready },
     { label: '진행 중', value: (row) => row.pending },
     { label: '추정 이탈', value: (row) => row.estimated_exits },
+    { label: '추정 이탈률', value: (row) => row.estimated_exit_rate == null ? '계산 대상 없음' : `${(Number(row.estimated_exit_rate) * 100).toFixed(1)}%` },
   ], data.loading?.buckets || [], '조회된 로딩 구간이 없습니다.');
   renderTable(document.querySelector('#screen-summary'), [
     { label: '화면', value: (row) => row.screen }, { label: '방문', value: (row) => row.visits },
@@ -234,6 +245,9 @@ function renderOperationalBreakdowns(data) {
     { label: '평균 활성 체류(ms)', value: (row) => row.mean_observed_active_ms },
     { label: '활성 체류 관측', value: (row) => row.active_dwell_observations },
     { label: '활성 체류 알 수 없음', value: (row) => row.active_dwell_unknown },
+    { label: '이탈 평균 활성 체류(ms)', value: (row) => row.mean_abandoned_active_ms },
+    { label: '이탈 활성 체류 관측', value: (row) => row.abandoned_active_observations },
+    { label: '이탈 활성 체류 알 수 없음', value: (row) => row.abandoned_active_unknown },
   ], data.stages || [], '조회된 단계 지표가 없습니다.');
   renderTableGroup(document.querySelector('#game-summary'), [
     {

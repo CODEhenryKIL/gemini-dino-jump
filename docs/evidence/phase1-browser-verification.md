@@ -24,3 +24,11 @@
 - 이미 종료된 게임에 대한 ‘진행 중 게임 복원’ 버튼이 남지 않음.
 
 실제 기기의 프레임 속도와 모든 모바일 브라우저 호환성 검증은 포함하지 않는다.
+
+## 2026-09-25 acceptance follow-up (local)
+
+- Fresh Python server on localhost:3004, existing isolated browser DB.
+- Actual browser loaded the saved participant and rendered the draw result, then navigated to the benefit screen.
+- Official-link copy displayed `공식 혜택 링크를 복사했어요.`.
+- Read-only database inspection confirmed `loading_ready` on loading, `gemini_cta_viewed`, and `share_attempted` with source=gemini and statuses attempted/copied.
+- These are local UI/event checks, separate from remote load results.

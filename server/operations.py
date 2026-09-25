@@ -29,10 +29,10 @@ def _participant(conn,ctx,lock=False,active=False):
 def _public(row): return {"id":row["id"],"nickname":row["nickname"],"is_public":row["is_public"],"referral_code":row["referral_code"]}
 def _tickets(row):
     return {"initial":row["initial_balance"],"invitation":row["invitation_balance"],"invitation_reserved":row["invitation_refund_pending"],"available_total":row["initial_balance"]+row["invitation_balance"],"cooldown_until":_iso(row["cooldown_until"]),"cooldown_notice_pending":row["cooldown_notice_pending"]}
-def _event(conn,name,ctx,participant_id=None,event_id=None,screen=None,game_session_id=None,dimensions=None):
-    conn.execute("""insert into dino_dev.analytics_event(event_id,campaign_id,participant_id,event_name,screen,game_session_id,dimensions,environment,deployment,event_version,synthetic,source,occurred_at)
-      values(%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,true,'server',clock_timestamp()) on conflict(event_id) do nothing""",
-      (event_id or _id("evt"),ctx["campaign_id"],participant_id,name,screen,game_session_id,json.dumps(dimensions or {}),ctx["environment"],ctx["deployment"],ctx["event_version"]))
+def _event(conn,name,ctx,participant_id=None,event_id=None,screen=None,game_session_id=None,dimensions=None,observation_id=None,visit_session_id=None):
+    conn.execute("""insert into dino_dev.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,visit_session_id,game_session_id,dimensions,environment,deployment,event_version,synthetic,source,occurred_at)
+      values(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,true,'server',clock_timestamp()) on conflict(event_id) do nothing""",
+      (event_id or _id("evt"),ctx["campaign_id"],participant_id,observation_id,name,screen,visit_session_id,game_session_id,json.dumps(dimensions or {}),ctx["environment"],ctx["deployment"],ctx["event_version"]))
 def _admin(conn,ctx,permission=None):
     uid=ctx.get("admin_user_id")
     row=_one(conn,"select * from dino_dev.admin_member where auth_user_id=%s and active",(uid,)) if uid else None
@@ -40,6 +40,23 @@ def _admin(conn,ctx,permission=None):
     if permission and permission not in row["permissions"]: raise DomainError("ADMIN_FORBIDDEN","해당 관리자 권한이 없습니다.",403)
     return row
 def _request_hash(body): return hashlib.sha256(json.dumps(body,sort_keys=True,separators=(",",":"),ensure_ascii=False,default=str).encode()).hexdigest()
+def _revalidate_idempotent_replay(conn,method,path,ctx):
+    if ctx.get("admin_user_id"):
+        permission=None
+        if method=="PATCH" and re.fullmatch(r"/api/admin/claims/[^/]+",path):permission="claims:write"
+        elif method=="PATCH" and re.fullmatch(r"/api/admin/game-faults/[^/]+",path):permission="faults:write"
+        elif method=="POST" and path=="/api/admin/ranking-snapshots":permission="ranking:write"
+        elif method=="PATCH" and re.fullmatch(r"/api/admin/participants/[^/]+",path):permission="participants:write"
+        elif method=="PATCH" and path=="/api/admin/campaign":permission="campaign:write"
+        _admin(conn,ctx,permission)
+        return
+    if not ctx.get("participant_token_hash"):
+        return
+    active=(method,path) in {
+      ("PATCH","/api/me/profile"),("POST","/api/referrals/qualify"),("POST","/api/referrals/cooldown-notice/ack"),
+      ("POST","/api/game-sessions"),("POST","/api/ranking/profile"),("POST","/api/draws"),
+    } or bool(re.fullmatch(r"/api/game-sessions/[^/]+/(?:start|checkpoint|finish|fault)",path)) or bool(re.fullmatch(r"/api/claims/[^/]+/submit",path))
+    _participant(conn,ctx,active=active)
 def _idempotent(conn,method,path,body,ctx,fn):
     key=ctx.get("idempotency_key")
     if not key: raise DomainError("IDEMPOTENCY_KEY_REQUIRED","요청 식별자가 필요합니다.",400)
@@ -49,6 +66,7 @@ def _idempotent(conn,method,path,body,ctx,fn):
     old=_one(conn,"select * from dino_dev.idempotency_request where actor_key=%s and route=%s and idempotency_key=%s",(actor,route,key))
     if old:
         if old["request_hash"]!=digest: raise DomainError("IDEMPOTENCY_CONFLICT","같은 요청 식별자에 다른 값을 사용할 수 없습니다.",409)
+        _revalidate_idempotent_replay(conn,method,path,ctx)
         return old["response_status"],old["response_body"]
     status,response=fn()
     conn.execute("insert into dino_dev.idempotency_request(actor_key,route,idempotency_key,request_hash,response_status,response_body) values(%s,%s,%s,%s,%s,%s::jsonb)",(actor,route,key,digest,status,json.dumps(response,default=str)))
@@ -58,7 +76,8 @@ def create_observation(conn,body,ctx):
     oid=str(body.get("observation_id") or ""); eid=str(body.get("event_id") or "")
     if not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",oid) or not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",eid): raise DomainError("VALIDATION_ERROR","관측 식별자를 확인해 주세요.")
     link=str(body.get("link_kind") or "unknown");channel=str(body.get("channel_code") or "unknown");campaign_code=str(body.get("campaign_code") or "");share_id=str(body.get("share_id") or "")
-    if link not in {"initial","retry_invite","prize_share","direct","unknown"} or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}",channel) or (campaign_code and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}",campaign_code)) or (share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id)): raise DomainError("VALIDATION_ERROR","유입 값을 확인해 주세요.")
+    code_pattern=r"(?:unknown|[A-Za-z][A-Za-z0-9_-]{0,31})"
+    if link not in {"initial","retry_invite","prize_share","direct","unknown"} or not re.fullmatch(code_pattern,channel) or (campaign_code and not re.fullmatch(code_pattern,campaign_code)) or (share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id)): raise DomainError("VALIDATION_ERROR","유입 값을 확인해 주세요.")
     referrer=str(body.get("referrer_origin") or "");parsed=urlparse(referrer) if referrer else None
     if parsed and (parsed.scheme not in {"http","https"} or not parsed.hostname or parsed.path not in {"","/"} or parsed.query or parsed.fragment or parsed.username): raise DomainError("VALIDATION_ERROR","유입 출처는 origin만 허용합니다.")
     key=ctx.get("idempotency_key")
@@ -189,6 +208,15 @@ def _session(row):
     return {"session_id":row["id"],"seed":row["seed"],"version":row["version"],"status":row["status"],"ticket_kind":row["ticket_kind"],"last_checkpoint_tick":row["last_checkpoint_tick"],"expires_at":_iso(row["expires_at"]),"refund":{"status":refund_status,"ticket_kind":row["ticket_kind"]},"fault_review":{"status":row["fault_review_status"],"version":row["fault_review_version"]}}
 def create_session(conn,body,ctx):
     p=_participant(conn,ctx,True,True); campaign=_campaign(conn); _mutable(campaign)
+    observation_id=body.get("observation_id");visit_session_id=body.get("visit_session_id")
+    if observation_id is not None:
+        observation_id=str(observation_id)
+        if not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",observation_id):raise DomainError("VALIDATION_ERROR","게임 유입 관측값을 확인해 주세요.")
+        observed=_one(conn,"select participant_id from dino_dev.observation where id=%s",(observation_id,))
+        if not observed or observed["participant_id"]!=p["id"]:raise DomainError("INVALID_OBSERVATION_ATTRIBUTION","현재 참가자의 유입 관측만 연결할 수 있습니다.",409)
+    if visit_session_id is not None:
+        visit_session_id=str(visit_session_id)
+        if not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",visit_session_id):raise DomainError("VALIDATION_ERROR","방문 세션 식별자를 확인해 주세요.")
     _reconcile_expired(conn,p["id"]);p=_one(conn,"select * from dino_dev.participant where id=%s for update",(p["id"],))
     old=_one(conn,"select * from dino_dev.game_session where participant_id=%s and idempotency_key=%s",(p["id"],ctx["idempotency_key"]))
     if old:return 200,_session(old)
@@ -203,7 +231,7 @@ def create_session(conn,body,ctx):
     sid=_id("gs"); conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after) values(%s,%s,-1,'PLAY_CONSUME',%s,%s)",(p["id"],kind,sid,after))
     row=_one(conn,"""insert into dino_dev.game_session(id,participant_id,campaign_id,idempotency_key,seed,version,ticket_kind,expires_at,environment)
       values(%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '2 minutes',%s) returning *""",(sid,p["id"],campaign["id"],ctx["idempotency_key"],secrets.randbelow(2147483646)+1,campaign["game_version"],kind,ctx["environment"]))
-    _event(conn,"game_start_approved",ctx,p["id"],"game_reserved:"+sid,game_session_id=sid)
+    _event(conn,"game_start_approved",ctx,p["id"],"game_reserved:"+sid,game_session_id=sid,observation_id=observation_id,visit_session_id=visit_session_id)
     return 201,_session(row)
 def start_session(conn,sid,ctx):
     p=_participant(conn,ctx,True,True); s=_owned_session(conn,sid,p["id"],True)
@@ -251,7 +279,7 @@ def finish_response(conn,s):
 def report_fault(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
     if s["status"] in ("FINISHED","REJECTED"): return 200,finish_response(conn,s)
-    if s["status"]=="ABORTED": return 200,{**_session(s),"refund":{"status":"REFUNDED","ticket_kind":s["ticket_kind"]}}
+    if s["status"]=="ABORTED": return 200,_session(s)
     if s["status"]=="FAULT_REPORTED": return 200,{**_session(s),"refund":{"status":"REVIEW_REQUIRED","ticket_kind":s["ticket_kind"]}}
     reason=str(body.get("reason") or "")
     elapsed=(dt.datetime.now(UTC)-s["started_at"]).total_seconds() if s["started_at"] else 0
@@ -383,7 +411,7 @@ def submit_claim(conn,cid,body,ctx):
     _event(conn,"claim_information_received",ctx,p["id"],"claim_submit:"+cid,dimensions={"claim_type":claim["claim_type"]})
     return 200,{"id":cid,"status":"INFORMATION_RECEIVED","submitted_at":_iso(claim["contact_submitted_at"])}
 
-CLIENT_EVENTS={"entry_viewed","participant_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","notion_redirect_requested","page_view"}
+CLIENT_EVENTS={"entry_viewed","participant_ready","loading_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","notion_redirect_requested","page_view"}
 SCREENS={"loading","home","game","result","draw","claim","claims","invite","benefit","ranking","content","admin"}
 DIMENSIONS={"previous_screen","source","link_kind","channel","campaign_code","content","position","action","status","reason","stage","bucket","result_type","prize_kind","share_method","share_id","checkpoint","is_new","is_synthetic","connected","observed","score","rank","game_version","draw_status","claim_type"}
 SERVER_EVENT_NAMES={"game_start_approved","game_fault_reported","game_completed","invite_visit_qualified","scratch_completed","claim_form_submitted","top3_profile_submitted"}
@@ -391,7 +419,7 @@ BOOLEAN_DIMENSIONS={"is_new","is_synthetic","connected","observed"};INTEGER_DIME
 INTEGER_DIMENSION_RANGES={"score":(0,6000),"rank":(0,100000),"checkpoint":(0,36000)}
 ENUM_DIMENSIONS={
   "previous_screen":SCREENS|{"unknown"},
-  "source":{"home","phase1_load","unknown"},
+  "source":{"home","gemini","phase1_load","unknown"},
   "link_kind":{"initial","retry_invite","prize_share","direct","unknown"},
   "content":{"study","photo","other","unknown"},
   "position":{"benefit_main","unknown"},

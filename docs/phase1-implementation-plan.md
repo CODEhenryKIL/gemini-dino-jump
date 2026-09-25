@@ -25,6 +25,8 @@ Started 2026-09-25 from `58b1e14` on `codex/phase1-clean-start`; application bas
 
 ## Work and audit log
 
+The entries below are chronological notes, not the latest state. Use [phase1-report.md](phase1-report.md) for current deployment, permissions and test results. Subsequent acceptance review identified additional replay authorization, refund response, concurrent draw and measurement gaps; those fixes must be tested before final acceptance.
+
 - Live access verified: GitHub public repo admin/push; Supabase selected Seoul project active PG17.6; Vercel dino-nanobanana latest previous Preview is ERROR.
 - Before writes: old `dino`20 tables and dino_app LOGIN exist; `dino_dev` and dino_dev_app absent. Existing public11 counts match prior inventory; Auth5, Storage47. New work must preserve those resources.
 - Local PG previously in /tmp is absent; rebuilding an isolated loopback PG17.6 for actual DB tests. Python3.12.13 with pinned psycopg3.3.6 available in isolated verification environment.

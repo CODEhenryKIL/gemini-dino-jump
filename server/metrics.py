@@ -106,25 +106,30 @@ def build_overview(conn, query, ctx):
       count(*) filter(where not ready and last_at<=%s-make_interval(secs=>%s))::int estimated_exits,
       count(*) filter(where not ready and last_at>%s-make_interval(secs=>%s))::int pending,
       count(*) filter(where ready)::int ready
-      from (select o.id,max(e.active_ms) last_active,coalesce(max(e.received_at),o.created_at) last_at,
-        count(e.id) event_count,coalesce(bool_or(e.event_name='participant_ready'),false) ready
-        from observations o left join events e on e.observation_id=o.id and e.screen='loading' and e.source='client'
+      from (select o.id,max(e.active_ms) filter(where e.screen='loading') last_active,coalesce(max(e.received_at),o.created_at) last_at,
+        count(e.id) filter(where e.screen='loading') event_count,
+        coalesce(bool_or(e.event_name='loading_ready' or (e.event_name='screen_entered' and e.screen<>'loading')),false) ready
+        from observations o left join events e on e.observation_id=o.id and e.source='client'
         group by o.id,o.created_at) l group by 1 order by 1''', (end, window, end, window))
+    for row in loading:
+        decided = row['observations'] - row['pending']
+        row['estimated_exit_rate'] = row['estimated_exits'] / decided if decided else None
     # Every click must follow an exposure at the SAME location, within the
     # observation window AND selected report period/environment/campaign.
-    ctr = one('''select count(distinct v.person_id)::int exposed,
+    ctr = one('''select count(distinct v.person_id)::int exposed,count(*)::int exposure_events,
       count(distinct v.person_id) filter(where exists(select 1 from events c where c.source='client'
         and c.event_name='gemini_cta_clicked' and c.person_id=v.person_id
         and coalesce(c.dimensions->>'position','unknown')=coalesce(v.dimensions->>'position','unknown')
         and c.occurred_at>=v.occurred_at and c.occurred_at<=v.occurred_at+make_interval(secs=>%s)))::int clicked
       from events v where v.source='client' and v.person_id is not null and v.event_name='gemini_cta_viewed' ''', (window,))
     conversion = one('''select count(distinct person_id) filter(where event_name='gemini_cta_clicked')::int direct,
-      count(distinct person_id) filter(where event_name='notion_gemini_clicked')::int via_notion,
-      count(distinct person_id) filter(where event_name in ('gemini_cta_clicked','notion_gemini_clicked'))::int union_participants,
-      count(*) filter(where person_id is null and event_name in ('gemini_cta_clicked','notion_gemini_clicked'))::int unlinked_click_events,
+      count(*) filter(where event_name='gemini_cta_clicked')::int direct_events,
+      0::int via_notion,
+      count(distinct person_id) filter(where event_name='gemini_cta_clicked')::int union_participants,
+      count(*) filter(where person_id is null and event_name='gemini_cta_clicked')::int unlinked_click_events,
       count(*) filter(where event_name='notion_redirect_requested')::int redirect_requests
       from events where source='client' ''')
-    conversion.update(notion_enabled=False, definition='직접/허용된 경유 버튼 클릭 참가자 합집합. 가이드 클릭·경유 GET·혜택 등록 성공 제외.')
+    conversion.update(notion_enabled=False, definition='현재는 직접 클릭 고유 참가자만 집계. 승인되지 않은 Notion 경유 전환은 0이며 가이드 클릭·경유 GET·혜택 등록 성공은 제외.')
     # Source attribution is reported separately; a known participant alone does
     # not prove which later visit caused a server event.
     source_funnel = rows('''select 'first' attribution,coalesce(p.first_link_kind,'unknown') link_kind,
@@ -147,15 +152,28 @@ def build_overview(conn, query, ctx):
     for row in source_funnel:
         row['game_start_rate'] = row['game_starts'] / row['participants'] if row['participants'] else None
         row['gemini_click_rate'] = row['gemini_clicks'] / row['participants'] if row['participants'] else None
-    game = one('''select count(*)::int approved,count(*) filter(where g.status='FINISHED')::int finished,
+    game = one('''select count(*)::int approved,count(distinct g.participant_id)::int approved_participants,
+      count(*) filter(where g.status='FINISHED')::int finished,
+      count(distinct g.participant_id) filter(where g.status='FINISHED')::int finished_participants,
       count(*) filter(where g.status='REJECTED')::int rejected,count(*) filter(where g.status='EXPIRED')::int expired,
       count(*) filter(where g.status='ABORTED')::int abandoned,count(*) filter(where g.status='FAULT_REPORTED')::int needs_review,
       count(*) filter(where g.status in ('RESERVED','ACTIVE') and g.expires_at>%s)::int ongoing,
+      count(distinct g.participant_id) filter(where g.status='REJECTED')::int rejected_participants,
+      count(distinct g.participant_id) filter(where g.status='EXPIRED')::int expired_participants,
+      count(distinct g.participant_id) filter(where g.status='ABORTED')::int abandoned_participants,
+      count(distinct g.participant_id) filter(where g.status='FAULT_REPORTED')::int needs_review_participants,
+      count(distinct g.participant_id) filter(where g.status in ('RESERVED','ACTIVE') and g.expires_at>%s)::int ongoing_participants,
       coalesce(sum(g.valid_ticks) filter(where g.status='FINISHED'),0)::bigint verified_ticks
-      from dino_dev.game_session g join people p on p.id=g.participant_id where g.reserved_at>=%s and g.reserved_at<%s''', (end, start, end))
+      from dino_dev.game_session g join people p on p.id=g.participant_id where g.reserved_at>=%s and g.reserved_at<%s''', (end, end, start, end))
     score_distribution = rows('''select (g.score/100)*100 score_from,(g.score/100)*100+99 score_to,count(*)::int games,
       count(distinct g.participant_id)::int participants from dino_dev.game_session g join people p on p.id=g.participant_id
       where g.status='FINISHED' and g.finished_at>=%s and g.finished_at<%s group by 1,2 order by 1''', (start, end))
+    leaderboard = rows('''select b.rank,
+      case when p.is_public then p.nickname else '익명 참가자' end nickname,b.score best_score,b.tied
+      from (select participant_id,score,achieved_at,dense_rank() over(order by score desc)::int rank,
+        count(*) over(partition by score)>1 tied from dino_dev.best_score) b
+      join people p on p.id=b.participant_id
+      order by b.rank,b.achieved_at asc limit 100''')
     ledger = rows('''select l.source_type,l.ticket_kind,count(*)::int events,count(distinct l.participant_id)::int participants
       from dino_dev.ticket_ledger l join people p on p.id=l.participant_id where l.created_at>=%s and l.created_at<%s group by 1,2''', (start, end))
     claims = rows('''select c.claim_type,c.status,count(*)::int claims,count(distinct c.participant_id)::int participants
@@ -169,31 +187,46 @@ def build_overview(conn, query, ctx):
       ('scratch.visible','긁기 완료→결과 실제 노출','scratch_completed','draw_result_viewed'),
       ('claim.submit','수령 양식 시작→제출','claim_form_started','claim_form_submitted'),
       ('ranking.submit','TOP3 양식 시작→제출','top3_profile_started','top3_profile_submitted'),
-      ('invite.share','초대 CTA 노출→공유 시도','invite_cta_viewed','share_attempted')
+      ('invite.share','초대 CTA 노출→공유 시도','invite_cta_viewed','share_attempted'),
+      ('gemini.exposure','혜택 화면→CTA 실제 노출','benefit_viewed','gemini_cta_viewed'),
+      ('gemini.click','Gemini CTA 노출→클릭','gemini_cta_viewed','gemini_cta_clicked')
     ), normalized as (select *,regexp_replace(event_name,'^client_','') client_name from events where source='client'),
     entry_rows as (select d.*,e.person_id,e.screen_view_id,e.occurred_at,e.active_ms,
-      nx.occurred_at next_at,nx.active_ms next_active_ms
+      nx.occurred_at next_at,nx.active_ms next_active_ms,tail.last_active_ms
       from stage_defs d join normalized e on e.client_name=d.entry_name
       left join lateral (select n.occurred_at,n.active_ms from normalized n
         where n.person_id=e.person_id and n.client_name=d.next_name
           and (e.screen_view_id is null or n.screen_view_id=e.screen_view_id)
           and n.occurred_at>=e.occurred_at and n.occurred_at<=e.occurred_at+make_interval(secs=>%s)
-        order by n.occurred_at limit 1) nx on true where e.person_id is not null)
+        order by n.occurred_at limit 1) nx on true
+      left join lateral (select max(n.active_ms) last_active_ms from normalized n
+        where n.person_id=e.person_id and e.screen_view_id is not null and n.screen_view_id=e.screen_view_id
+          and n.id<>e.id
+          and n.occurred_at>=e.occurred_at and n.occurred_at<=least(e.occurred_at+make_interval(secs=>%s),%s)) tail on true
+      where e.person_id is not null)
     , people_stages as (select key,label,person_id,min(occurred_at) entered_at,
       bool_or(next_at is not null) progressed,min(extract(epoch from next_at-occurred_at)) elapsed_seconds,
       bool_or(next_at is not null and screen_view_id is not null and active_ms is not null and next_active_ms is not null) active_observed,
       min(greatest(0,next_active_ms-active_ms)) filter(where next_at is not null and screen_view_id is not null
-        and active_ms is not null and next_active_ms is not null) active_dwell_ms
+        and active_ms is not null and next_active_ms is not null) active_dwell_ms,
+      bool_or(next_at is null and screen_view_id is not null and active_ms is not null and last_active_ms is not null) abandoned_active_observed,
+      max(greatest(0,last_active_ms-active_ms)) filter(where next_at is null and screen_view_id is not null
+        and active_ms is not null and last_active_ms is not null) abandoned_active_dwell_ms
       from entry_rows group by key,label,person_id)
     select key,label,count(*)::int entered,
+      (select count(*)::int from entry_rows er where er.key=people_stages.key) entry_events,
       count(*) filter(where progressed)::int progressed,
       count(*) filter(where not progressed and entered_at<=%s-make_interval(secs=>%s))::int estimated_exits,
       count(*) filter(where not progressed and entered_at>%s-make_interval(secs=>%s))::int pending,
       avg(elapsed_seconds)::float8 mean_observed_elapsed_seconds,
       avg(active_dwell_ms)::float8 mean_observed_active_ms,
       count(*) filter(where progressed and active_observed)::int active_dwell_observations,
-      count(*) filter(where progressed and not active_observed)::int active_dwell_unknown
-      from people_stages group by key,label order by key""", (window,end,window,end,window))
+      count(*) filter(where progressed and not active_observed)::int active_dwell_unknown,
+      avg(abandoned_active_dwell_ms) filter(where not progressed and entered_at<=%s-make_interval(secs=>%s))::float8 mean_abandoned_active_ms,
+      count(*) filter(where not progressed and entered_at<=%s-make_interval(secs=>%s) and abandoned_active_observed)::int abandoned_active_observations,
+      count(*) filter(where not progressed and entered_at<=%s-make_interval(secs=>%s) and not abandoned_active_observed)::int abandoned_active_unknown
+      from people_stages group by key,label order by key""",
+      (window,window,end,end,window,end,window,end,window,end,window,end,window))
     result_dwell = rows("""select result_type,count(*)::int visits,coalesce(sum(active_ms),0)::bigint active_ms
       from (select coalesce(screen_view_id,visit_session_id,person_id) view_id,
         coalesce(max(dimensions->>'result_type') filter(where event_name='draw_result_viewed'),'unknown') result_type,
@@ -280,33 +313,35 @@ def build_overview(conn, query, ctx):
       from dino_dev.claim c join people p on p.id=c.participant_id where c.created_at>=%s and c.created_at<%s""", (start,end))
     metrics = []
     for row in stages:
-        metrics.append(_metric('stage.'+row['key'],row['label'],row['progressed'],row['entered'],unique=row['entered'],window=window,
+        metrics.append(_metric('stage.'+row['key'],row['label'],row['progressed'],row['entered'],unique=row['progressed'],events=row['entry_events'],window=window,
           definition='같은 참가자에서 순서를 지킨 후속 행동; 아직 열린 관측창은 이탈로 세지 않음'))
-        metrics.append(_metric('stage.exit.'+row['key'],row['label']+' 추정 이탈',row['estimated_exits'],row['entered']-row['pending'],estimated=True,window=window))
+        metrics.append(_metric('stage.exit.'+row['key'],row['label']+' 추정 이탈',row['estimated_exits'],row['entered']-row['pending'],
+          unique=row['estimated_exits'],events=row['entry_events'],estimated=True,window=window))
     metrics.append(_metric('claim.eligible_submit','당첨자 수령 정보 접수',claim_conversion['submitted_winning_claims'],claim_conversion['eligible_winning_claims'],
+      unique=claim_conversion['submitted_winning_claims'],events=claim_conversion['eligible_winning_claims'],
       definition='미당첨자는 분모에서 제외; 실제 수령 업무 원장 기준',window=window))
     for row in funnel:
         metrics.append(_metric('event.'+row['source']+'.'+row['event_name'], row['event_name']+' ('+row['source']+')', row['events'], unique=row['participants'], events=row['events'], window=window))
     metrics.extend([
-      _metric('game.completion','정상 게임 완료',game['finished'],game['approved'],definition='서버 승인 세션 중 정상 물리 검증 완료 세션',window=window),
-      _metric('game.rejected','검증 거절',game['rejected'],game['approved'],window=window),
-      _metric('game.expired','만료 게임',game['expired'],game['approved'],window=window),
-      _metric('game.abandoned','사용자 포기 게임',game['abandoned'],game['approved'],window=window),
-      _metric('game.pending','진행 중 게임',game['ongoing'],window=window),
-      _metric('game.fault_review','장애 판정 대기',game['needs_review'],window=window),
-      _metric('ranking.registration','잠정 TOP3 정보 등록',ranking['submitted'],ranking['requested'],definition='최종 수상 확정·지급과 별도',window=window),
-      _metric('gemini.ctr','Gemini 노출 후 클릭',ctr['clicked'],ctr['exposed'],unique=ctr['exposed'],definition='같은 참가자·위치의 노출 이후 관측창 내 클릭 교집합',window=window),
-      _metric('gemini.nonclick','Gemini 노출 후 미클릭',ctr['exposed']-ctr['clicked'],ctr['exposed'],window=window),
-      _metric('gemini.union','직접·경유 클릭 고유 참가자',conversion['union_participants'],unique=conversion['union_participants'],window=window),
-      _metric('loading.unlinked','참가자 미연결 초기 관측',totals['unlinked_observations'],window=window),
+      _metric('game.completion','정상 게임 완료',game['finished'],game['approved'],unique=game['finished_participants'],events=game['finished'],definition='서버 승인 세션 중 정상 물리 검증 완료 세션',window=window),
+      _metric('game.rejected','검증 거절',game['rejected'],game['approved'],unique=game['rejected_participants'],events=game['rejected'],window=window),
+      _metric('game.expired','만료 게임',game['expired'],game['approved'],unique=game['expired_participants'],events=game['expired'],window=window),
+      _metric('game.abandoned','사용자 포기 게임',game['abandoned'],game['approved'],unique=game['abandoned_participants'],events=game['abandoned'],window=window),
+      _metric('game.pending','진행 중 게임',game['ongoing'],unique=game['ongoing_participants'],events=game['ongoing'],window=window),
+      _metric('game.fault_review','장애 판정 대기',game['needs_review'],unique=game['needs_review_participants'],events=game['needs_review'],window=window),
+      _metric('ranking.registration','잠정 TOP3 정보 등록',ranking['submitted'],ranking['requested'],unique=ranking['submitted'],events=ranking['requested'],definition='최종 수상 확정·지급과 별도',window=window),
+      _metric('gemini.ctr','Gemini 노출 후 클릭',ctr['clicked'],ctr['exposed'],unique=ctr['clicked'],events=ctr['exposure_events'],definition='같은 참가자·위치의 노출 이후 관측창 내 클릭 교집합',window=window),
+      _metric('gemini.nonclick','Gemini 노출 후 미클릭',ctr['exposed']-ctr['clicked'],ctr['exposed'],unique=ctr['exposed']-ctr['clicked'],events=ctr['exposure_events'],window=window),
+      _metric('gemini.union','현재 활성 경로의 Gemini 클릭 고유 참가자',conversion['union_participants'],unique=conversion['union_participants'],events=conversion['direct_events'],window=window),
+      _metric('loading.unlinked','참가자 미연결 초기 관측',totals['unlinked_observations'],events=totals['unlinked_observations'],window=window),
     ])
     for row in screens:
-        metrics.append(_metric('screen.exit.'+row['screen'],row['screen']+' 추정 이탈',row['estimated_exits'],row['visits']-row['ongoing'],estimated=True,definition='관측창이 지난 화면 방문 중 후속 진행 신호 미관측. 선택 기능 건너뛰기를 전체 이탈로 해석하지 않음.',window=window))
+        metrics.append(_metric('screen.exit.'+row['screen'],row['screen']+' 추정 이탈',row['estimated_exits'],row['visits']-row['ongoing'],events=row['visits'],estimated=True,definition='관측창이 지난 화면 방문 중 후속 진행 신호 미관측. 선택 기능 건너뛰기를 전체 이탈로 해석하지 않음.',window=window))
         metrics.append(_metric('screen.active.'+row['screen'],row['screen']+' 활성 체류(ms)',int(row['active_ms'] or 0),events=row['visits'],definition='방문·화면별 누적 활성 시간의 최댓값 합계; 백그라운드 제외',window=window))
     return 200, dict(campaign={k:campaign[k] for k in ('id','status','version')}, environment=environment,
       synthetic_only=True, filters=filters, filter_attribution='first_participant_cohort', period={'from':_iso(start),'to':_iso(end)},
       generated_at=_iso(now), observation_window_seconds=window, totals=totals, funnel=funnel, metrics=metrics,
-      loading={'buckets':loading,'estimated':True}, screens=screens, game=game, score_distribution=score_distribution,
+      loading={'buckets':loading,'estimated':True}, screens=screens, game=game, score_distribution=score_distribution, leaderboard=leaderboard,
       source_funnel=source_funnel, ticket_ledger=ledger, claims=claims, ranking=ranking,
       stages=stages,result_dwell=result_dwell,invitation=invitation,
       sharing={'by_method_status':sharing, **sharing_summary}, invitation_performance=invitation_performance,

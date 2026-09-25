@@ -34,8 +34,13 @@ async function request(endpoint, options = {}) {
 export const api = {
   participant: null,
   config: null,
+  trackingContext: { observationId: null, visitSessionId: null },
   request,
   createRequestId,
+
+  setTrackingContext(observationId, visitSessionId) {
+    this.trackingContext = { observationId: observationId || null, visitSessionId: visitSessionId || null };
+  },
 
   async getConfig() { this.config = await request('/api/config'); return this.config; },
   startObservation(payload) {
@@ -56,7 +61,14 @@ export const api = {
   },
   createSession() {
     const eventId = createRequestId('evt');
-    return request('/api/game-sessions', { method: 'POST', idempotent: true, idempotencyKey: eventId, body: JSON.stringify({ event_id: eventId }) });
+    return request('/api/game-sessions', {
+      method: 'POST', idempotent: true, idempotencyKey: eventId,
+      body: JSON.stringify({
+        event_id: eventId,
+        observation_id: this.trackingContext.observationId,
+        visit_session_id: this.trackingContext.visitSessionId,
+      }),
+    });
   },
   startSession(sessionId) {
     const eventId = createRequestId('evt');

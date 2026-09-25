@@ -1,4 +1,5 @@
 import { analytics } from '../analytics.js';
+import { ui } from '../ui.js';
 
 export const BenefitView = {
   observer: null,
@@ -9,6 +10,8 @@ export const BenefitView = {
         <h1>공식 혜택 페이지에서 내용을 확인하세요</h1>
         <p>이 화면은 링크 노출과 클릭만 측정합니다. 클릭은 도착·학생 인증·혜택 등록 완료를 뜻하지 않습니다.</p>
         <a id="btn-go-benefit" class="btn btn-primary" target="_blank" rel="noopener noreferrer">Gemini 혜택 확인하기</a>
+        <button id="btn-copy-benefit" class="btn btn-outline">공식 혜택 링크 복사</button>
+        <button id="btn-share-benefit" class="btn btn-secondary">공식 혜택 링크 공유</button>
       </section>
       <section class="card compact-card">
         <h2>콘텐츠 안내</h2>
@@ -33,6 +36,34 @@ export const BenefitView = {
     if (this.observer) this.observer.observe(link);
     else if (!document.hidden) analytics.track('gemini_cta_viewed', { position: 'benefit_main' });
     link.onclick = () => analytics.track('gemini_cta_clicked', { position: 'benefit_main' });
+    const trackShare = (method, status) => analytics.track('share_attempted', {
+      source: 'gemini', position: 'benefit_main', share_method: method, status,
+    });
+    container.querySelector('#btn-copy-benefit').onclick = async () => {
+      trackShare('copy', 'attempted');
+      try {
+        await navigator.clipboard.writeText(safeUrl);
+        trackShare('copy', 'copied');
+        ui.showToast('공식 혜택 링크를 복사했어요.');
+      } catch (_) {
+        trackShare('copy', 'failed');
+        ui.showToast('링크를 복사하지 못했습니다.');
+      }
+    };
+    container.querySelector('#btn-share-benefit').onclick = async () => {
+      if (!navigator.share) {
+        trackShare('native', 'failed');
+        ui.showToast('이 브라우저에서는 공유 창을 열 수 없습니다.');
+        return;
+      }
+      trackShare('native', 'attempted');
+      try {
+        await navigator.share({ title: 'Gemini 학생 혜택', url: safeUrl });
+        trackShare('native', 'share_sheet_closed');
+      } catch (error) {
+        trackShare('native', error?.name === 'AbortError' ? 'cancelled' : 'failed');
+      }
+    };
   },
   cleanup() { this.observer?.disconnect(); this.observer = null; },
 };

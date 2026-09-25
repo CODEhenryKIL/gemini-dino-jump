@@ -177,6 +177,24 @@ class LoadGuardTests(unittest.TestCase):
                 self.assertEqual(ledger.data["duration_reserved_seconds"], 780)
                 self.assertEqual(ledger.data["completed_api_calls"], 1)
 
+    def test_approved_time_extension_preserves_consumption_and_enforces_cap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.json"
+            with load.BudgetLedger(path) as ledger:
+                ledger.reserve_run(1724, "prior-runs", "fp", "dpl_previous")
+                ledger.admit_call()
+                ledger.claim_participant("fp", 5000, "campaign")
+            with load.BudgetLedger(path) as ledger:
+                ledger.reserve_run(120, "burst", "fp", "dpl_new")
+                self.assertEqual(ledger.data["duration_reserved_seconds"], 1844)
+                self.assertEqual(ledger.data["admitted_api_calls"], 1)
+                self.assertEqual(ledger.participants_remaining("fp", 5000), 4999)
+                ledger.reserve_run(76, "remaining", "fp", "dpl_new")
+                with self.assertRaises(load.BudgetExceeded):
+                    ledger.reserve_run(1, "over-cap", "fp", "dpl_new")
+                self.assertEqual(load.MAX_API_CALLS, 30000)
+                self.assertEqual(len(ledger.data["runs"]), 3)
+
     def test_budget_and_fresh_participant_cursor_persist(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ledger.json"

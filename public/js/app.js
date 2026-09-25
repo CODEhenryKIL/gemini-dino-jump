@@ -44,8 +44,8 @@ class AppRouter {
       ? (requestedLinkKind === 'prize_share' ? 'prize_share' : 'retry_invite')
       : (requestedLinkKind === 'initial' ? 'initial' : 'direct');
     const shareId = (url.searchParams.get('share') || '').match(/^[A-Za-z0-9:_-]{8,128}$/)?.[0] || null;
-    const channelCode = (url.searchParams.get('channel') || '').match(/^[A-Za-z0-9_-]{1,32}$/)?.[0] || null;
-    const campaignCode = (url.searchParams.get('campaign') || '').match(/^[A-Za-z0-9_-]{1,32}$/)?.[0] || null;
+    const channelCode = (url.searchParams.get('channel') || '').match(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/)?.[0] || null;
+    const campaignCode = (url.searchParams.get('campaign') || '').match(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/)?.[0] || null;
     if (url.pathname !== '/' || url.search) history.replaceState({}, '', '/');
     analytics.setEntryAttribution({ link_kind: linkKind, channel: channelCode || 'unknown', campaign_code: campaignCode || '', share_id: shareId || '' });
     const observation = {
@@ -74,7 +74,6 @@ class AppRouter {
       analytics.setParticipantReady({ is_new: initialized.is_new });
       await this.refreshState({ quiet: true });
       this.initialized = true;
-      this.hideSplash();
       if (this.inviteVisit?.status === 'PENDING' && this.inviteVisit.visit_nonce) this.installInviteQualification(inviteCode, config?.limits?.invite_active_ms || 3000);
       else if (this.inviteVisit) {
         analytics.track('invite_visit_rejected', { status: this.inviteVisit.status || 'REJECTED', reason: this.inviteVisit.reason || 'NOT_ELIGIBLE' });
@@ -82,6 +81,8 @@ class AppRouter {
       }
       const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit'];
       this.navigate(allowed.includes(requestedView) ? requestedView : (this.state.draw.status === 'DRAWN' && !this.state.draw.draw?.scratch_completed ? 'draw' : 'home'));
+      analytics.setLoadingReady();
+      this.hideSplash();
       if (this.state.tickets.cooldown_notice_pending && this.state.tickets.cooldown_until) this.showCooldownNotice();
     } catch (error) {
       this.renderInitError(error);

@@ -1,7 +1,7 @@
 import { api } from './api.js';
 
 const EVENT_ALLOWLIST = new Set([
-  'entry_viewed', 'participant_ready', 'loading_checkpoint', 'screen_entered', 'screen_left',
+  'entry_viewed', 'participant_ready', 'loading_ready', 'loading_checkpoint', 'screen_entered', 'screen_left',
   'game_cta_clicked', 'game_start_approved', 'game_checkpoint', 'game_completed',
   'game_fault_reported', 'game_recovered', 'ranking_viewed', 'top3_profile_started',
   'top3_profile_submitted', 'invite_cta_viewed', 'share_attempted', 'invite_visit_interacted',
@@ -42,6 +42,7 @@ class Analytics {
     this.lastCheckpoint = 0;
     this.flushing = false;
     this.observationReady = false;
+    this.loadingTransition = null;
     this.interval = setInterval(() => { this.checkpoint(); this.flush(); }, 2000);
     this.onVisibility = () => {
       const now = performance.now();
@@ -74,7 +75,7 @@ class Analytics {
 
   track(name, dimensions = {}, extra = {}) {
     if (!EVENT_ALLOWLIST.has(name) || this.queue.length >= 40) return;
-    this.queue.push({
+    const event = {
       event_id: api.createRequestId('evt'),
       name,
       occurred_at: new Date().toISOString(),
@@ -85,13 +86,30 @@ class Analytics {
       game_session_id: extra.gameSessionId || undefined,
       active_ms: Number.isFinite(extra.activeMs) ? Math.round(extra.activeMs) : this.currentActiveMs(),
       dimensions: cleanDimensions(dimensions),
-    });
+    };
+    if (extra.screenViewId) event.screen_view_id = extra.screenViewId;
+    this.queue.push(event);
     if (this.queue.length >= 10) this.flush();
   }
 
   setParticipantReady(meta = {}) {
+    api.setTrackingContext(this.observationId, this.visitSessionId);
     this.recordLoadingCheckpoint(true);
     this.track('participant_ready', { connected: true, is_new: Boolean(meta.is_new) });
+    this.flush();
+  }
+
+  setLoadingReady() {
+    const transition = this.loadingTransition;
+    const renderMs = transition && transition.visible && !document.hidden
+      ? Math.max(0, performance.now() - transition.startedAt)
+      : 0;
+    this.track('loading_ready', { connected: true }, {
+      screen: 'loading',
+      screenViewId: transition?.screenViewId,
+      activeMs: Math.round((transition?.activeMs || 0) + renderMs),
+    });
+    this.loadingTransition = null;
     this.flush();
   }
 
@@ -143,8 +161,17 @@ class Analytics {
 
   leaveScreen(reason) {
     if (!this.screen) return;
+    const activeMs = this.currentActiveMs();
+    if (this.screen === 'loading') {
+      this.loadingTransition = {
+        activeMs,
+        screenViewId: this.screenViewId,
+        startedAt: performance.now(),
+        visible: !document.hidden,
+      };
+    }
     this.track('screen_left', { reason }, {
-      activeMs: this.currentActiveMs(),
+      activeMs,
     });
   }
 

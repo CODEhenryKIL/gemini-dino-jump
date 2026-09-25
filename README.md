@@ -44,6 +44,8 @@ DB 소유자 계정으로 migration을 적용하고 환경 보호 행을 로컬 
 
 ## 검증과 문서
 
+- [현재 결과·성능 미달 및 미검증 항목](docs/phase1-report.md)
+- [첨부 0차 공통 원문](docs/00_scope_and_decisions.md): 보존용 사본. 충돌하는 규칙은 2026-09-25 개정 1차 지시서와 정책 결정표가 우선합니다.
 - [구현·검증 계획](docs/phase1-implementation-plan.md)
 - [API 계약](docs/phase1-api-contract.md)
 - [이벤트 사전](docs/phase1-events.md)

@@ -41,7 +41,8 @@ COOKIE_NAME = "dj_session"
 GAME_VERSION = "1.2.0"
 MAX_COHORT_SIZE = 5_000
 MAX_API_CALLS = 30_000
-MAX_DURATION_SECONDS = 30 * 60
+# 2026-09-25: user approved one additional burst, raising time only by 2 minutes.
+MAX_DURATION_SECONDS = 32 * 60
 RUN_OVERHEAD_SECONDS = 90
 DEFAULT_THINK_TIME_SECONDS = 45.0
 PLAY_WAIT_GRACE_SECONDS = 0.25
@@ -361,7 +362,7 @@ class BudgetLedger:
         with self.lock:
             used = self.data["duration_reserved_seconds"]
             if used + seconds > MAX_DURATION_SECONDS:
-                raise BudgetExceeded("Cumulative 30-minute duration budget exceeded")
+                raise BudgetExceeded(f"Cumulative {MAX_DURATION_SECONDS // 60}-minute duration budget exceeded")
             self.data["duration_reserved_seconds"] = used + seconds
             self.data["runs"].append(
                 {

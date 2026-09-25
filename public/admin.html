@@ -28,7 +28,7 @@
           <label>시작일 (KST)<input name="from" type="date"></label><label>종료일 포함 (KST)<input name="to" type="date"></label>
           <label>환경<select name="environment"><option value="">현재 환경</option><option value="local">local</option><option value="test">test</option><option value="preview">preview</option></select></label>
           <label>유입 유형<input name="link_kind" maxlength="30"></label><label>채널<input name="channel" maxlength="30"></label>
-          <label>콘텐츠<input name="content" maxlength="30"></label><label>당첨 여부<select name="won"><option value="">전체</option><option value="true">당첨</option><option value="false">미당첨</option></select></label>
+          <label>콘텐츠<input name="content" maxlength="30"></label><label>복주머니 당첨 여부 (행사 전체)<select name="won"><option value="">전체</option><option value="true">당첨</option><option value="false">미당첨</option></select></label>
           <button class="btn btn-primary btn-sm" type="submit">지표 조회</button>
         </form>
       </section>
@@ -38,6 +38,7 @@
       <section class="card"><h2>유입 경로별 성과</h2><p class="status-note">첫 유입과 이번 방문의 유입을 분리해 표시합니다.</p><div id="source-funnel" class="admin-table-wrap"></div></section>
       <section class="card"><h2>로딩·화면·게임 단계</h2><div id="loading-summary" class="admin-table-wrap"></div><div id="screen-summary" class="admin-table-wrap"></div><div id="stage-summary" class="admin-table-wrap"></div><div id="game-summary" class="admin-table-wrap"></div></section>
       <section class="card"><h2>점수 분포</h2><div id="score-distribution" class="admin-table-wrap"></div></section>
+      <section class="card"><h2>현재 최고점·순위</h2><p class="status-note">공개 닉네임만 표시하며 비공개 참가자는 익명으로 표시합니다.</p><div id="leaderboard-summary" class="admin-table-wrap"></div></section>
       <section class="card"><h2>게임권 원장 집계</h2><div id="ticket-ledger" class="admin-table-wrap"></div></section>
       <section class="card"><h2>수령 상태 집계</h2><div id="claim-summary" class="admin-table-wrap"></div></section>
       <section class="card"><h2>결과·초대·Gemini 전환</h2><div id="result-dwell" class="admin-table-wrap"></div><div id="invitation-summary" class="admin-table-wrap"></div><div id="gemini-summary" class="admin-table-wrap"></div></section>

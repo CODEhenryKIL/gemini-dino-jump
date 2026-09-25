@@ -2,6 +2,10 @@
 
 This plan defines the only approved use of `scripts/phase1_load.py`. It prepares an auditable test; it does not authorize a remote run. Production, real prizes, real contact data, and a non-test Supabase schema are rejected by the runner.
 
+## Latest authorization — 2026-09-25
+
+The user approved one additional 200-VU burst with “한번 더 해줘”. Only the cumulative time cap increases from 30 to **32 minutes (1,920 seconds)**; the **30,000 API-call cap**, existing ledger, and participant cursor remain intact. Before this run the ledger contains 22,116 admitted/completed calls, 1,724 reserved seconds, and cursor 2,424/5,000. The burst reserves 120 seconds, bringing reserved time to 1,844 seconds. No new paid resource or compute upgrade is authorized. Historical 1,800-second references below describe the earlier runs.
+
 ## Test shape
 
 The required `full` profile opens flows for exactly these stage windows:
