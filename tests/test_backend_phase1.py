@@ -214,10 +214,13 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             contacts=operations.admin_ranking_contacts(conn,admin)[1]["ranking_contacts"];claim=conn.execute("select * from dino_dev.claim where id=%s",(submitted["claim_id"],)).fetchone();admin["idempotency_key"]="verify-ranking-claim"
             verified=operations.admin_claim_patch(conn,claim["id"],{"expected_version":claim["version"],"verification_status":"PENDING","verification_reference":"TEST_REF_student_pending","event_id":"evt_verify_rank"},admin)[1]
+            pending=operations.admin_claim_patch(conn,claim["id"],{"status":"PENDING_REVIEW","expected_version":verified["version"],"event_id":"evt_rank_pending"},admin)[1]
+            contacted=operations.admin_claim_patch(conn,claim["id"],{"status":"CONTACTED","expected_version":pending["version"],"event_id":"evt_rank_contacted"},admin)[1]
+            with self.assertRaises(operations.DomainError) as blocked_payment:operations.admin_claim_patch(conn,claim["id"],{"status":"PAID","expected_version":contacted["version"],"event_id":"evt_rank_paid"},admin)
             snapshot=operations.create_admin_ranking_snapshot(conn,{"event_id":"evt_snapshot"},admin)[1]
             tied=conn.execute("select count(*)::int n from dino_dev.ranking_snapshot_entry where snapshot_id=%s and tied",(snapshot["id"],)).fetchone()["n"]
         mine=next(row for row in contacts if row["participant_id"]==first_pid)
-        self.assertEqual((mine["ranking_status"],mine["contact"],verified["verification_status"]),("SUBMITTED","01000000000","PENDING"));self.assertEqual(tied,2);self.assertEqual((snapshot["status"],snapshot["tie_policy"],snapshot["final_awards_created"]),("DRAFT","UNDECIDED",False))
+        self.assertEqual((mine["ranking_status"],mine["contact"],verified["verification_status"]),("SUBMITTED","01000000000","PENDING"));self.assertEqual((blocked_payment.exception.code,blocked_payment.exception.status),("FINAL_RANKING_UNDECIDED",409));self.assertEqual(tied,2);self.assertEqual((snapshot["status"],snapshot["tie_policy"],snapshot["final_awards_created"]),("DRAFT","UNDECIDED",False))
     def test_admin_can_block_participant_and_revoke_cookie_session(self):
         raw,_,data=self.make_participant();admin=self.make_admin(["participants:write"]);admin["idempotency_key"]="participant-block"
         with app_tx() as conn:_,result=operations.admin_participant_patch(conn,data["participant"]["id"],{"status":"BLOCKED","expected_status":"ACTIVE","revoke_session":True,"reason":"TEST abuse review","event_id":"evt_block"},admin)

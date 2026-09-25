@@ -175,6 +175,8 @@ Returns private claim work items only to `claims:read` members, including assign
 
 Body `{status?,assignee_user_id?,reason?,external_delivery?,verification_status?,verification_reference?,expected_version,event_id}`. `verification_reference` is an opaque synthetic `TEST_REF_*` reference only; Phase 1 accepts no real proof upload. Claim, inventory and audit updates are atomic. Version mismatch returns `409 VERSION_CONFLICT`; replay never increments payout/inventory counts twice.
 
+`RANKING` claims may progress through review and contact, but `PAID` returns `409 FINAL_RANKING_UNDECIDED` while the only available ranking snapshot is `DRAFT` with `tie_policy:"UNDECIDED"`. `DRAW` claims keep the normal manual payment transition.
+
 ### `GET /api/admin/analytics/events?...`
 
 Returns allowlisted diagnostic event rows without contact data or authentication secrets. Requires `analytics:read`.

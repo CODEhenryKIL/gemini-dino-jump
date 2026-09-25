@@ -27,28 +27,28 @@ test_same_visitor_rewards_two_inviters_but_each_pair_only_once (test_backend_pha
 test_second_network_fault_in_24h_remains_pending_for_review (test_backend_phase1.BackendPhase1Test.test_second_network_fault_in_24h_remains_pending_for_review) ... ok
 test_top3_contact_persists_after_rank_drop_and_snapshot_never_finalizes_winner (test_backend_phase1.BackendPhase1Test.test_top3_contact_persists_after_rank_drop_and_snapshot_never_finalizes_winner) ... ok
 test_valid_cookie_links_second_tab_only_with_matching_bootstrap_proof (test_backend_phase1.BackendPhase1Test.test_valid_cookie_links_second_tab_only_with_matching_bootstrap_proof) ... ok
-test_known_observation_ids_cannot_recover_existing_identity (test_backend_security_regression.BackendSecurityRegressionTest.test_known_observation_ids_cannot_recover_existing_identity) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":10,"request_id":"d63fd5d8-5586-41ef-b050-0d999059833b","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":7,"request_id":"d6853afc-7804-45be-9f87-1afd25b15edc","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":409,"method":"POST","route":"/api/observations","duration_ms":5,"request_id":"71cc482d-506c-488d-b049-19ca17b5bcab","deployment":"security-regression","error_code":"OBSERVATION_REPLAY_DENIED"}
+test_known_observation_ids_cannot_recover_existing_identity (test_backend_security_regression.BackendSecurityRegressionTest.test_known_observation_ids_cannot_recover_existing_identity) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":9,"request_id":"ba93ef56-fb27-4460-bcb4-453a3c4e79f7","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":6,"request_id":"a78f7ee0-aabc-461b-9c17-0888b7fb279c","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":409,"method":"POST","route":"/api/observations","duration_ms":5,"request_id":"3f187f5a-9ef4-4b9c-a62c-bf0b9d76659a","deployment":"security-regression","error_code":"OBSERVATION_REPLAY_DENIED"}
 ok
-test_paid_claim_is_terminal_and_assignee_must_be_active_admin (test_backend_security_regression.BackendSecurityRegressionTest.test_paid_claim_is_terminal_and_assignee_must_be_active_admin) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":6,"request_id":"d3dd01bd-3edc-4ab4-aac3-9cc81bdd0e07","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":7,"request_id":"0dc6eea4-2226-4874-8c5d-33b6c84e4b55","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":409,"method":"PATCH","route":"/api/admin/claims/{id}","duration_ms":9,"request_id":"b7b51776-a2f6-4050-96ff-b0a22ce85446","deployment":"security-regression","error_code":"INVALID_CLAIM_TRANSITION"}
-{"event":"api_request","status":409,"method":"PATCH","route":"/api/admin/claims/{id}","duration_ms":8,"request_id":"74c64158-6c16-48c3-915d-fffe16782c15","deployment":"security-regression","error_code":"INVALID_ASSIGNEE"}
+test_paid_claim_is_terminal_and_assignee_must_be_active_admin (test_backend_security_regression.BackendSecurityRegressionTest.test_paid_claim_is_terminal_and_assignee_must_be_active_admin) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":6,"request_id":"186f42e3-3440-4928-9abd-bf530dc84640","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":7,"request_id":"25050a56-34b8-45f9-9d28-fb5d6b13d93f","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":409,"method":"PATCH","route":"/api/admin/claims/{id}","duration_ms":8,"request_id":"a161438a-2c3b-4208-9243-862de2e07981","deployment":"security-regression","error_code":"INVALID_CLAIM_TRANSITION"}
+{"event":"api_request","status":409,"method":"PATCH","route":"/api/admin/claims/{id}","duration_ms":8,"request_id":"1529f506-656b-4fc5-99ad-26ca2d1feede","deployment":"security-regression","error_code":"INVALID_ASSIGNEE"}
 ok
-test_verifier_rejection_is_persisted_after_error_response (test_backend_security_regression.BackendSecurityRegressionTest.test_verifier_rejection_is_persisted_after_error_response) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":6,"request_id":"050bfa7a-c9ba-40bf-aa33-93ca4d9cce97","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":7,"request_id":"1212981a-176f-4e0c-9d6e-0a44fbad2c98","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":201,"method":"POST","route":"/api/game-sessions","duration_ms":8,"request_id":"28ccbcc9-72c5-45be-8297-2fda12dcdbb3","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":200,"method":"POST","route":"/api/game-sessions/{id}/start","duration_ms":6,"request_id":"22f07dd5-247b-468c-9156-cee169d88f39","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":422,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":7,"request_id":"03f10fea-4353-48e5-955a-d5ce9cd9f282","deployment":"security-regression","error_code":"GAME_VERIFICATION_FAILED"}
-{"event":"api_request","status":200,"method":"GET","route":"/api/game-sessions/{id}","duration_ms":7,"request_id":"6e1167d9-9fd2-4300-8b75-359002eadd87","deployment":"security-regression","error_code":null}
+test_verifier_rejection_is_persisted_after_error_response (test_backend_security_regression.BackendSecurityRegressionTest.test_verifier_rejection_is_persisted_after_error_response) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":6,"request_id":"468bef6a-b783-4e7f-a743-c12b3a3c7d38","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":7,"request_id":"15879417-fce2-483c-ab8c-17464bd5c2cc","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/game-sessions","duration_ms":8,"request_id":"e86dc54f-2cbb-4054-a9bd-c9e273000b4b","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":200,"method":"POST","route":"/api/game-sessions/{id}/start","duration_ms":7,"request_id":"39db7057-2187-4cc2-afa3-40b227769cdd","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":422,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":7,"request_id":"e903d473-757f-4ee6-97c7-81599786c4a2","deployment":"security-regression","error_code":"GAME_VERIFICATION_FAILED"}
+{"event":"api_request","status":200,"method":"GET","route":"/api/game-sessions/{id}","duration_ms":7,"request_id":"1bb7a478-2d17-49c5-ba37-4687fadfdbdd","deployment":"security-regression","error_code":null}
 ok
-test_zero_tick_submission_cannot_finish_or_unlock_draw (test_backend_security_regression.BackendSecurityRegressionTest.test_zero_tick_submission_cannot_finish_or_unlock_draw) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":6,"request_id":"7f29b9d6-b537-4cf7-942d-91c05c16a1c0","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":7,"request_id":"f1fef530-8387-4301-800f-7188f5c634c1","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":201,"method":"POST","route":"/api/game-sessions","duration_ms":9,"request_id":"0e6ca201-d1f4-4b01-bc08-46d0d11f5c5a","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":200,"method":"POST","route":"/api/game-sessions/{id}/start","duration_ms":6,"request_id":"c250a459-8d8f-4f31-94a6-8d6218e10246","deployment":"security-regression","error_code":null}
-{"event":"api_request","status":422,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":7,"request_id":"41b6d75d-fbf3-4fac-a1c0-4e378c391dbc","deployment":"security-regression","error_code":"GAME_VERIFICATION_FAILED"}
-{"event":"api_request","status":200,"method":"GET","route":"/api/draws/me","duration_ms":5,"request_id":"0834cdb0-9691-492f-8572-44eebad9474f","deployment":"security-regression","error_code":null}
+test_zero_tick_submission_cannot_finish_or_unlock_draw (test_backend_security_regression.BackendSecurityRegressionTest.test_zero_tick_submission_cannot_finish_or_unlock_draw) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":7,"request_id":"720a96b4-1204-4742-a9d2-f040c67929bf","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":7,"request_id":"f5f7729f-7509-4d7b-a25e-bf072da542a1","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/game-sessions","duration_ms":9,"request_id":"09c8b9c8-a4ee-4d4c-91dd-c0bac0792c62","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":200,"method":"POST","route":"/api/game-sessions/{id}/start","duration_ms":6,"request_id":"a5d08a5d-f208-406b-8cf7-753435144cb0","deployment":"security-regression","error_code":null}
+{"event":"api_request","status":422,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":7,"request_id":"8a73af7c-a74b-458b-8de1-93d30d129235","deployment":"security-regression","error_code":"GAME_VERIFICATION_FAILED"}
+{"event":"api_request","status":200,"method":"GET","route":"/api/draws/me","duration_ms":7,"request_id":"fa6e21c2-ab8c-42af-a8a5-32da51fd2d07","deployment":"security-regression","error_code":null}
 ok
 test_cli_does_not_accept_plaintext_dsn_or_pepper_arguments (test_cohort_guards.CohortGuardTest.test_cli_does_not_accept_plaintext_dsn_or_pepper_arguments) ... ok
 test_destructive_postgres_test_dsn_requires_local_dedicated_owner_database (test_cohort_guards.CohortGuardTest.test_destructive_postgres_test_dsn_requires_local_dedicated_owner_database) ... ok
@@ -85,6 +85,6 @@ test_stage_replays_do_not_count_completed_person_as_an_exit (test_metrics.Metric
 test_zero_exposure_null_rate_and_guide_not_a_conversion (test_metrics.MetricsTest.test_zero_exposure_null_rate_and_guide_not_a_conversion) ... ok
 
 ----------------------------------------------------------------------
-Ran 66 tests in 5.032s
+Ran 66 tests in 5.439s
 
 OK

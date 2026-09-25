@@ -449,6 +449,7 @@ def admin_claim_patch(conn,cid,body,ctx):
     status=str(body.get("status") or claim["status"]); changing_status=status!=claim["status"]
     transitions={"INFORMATION_RECEIVED":{"PENDING_REVIEW","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"PENDING_REVIEW":{"CONTACTED","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"CONTACTED":{"PAID","ON_HOLD","NO_RESPONSE"},"ON_HOLD":{"PENDING_REVIEW","INELIGIBLE","NO_RESPONSE"},"NO_RESPONSE":{"PENDING_REVIEW","INELIGIBLE"},"PAID":set(),"INELIGIBLE":set()}
     if changing_status and status not in transitions.get(claim["status"],set()):raise DomainError("INVALID_CLAIM_TRANSITION","현재 상태에서 해당 처리로 변경할 수 없습니다.",409)
+    if changing_status and claim["claim_type"]=="RANKING" and status=="PAID":raise DomainError("FINAL_RANKING_UNDECIDED","최종 순위·동점 정책 확정 전에는 랭킹 선물을 지급 완료로 처리할 수 없습니다.",409)
     reason=str(body.get("reason") or "").strip()
     if changing_status and status in {"ON_HOLD","INELIGIBLE","NO_RESPONSE"} and len(reason)<3:raise DomainError("VALIDATION_ERROR","처리 사유를 입력해 주세요.")
     verification=str(body.get("verification_status") or claim["verification_status"]);reference=body.get("verification_reference",claim["verification_reference"])
