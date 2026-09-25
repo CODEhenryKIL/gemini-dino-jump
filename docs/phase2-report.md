@@ -4,7 +4,7 @@
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
 상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart 적용 완료. 아래 복귀·수령·메뉴·노출 보완을 Preview에 반영하고 기본 화면·노출 저장을 확인했다. 2차 부하는 사용자 지시로 보류.**
 
-최신 개선 Preview: https://dino-nanobanana-7jqglhupj-henry-kils-projects.vercel.app (`dpl_DrdzNj5DVdESnwXDKZRiBDHKUxoM`, 코드 `95b96d0`).
+최신 개선 Preview: https://dino-nanobanana-ku8g8g8t1-henry-kils-projects.vercel.app (`dpl_3BFKncqbc5C5nEDskUKLqod9hxDg`, 코드 `f50c5fd`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
 
 ## 2026-09-26 화면·복귀 보완
 
@@ -64,7 +64,8 @@
 - 관리자 요청의 401과 관리자 명단 확인의 403에서는 로그인으로 복귀하고 저장된 인증값·권한·연락정보 DOM을 제거한다. 인증 상태가 바뀐 뒤 늦게 도착한 이전 응답은 렌더링하지 않는다. 일반 503은 로그인 만료로 취급하지 않는다.
 - 로그인 중 버튼·Enter 중복 요청을 막고, 권한이 없는 분석 영역은 숨긴다. 기존 서버 권한 검사와 Supabase 인증 설정·토큰 수명은 변경하지 않았다. 참고한 인증 계약: [Supabase 세션 문서](https://supabase.com/docs/guides/auth/sessions).
 - 실제 관리자 HTML/JS를 임시 localhost에서 실행하되 응답은 전부 합성 fixture로 제공했다. 통계 503 + 다른 목록 정상 → 오류 안내와 수령·TOP3 표시 → 다시 불러오기 성공 → 다음 조회 401 → 로그인 복귀와 연락정보 제거를 Chromium으로 확인했다. 콘솔 오류·경고는 없었다. 원격 관리자 전체 로그인·업무 검증을 대신하는 증거로 쓰지 않는다.
-- 새 비동기 행동 회귀 5개를 포함한 전체 Node **105개** 통과. 임시 서버와 fixture는 검증 후 정리한다. 부하·원격 권한·실개인정보·실지급 변경은 없다.
+- 새 비동기 행동 회귀 5개를 포함한 전체 Node **105개** 통과. 임시 서버와 fixture는 검증 후 정리했다. 부하·원격 권한·실개인정보·실지급 변경은 없다.
+- `f50c5fd` Preview가 READY이며 health의 `database=ready`·`synthetic_only=true`를 확인했다. 원격에서 받은 `/js/admin.js`와 검증한 로컬 파일이 바이트 단위로 일치한다. 실제 원격 브라우저의 관리자 로그인 화면 진입은 확인했으며, 로그인 후 모든 업무 조작의 원격 검증은 아직 남아 있다.
 
 ## 구현 범위
 
@@ -139,7 +140,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 기존 1차 배포는 전용 DB 연결 정보를 배포 단위로 전달하는 방식이었다. 같은 전용 설정을 새 Preview에만 전달하는 재배포가 자동 승인 검사에서 민감 정보 전송 승인을 요구하며 차단됐다. 이후 사용자가 기존 DB 비밀번호·쿠키 검증 비밀값의 동일 Vercel 프로젝트 Preview 적용을 명시적으로 승인했다.
 - 기존 Preview의 `/api/health`는 migration 후에도 `database=ready`로 정상. Vercel 보호 설정은 유지한다.
 - 승인 후 Preview `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71`에서 `database=ready`, `environment=preview`, `synthetic_only=true`, `/api/config`의 `game_version=2.0.0`을 확인했다.
-- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 화면 보완 Preview는 위 `95b96d0` 배포다.
+- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 개선 Preview는 위 `f50c5fd` 배포다.
 - `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71` 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. Smile/Heart Preview에서는 신규 참가자 기본권 1장 → 32점 서버 승인·1위 표시까지 별도로 확인했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
 
 ## 비밀 설정 노출 점검
