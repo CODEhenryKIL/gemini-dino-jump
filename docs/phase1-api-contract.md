@@ -5,8 +5,8 @@ This contract is the frontend/backend boundary for `codex/phase1-clean-start`. A
 ## Common rules
 
 - Participant authentication is the `dj_session` cookie. It is `HttpOnly; Secure; SameSite=Lax; Path=/` in Preview and Production. Local HTTP omits only `Secure`.
-- The browser never receives or stores the participant token. A present but invalid/expired cookie returns `401 {"error":"SESSION_INVALID"}`; it never creates a replacement participant implicitly.
-- Every mutating request accepts an `Idempotency-Key` header (8–128 printable ASCII characters). The same authenticated actor, route and key returns the original status/body. Reusing a key with another payload returns `409 IDEMPOTENCY_CONFLICT`.
+- JavaScript cannot read the participant token; the browser stores and sends it only as an HttpOnly cookie. A present but invalid/expired cookie returns `401 {"error":"SESSION_INVALID"}`; it never creates a replacement participant implicitly.
+- Every mutating request accepts an `Idempotency-Key` header (8–128 printable ASCII characters). The same authenticated actor, route and key returns the original status/body after current authentication, participant status and required administrator permissions are revalidated. Reusing a key with another payload returns `409 IDEMPOTENCY_CONFLICT`.
 - JSON request bodies are limited to 64 KiB; analytics batches to 32 events. Unknown analytics fields are rejected; other unrecognized fields are ignored and never stored. Invalid fields return a bounded `400` error.
 - Browser mutations require an allowed `Origin`. CORS credentials are enabled only for configured origins; `*` is never used with cookies.
 - Expected errors use `{ "error": "CODE", "message": "safe text", "retryable": false }`. Rate limiting is `429 RATE_LIMITED` plus `Retry-After`.
@@ -79,7 +79,7 @@ Body `{cooldown_until}`. Acknowledges only the current cooldown notice.
 
 ### `POST /api/game-sessions`
 
-Body `{event_id}`. Atomically reserves and consumes one ticket (initial first, then invitation) and creates a session. Returns `201 {session_id,seed,version,status:"RESERVED",ticket_kind,expires_at}`. A pending refund slot counts toward the invitation capacity while refund reconciliation is outstanding.
+Body `{event_id,observation_id?,visit_session_id?}`. Optional attribution IDs must belong to the authenticated participant; the current visit is used for game-start attribution. Atomically reserves and consumes one ticket (initial first, then invitation) and creates a session. Returns `201 {session_id,seed,version,status:"RESERVED",ticket_kind,expires_at}`. A pending refund slot counts toward the invitation capacity while refund reconciliation is outstanding.
 
 ### `POST /api/game-sessions/{id}/start`
 

@@ -66,5 +66,6 @@ Vercel 보호 설정은 유지합니다. 자동 검증에는 승인된 임시 �
 - 안전한 요청 로그의 `database_failure`는 연결 대기 초과일 때 `pool_wait`, 설정 오류는 `configuration`, PostgreSQL 오류는 SQLSTATE 또는 `connection`이다. 비밀번호·SQL 원문·연락처는 로그에 넣지 않는다.
 - 503이나 지연이 증가하면 Preview 요청 로그와 `pg_stat_activity`의 연결·잠금 대기를 함께 확인한다. 역할 연결 한도 또는 DB 규모를 자동 확대하지 않는다.
 - Supavisor의 client 접속 수와 실제 Postgres backend 연결 수는 다르다. `pg_stat_activity`가 적어도 pooler client 한도에 도달할 수 있다. 관측된 `EMAXCONN limit: 200`과 프로세스별 유휴 보유량을 함께 검사한다. 프로세스당 상한은 전체 배포의 동시 연결 200개를 보장하는 전역 제한이 아니다.
+- 새 연결을 만들기 전에 풀러가 `EMAXCONN`으로 거부한 경우만 50·100·200ms 간격으로 최대 3회 추가 시도한다. 추가 시도는 최초 연결 시도 후 0.75초 안에 시작해야 한다. 연결당 timeout은 5초이며 DNS·스케줄링까지 포함하는 전체 요청의 엄격한 5.75초 제한은 아니다. 잘못된 비밀번호·일반 네트워크 오류와 연결 후 쿼리·게임권 소비·추첨은 재실행하지 않는다. 이 처리는 순간적인 연결 경쟁을 완화할 뿐 전체 연결 한도를 늘리지 않는다.
 
 공식 연결 한도 참고: [Supabase pooling limits](https://supabase.com/docs/guides/database/connecting-to-postgres/pooling-and-limits), [Vercel connection pooling and suspension](https://vercel.com/kb/guide/connection-pooling-with-functions). Postgres backend 연결과 Supavisor client 연결은 구분하며, Python에서 동결 후 백그라운드 정리가 실행된다고 가정하지 않는다.

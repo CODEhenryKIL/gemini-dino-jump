@@ -188,5 +188,74 @@ class ConnectionTest(unittest.TestCase):
         with patch.object(db.psycopg,"connect",return_value=FakeConnection()):
             with db.connection(self.settings): pass
 
+    def test_emaxconn_admission_retries_twice_then_yields_business_body_once(self):
+        attempts=[
+            db.psycopg.OperationalError("(EMAXCONN) max client connections reached, limit: 200"),
+            db.psycopg.OperationalError("max client connections reached"),
+            FakeConnection(),
+        ]
+        body_calls=0
+        with patch.object(db.psycopg,"connect",side_effect=attempts) as connect, \
+             patch.object(db,"sleep") as pause:
+            with db.connection(self.settings):
+                body_calls+=1
+        self.assertEqual((connect.call_count,body_calls),(3,1))
+        self.assertEqual([call.args[0] for call in pause.call_args_list],[.05,.1])
+        self.assertEqual((db._borrowers,len(db._idle)),(0,0))
+
+    def test_emaxconn_exhausts_four_attempts_without_yield_and_releases_capacity(self):
+        exhausted=db.psycopg.OperationalError("(EMAXCONN) max client connections reached")
+        body_calls=0
+        with patch.object(db.psycopg,"connect",side_effect=[exhausted]*4) as connect, \
+             patch.object(db,"sleep") as pause:
+            with self.assertRaises(db.psycopg.OperationalError):
+                with db.connection(self.settings):body_calls+=1
+        self.assertEqual((connect.call_count,body_calls),(4,0))
+        self.assertEqual([call.args[0] for call in pause.call_args_list],[.05,.1,.2])
+        self.assertEqual((db._borrowers,len(db._idle)),(0,0))
+        with patch.object(db.psycopg,"connect",return_value=FakeConnection()):
+            with db.connection(self.settings):pass
+
+    def test_non_emaxconn_connection_errors_are_not_retried(self):
+        for message in ("password authentication failed","connection timed out"):
+            with self.subTest(message=message), \
+                 patch.object(db.psycopg,"connect",side_effect=db.psycopg.OperationalError(message)) as connect, \
+                 patch.object(db,"sleep") as pause:
+                with self.assertRaises(db.psycopg.OperationalError):
+                    with db.connection(self.settings):pass
+                self.assertEqual(connect.call_count,1)
+                pause.assert_not_called()
+
+    def test_business_body_emaxconn_error_is_never_replayed(self):
+        body_calls=0
+        with patch.object(db.psycopg,"connect",return_value=FakeConnection()) as connect, \
+             patch.object(db,"sleep") as pause:
+            with self.assertRaises(db.psycopg.OperationalError):
+                with db.connection(self.settings):
+                    body_calls+=1
+                    raise db.psycopg.OperationalError("(EMAXCONN) max client connections reached")
+        self.assertEqual((connect.call_count,body_calls),(1,1))
+        pause.assert_not_called()
+
+    def test_emaxconn_retry_start_deadline_stops_late_attempts(self):
+        error=db.psycopg.OperationalError("(EMAXCONN) max client connections reached")
+        with self.subTest("first failure arrives after window"), \
+             patch.object(db.psycopg,"connect",side_effect=error) as connect, \
+             patch.object(db,"monotonic",side_effect=[10.0,10.8]), \
+             patch.object(db,"sleep") as pause:
+            with self.assertRaises(db.psycopg.OperationalError):
+                db._connect("test-dsn",{})
+            self.assertEqual(connect.call_count,1)
+            pause.assert_not_called()
+
+        with self.subTest("deadline expires during backoff"), \
+             patch.object(db.psycopg,"connect",side_effect=error) as connect, \
+             patch.object(db,"monotonic",side_effect=[20.0,20.7,20.8]), \
+             patch.object(db,"sleep") as pause:
+            with self.assertRaises(db.psycopg.OperationalError):
+                db._connect("test-dsn",{})
+            self.assertEqual(connect.call_count,1)
+            pause.assert_called_once_with(.05)
+
 
 if __name__=="__main__":unittest.main()

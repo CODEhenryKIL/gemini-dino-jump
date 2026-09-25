@@ -3,7 +3,7 @@ import atexit
 from contextlib import contextmanager
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
-from time import monotonic
+from time import monotonic,sleep
 import psycopg
 from psycopg.pq import TransactionStatus
 from psycopg.rows import dict_row
@@ -13,6 +13,8 @@ _idle=[]
 _idle_lock=Lock()
 MAX_IDLE_CONNECTIONS=1
 _borrowers=0
+_EMAXCONN_BACKOFF=(.05,.1,.2)
+_EMAXCONN_RETRY_START_WINDOW=.75
 
 def close_idle_connections():
     with _idle_lock:
@@ -23,6 +25,20 @@ def close_idle_connections():
 atexit.register(close_idle_connections)
 
 class DatabaseBusy(RuntimeError): pass
+def _connect(database_url,opts):
+    retry_deadline=monotonic()+_EMAXCONN_RETRY_START_WINDOW
+    last_error=None
+    for attempt in range(len(_EMAXCONN_BACKOFF)+1):
+        if attempt and monotonic()>retry_deadline:raise last_error
+        try:return psycopg.connect(database_url,**opts)
+        except psycopg.OperationalError as error:
+            last_error=error
+            message=str(error).lower()
+            emaxconn="(emaxconn)" in message or "max client connections reached" in message
+            if not emaxconn or attempt==len(_EMAXCONN_BACKOFF):raise
+            if monotonic()>retry_deadline:raise
+            sleep(_EMAXCONN_BACKOFF[attempt])
+            if monotonic()>retry_deadline:raise
 @contextmanager
 def connection(settings):
     global _borrowers
@@ -50,7 +66,7 @@ def connection(settings):
         opts={"connect_timeout":5,"autocommit":True,"prepare_threshold":None,"row_factory":dict_row,"application_name":"gemini-dino-jump-phase1"}
         if settings.environment=="preview": opts.update(sslmode="verify-full",sslrootcert=str(Path(__file__).parent/"certs"/"supabase-ca-2021.crt"))
         if conn is None:
-            conn=psycopg.connect(settings.database_url,**opts)
+            conn=_connect(settings.database_url,opts)
             created=monotonic()
         yield conn
         # Only clean autocommit connections can cross request boundaries.

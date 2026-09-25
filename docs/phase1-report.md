@@ -225,6 +225,14 @@ Vercel의 연결 오류 분류와 같은 시간대 Supavisor handshake/connectin
 
 [공동 시험 원본](evidence/phase1-remote-load-burst-pool.json)
 
+### 7.7 b2f2eed 연결 정리 후보와 후속 보완
+
+- 시작을 알린 뒤 실행한 200명 동시 시험은 301호출 중 503 39건, timeout 0건, 완료 흐름 0건으로 중단됐다. 부하 구간은 1.95초, 준비와 공동 시작 대기를 포함한 실제 실행은 54.9초였다. 연결 정리만으로 통과하지 못했다.
+- 누적 23,047호출·2,084초 예약이다. 승인된 30,000호출·40분 한도와 참가자 집단을 보존한다.
+- 후속 보완은 새 DB 연결이 EMAXCONN으로 거부된 경우에만 최대 3회 재시도한다. 추가 시도 시작 시한은 0.75초이며 쿼리·게임권·추첨 처리를 재실행하지 않는다. 연결 검사 16개와 Python 전체 115개가 통과했다. 원격 통과 판정은 별도 측정이 필요하다.
+
+[연결 정리 후보 시험 원본](evidence/phase1-remote-load-burst-drain.json)
+
 ## 8. 배포·주소 상태
 
 - Production 배포와 기존 Production 링크는 변경하지 않았다.
@@ -266,7 +274,7 @@ Vercel의 연결 오류 분류와 같은 시간대 Supavisor handshake/connectin
 
 | 산출물 | 위치 |
 | --- | --- |
-| Python 110개 검사 | [phase1-local-python.txt](evidence/phase1-local-python.txt) |
+| Python 115개 검사 | [phase1-local-python.txt](evidence/phase1-local-python.txt) |
 | Node 28개 검사 | [phase1-local-node.txt](evidence/phase1-local-node.txt) |
 | 최초 부하 실패 | [phase1-remote-load-initial.json](evidence/phase1-remote-load-initial.json) |
 | 최종 Preview smoke | [phase1-final-preview-smoke.json](evidence/phase1-final-preview-smoke.json) |
