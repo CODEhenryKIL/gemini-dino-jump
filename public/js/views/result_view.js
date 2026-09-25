@@ -29,8 +29,7 @@ export const ResultView = {
     };
     container.querySelector('#btn-share-record').onclick = () => { router.shareContext = 'record_share'; router.navigate('invite'); };
     container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router, renderToken);
-    const profile = router.state.top3Profile || result.top3Profile;
-    if (profile?.required || profile?.status === 'REQUESTED') this.renderTop3Request(container.querySelector('#top3-request'), router, profile);
+    this.updateState(container, router, renderToken);
     if (result.top3_gap == null && typeof api !== 'undefined' && typeof api.getLeaderboard === 'function') {
       api.getLeaderboard().then((data) => {
         if (router.isCurrent && !router.isCurrent(renderToken)) return;
@@ -39,6 +38,12 @@ export const ResultView = {
         if (currentGapNode) ui.text(currentGapNode, this.top3GapMessage({ ...result, rank: data.me?.rank ?? result.rank }));
       }).catch(() => {});
     }
+  },
+
+  updateState(container, router, renderToken) {
+    if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return;
+    const target = container.querySelector('#top3-request');
+    if (target) this.renderTop3Request(target, router, router.state.top3Profile || router.state.lastResult?.top3Profile);
   },
 
   top3GapMessage(result) {
@@ -89,6 +94,9 @@ export const ResultView = {
   },
 
   renderTop3Request(target, router, profile) {
+    target.replaceChildren();
+    target.hidden = !['REQUESTED', 'SUBMITTED'].includes(profile?.status);
+    if (target.hidden) return;
     const card = document.createElement('section');
     card.className = 'inline-notice';
     const copy = this.top3RequestCopy(profile, router.config);
@@ -102,6 +110,12 @@ export const ResultView = {
   },
 
   top3RequestCopy(profile, config) {
+    if (profile?.status === 'SUBMITTED') {
+      return {
+        title: 'TOP3 정보 접수 완료',
+        description: '이미 등록한 정보가 저장되어 있어 다시 입력하지 않아도 돼요. 수령함에서 접수 상태를 확인할 수 있어요. 최종 수상과 지급 여부는 이벤트 종료 후 운영팀이 확인해요.',
+      };
+    }
     const requestVersion = profile?.game_version;
     const currentVersion = config?.campaign?.game_version;
     if (requestVersion && currentVersion && requestVersion !== currentVersion) {
@@ -117,6 +131,7 @@ export const ResultView = {
   },
 
   top3Modal(router, renderToken = router.renderToken) {
+    const returnView = router.currentView === 'ranking' ? 'ranking' : 'result';
     analytics.track('top3_profile_started');
     const form = document.createElement('form'); form.className = 'stack-form';
     const fields = [
@@ -139,11 +154,12 @@ export const ResultView = {
         try {
           const submitted = await api.submitTop3Profile(Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])));
           const previousProfile = router.state.top3Profile || {};
-          router.state.top3Profile = { ...previousProfile, required: true, status: submitted.status || 'SUBMITTED', submitted_at: submitted.submitted_at || previousProfile.submitted_at };
+          router.state.top3Profile = { ...previousProfile, required: false, status: submitted.status || 'SUBMITTED', submitted_at: submitted.submitted_at || previousProfile.submitted_at };
           if (router.state.lastResult) router.state.lastResult.top3Profile = router.state.top3Profile;
+          router.announceStateChange?.();
           analytics.track('top3_profile_submitted');
           if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
-          router.navigate('result');
+          await router.navigate(returnView, { replace: true });
         } catch (error) {
           if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
           ui.showToast(error.message); return false;

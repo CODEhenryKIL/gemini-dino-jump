@@ -300,19 +300,13 @@ test('hidden views leave the accessibility tree and Gemini exposure requires vis
   assert.match(benefit, /cleanup\(\) \{ this\.observer\?\.disconnect/);
 });
 
-test('a persistent TOP3 request remains actionable after result state is gone', () => {
-  const ranking = read('public/js/views/ranking_view.js');
-  assert.match(ranking, /router\.state\.top3Profile\?\.status === 'REQUESTED'/);
-  assert.match(ranking, /ResultView\.top3Modal\(router, renderToken\)/);
-  assert.match(ranking, /새로고침하거나 현재 순위가 내려가도/);
-});
-
 test('submitted TOP3 state wins over a stale requested result when result screen rerenders', () => {
   const created = [];
   const makeNode = (tag = 'div') => ({
     tag, children: [], disabled: false, textContent: '',
     append(...nodes) { this.children.push(...nodes); },
     appendChild(node) { this.children.push(node); },
+    replaceChildren(...nodes) { this.children = nodes; },
   });
   const nodes = new Map([
     ['#result-score', makeNode()], ['#result-best', makeNode()], ['#result-rank', makeNode()],

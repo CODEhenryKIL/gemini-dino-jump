@@ -106,6 +106,21 @@ test('router writes public screen-only history and popstate renders without crea
   assert.equal(loaded.historyCalls.length, count);
 });
 
+test('a synchronous result redirect keeps the destination URL and render promise', async () => {
+  const loaded = loadRouter('https://example.test/?view=result');
+  loaded.router.views.result = {
+    render(_container, router) { router.navigate('home', { replace: true }); },
+  };
+  const outer = loaded.router.navigate('result');
+  const destination = loaded.router.activeRenderPromise;
+  assert.equal((await outer).current, false);
+  assert.equal((await destination).current, true);
+  assert.equal(loaded.router.currentView, 'home');
+  assert.deepEqual(JSON.parse(JSON.stringify(loaded.historyCalls)), [
+    { method: 'replace', state: { view: 'home' }, url: '/' },
+  ]);
+});
+
 test('navigation exposes the current page and preserves modified link clicks', async () => {
   const loaded = loadRouter('https://example.test/');
   const links = ['home', 'ranking', 'claims', 'invite', 'benefit'].map((view) => ({

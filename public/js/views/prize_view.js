@@ -47,14 +47,17 @@ export const PrizeView = {
   },
 
   claimCard(claim, router, renderToken) {
+    const claimType = claim.claim_type || claim.type || 'DRAW';
     const card = document.createElement('article'); card.className = 'card claim-card';
     const header = document.createElement('div'); header.className = 'claim-card-header';
-    const name = document.createElement('h2'); name.textContent = claim.prize_name || '경품';
+    const name = document.createElement('h2'); name.textContent = claim.prize_name || (claimType === 'RANKING' ? 'TOP3 접수 내역' : '경품');
     const badge = document.createElement('span'); badge.className = 'sticker-badge badge-blue'; badge.textContent = STATUS_LABELS[claim.status] || claim.status;
     header.append(name, badge);
-    const claimType = claim.claim_type || claim.type || 'DRAW';
     const type = document.createElement('p'); type.textContent = claimType === 'RANKING' ? '랭킹 경품' : '복주머니 경품';
     const help = document.createElement('p'); help.className = 'claim-help'; help.textContent = STATUS_HELP[claim.status] || '운영팀 확인 상태를 표시하고 있어요.';
+    if (claimType === 'RANKING' && !['PAID', 'INELIGIBLE'].includes(claim.status)) {
+      help.textContent += ' TOP3 진입에 따른 정보 접수이며, 최종 수상은 이벤트 종료 시점 기준으로 결정돼요.';
+    }
     card.append(header, type, help);
     if (!claim.contact_submitted && !['PAID', 'INELIGIBLE'].includes(claim.status)) {
       const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = '합성 테스트 수령 정보 입력';
@@ -62,7 +65,7 @@ export const PrizeView = {
     }
     if (claim.contact_submitted || ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID', 'ON_HOLD', 'NO_RESPONSE'].includes(claim.status)) {
       const benefit = document.createElement('a'); benefit.className = 'btn btn-secondary btn-sm'; benefit.href = '#benefit'; benefit.textContent = 'Gemini 혜택과 활용 가이드 보기'; benefit.onclick = (event) => { event?.preventDefault?.(); router.navigate?.('benefit'); }; card.appendChild(benefit);
-      const share = document.createElement('a'); share.className = 'btn btn-outline btn-sm'; share.href = '#invite'; share.textContent = '경품 결과 공유하기'; share.onclick = (event) => { event?.preventDefault?.(); router.shareContext = 'prize_share'; router.navigate?.('invite'); }; card.appendChild(share);
+      const share = document.createElement('a'); share.className = 'btn btn-outline btn-sm'; share.href = '#invite'; share.textContent = claimType === 'RANKING' ? '기록 공유하기' : '경품 결과 공유하기'; share.onclick = (event) => { event?.preventDefault?.(); router.shareContext = claimType === 'RANKING' ? 'record_share' : 'prize_share'; router.navigate?.('invite'); }; card.appendChild(share);
     }
     return card;
   },

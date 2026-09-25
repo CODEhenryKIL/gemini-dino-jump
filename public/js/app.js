@@ -261,7 +261,7 @@ class AppRouter {
       },
     );
     if (this.isCurrent(renderToken)) this.activeRenderPromise = renderPromise;
-    if (writeHistory) {
+    if (writeHistory && this.isCurrent(renderToken)) {
       const route = next === 'home' ? '/' : `/?view=${encodeURIComponent(next)}`;
       if (replace) history.replaceState({ view: next }, '', route);
       else history.pushState({ view: next }, '', route);

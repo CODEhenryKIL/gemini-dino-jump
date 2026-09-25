@@ -22,6 +22,7 @@ function node() {
     classList: { add() {}, toggle() {} },
     append(...items) { this.children.push(...items); },
     appendChild(item) { this.children.push(item); },
+    replaceChildren(...items) { this.children = items; },
     setAttribute(name, value) { this.attrs[name] = String(value); },
     removeAttribute(name) { delete this.attrs[name]; },
     getAttribute(name) { return this.attrs[name] ?? null; },
