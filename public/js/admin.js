@@ -6,10 +6,31 @@ function sessionGet() { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } 
 function sessionSet(value) { try { sessionStorage.setItem(TOKEN_KEY, value); } catch (_) {} }
 function sessionClear() { try { sessionStorage.removeItem(TOKEN_KEY); } catch (_) {} }
 let accessToken = sessionGet();
+let sessionRevision = 0;
+let loginInFlight = false;
 let campaignVersion = 0;
 let adminPermissions = new Set();
 
+function resetAdminSession(message) {
+  sessionRevision += 1;
+  accessToken = ''; sessionClear(); adminPermissions = new Set(); campaignVersion = 0;
+  document.querySelector('#admin-app').hidden = true;
+  document.querySelector('#admin-login').hidden = false;
+  document.querySelector('#admin-load-status').hidden = true;
+  for (const id of ['admin-claims', 'admin-ranking-contacts', 'admin-faults', 'admin-name', 'admin-permissions']) {
+    document.querySelector(`#${id}`).replaceChildren();
+  }
+  ui.text(document.querySelector('#admin-login-message'), message);
+}
+
+function showLoadError(message) {
+  ui.text(document.querySelector('#admin-load-message'), message);
+  document.querySelector('#admin-load-status').hidden = false;
+}
+
 async function adminRequest(path, options = {}) {
+  const revision = sessionRevision;
+  if (!accessToken) throw new Error('관리자 로그인이 필요합니다.');
   const headers = new Headers(options.headers || {});
   headers.set('Authorization', `Bearer ${accessToken}`);
   if (options.body) headers.set('Content-Type', 'application/json');
@@ -18,13 +39,22 @@ async function adminRequest(path, options = {}) {
   const fetchOptions = { ...options, headers, credentials: 'same-origin' };
   let response;
   try { response = await fetch(path, fetchOptions); }
-  catch (error) { if (!mutation) throw error; response = await fetch(path, fetchOptions); }
+  catch (error) { if (!mutation || revision !== sessionRevision) throw error; response = await fetch(path, fetchOptions); }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || data.error || '관리자 요청에 실패했습니다.');
+  if (revision !== sessionRevision) throw new Error('로그인 상태가 변경되었습니다.');
+  if (!response.ok) {
+    const error = new Error(data.message || data.error || '관리자 요청에 실패했습니다.');
+    error.status = response.status;
+    if (response.status === 401) resetAdminSession('로그인이 만료되었거나 유효하지 않습니다. 다시 로그인해 주세요.');
+    throw error;
+  }
   return data;
 }
 
 async function login() {
+  if (loginInFlight) return;
+  loginInFlight = true;
+  document.querySelector('#btn-admin-login').disabled = true;
   const message = document.querySelector('#admin-login-message');
   message.textContent = '';
   try {
@@ -38,33 +68,47 @@ async function login() {
     });
     const auth = await response.json().catch(() => ({}));
     if (!response.ok || !auth.access_token) throw new Error(auth.msg || auth.error_description || '로그인에 실패했습니다.');
+    sessionRevision += 1;
     accessToken = auth.access_token;
     sessionSet(accessToken);
     document.querySelector('#admin-password').value = '';
     await showAdmin();
   } catch (error) { message.textContent = error.message; }
+  finally { loginInFlight = false; document.querySelector('#btn-admin-login').disabled = false; }
 }
 
 async function showAdmin() {
-  const session = await adminRequest('/api/admin/session');
+  let session;
+  try { session = await adminRequest('/api/admin/session'); }
+  catch (error) {
+    if (error.status === 403) resetAdminSession('관리자 접근 권한을 확인할 수 없습니다. 권한이 있는 계정으로 다시 로그인해 주세요.');
+    else if (accessToken) showLoadError('관리자 연결을 확인하지 못했습니다. 다시 불러오기를 눌러 주세요.');
+    throw error;
+  }
+  const revision = sessionRevision;
   document.querySelector('#admin-login').hidden = true;
   document.querySelector('#admin-app').hidden = false;
   ui.text(document.querySelector('#admin-name'), session.admin.display_name || '관리자');
   adminPermissions = new Set(session.admin.permissions || []);
   ui.text(document.querySelector('#admin-permissions'), `권한: ${[...adminPermissions].join(', ')}`);
   const tasks = [];
-  if (adminPermissions.has('analytics:read')) tasks.push(loadMetrics());
+  document.querySelector('#admin-analytics-section').hidden = !adminPermissions.has('analytics:read');
+  document.querySelector('#claim-operations-section').hidden = !adminPermissions.has('claims:read');
+  document.querySelector('#ranking-contact-section').hidden = !adminPermissions.has('claims:read');
+  document.querySelector('#fault-review-section').hidden = !adminPermissions.has('faults:read');
+  if (adminPermissions.has('analytics:read')) tasks.push({ name: '통계', run: loadMetrics() });
   if (adminPermissions.has('claims:read')) {
-    document.querySelector('#claim-operations-section').hidden = false;
-    document.querySelector('#ranking-contact-section').hidden = false;
-    tasks.push(loadClaims(), loadRankingContacts());
+    tasks.push({ name: '수령 원장', run: loadClaims() }, { name: 'TOP3 접수', run: loadRankingContacts() });
   }
   if (adminPermissions.has('faults:read')) {
-    document.querySelector('#fault-review-section').hidden = false;
-    tasks.push(loadFaults());
+    tasks.push({ name: '장애 심사', run: loadFaults() });
   }
   document.querySelector('#btn-campaign-update').disabled = !adminPermissions.has('campaign:write');
-  await Promise.all(tasks);
+  const results = await Promise.allSettled(tasks.map((task) => task.run));
+  if (revision !== sessionRevision) return;
+  const failed = tasks.filter((_task, index) => results[index].status === 'rejected').map((task) => task.name);
+  if (failed.length) showLoadError(`불러오지 못한 항목: ${failed.join(', ')}. 다시 불러오기를 눌러 주세요.`);
+  else document.querySelector('#admin-load-status').hidden = true;
 }
 
 async function loadMetrics() {
@@ -497,6 +541,11 @@ function claimEditor(claim) {
 document.querySelector('#btn-admin-login').onclick = login;
 document.querySelector('#admin-password').addEventListener('keydown', (event) => { if (event.key === 'Enter') login(); });
 document.querySelector('#btn-admin-logout').onclick = () => { accessToken = ''; sessionClear(); window.location.reload(); };
+document.querySelector('#btn-admin-retry').onclick = async () => {
+  const button = document.querySelector('#btn-admin-retry'); button.disabled = true;
+  try { await showAdmin(); } catch (_) { /* showAdmin displays the appropriate recovery state. */ }
+  finally { button.disabled = false; }
+};
 document.querySelector('#analytics-filter').onsubmit = (event) => { event.preventDefault(); loadMetrics().catch((error) => ui.showToast(error.message)); };
 document.querySelector('#btn-refresh-claims').onclick = () => loadClaims().catch((error) => ui.showToast(error.message));
 document.querySelector('#btn-refresh-ranking-contacts').onclick = () => loadRankingContacts().catch((error) => ui.showToast(error.message));
@@ -512,4 +561,4 @@ document.querySelector('#btn-campaign-update').onclick = async () => {
   } catch (error) { ui.showToast(error.message); }
 };
 
-if (accessToken) showAdmin().catch(() => { accessToken = ''; sessionClear(); });
+if (accessToken) showAdmin().catch(() => {});

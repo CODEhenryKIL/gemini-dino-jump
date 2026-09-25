@@ -20,8 +20,11 @@
       <p id="admin-login-message" class="status-note" role="status"></p>
     </section>
 
+    <section id="admin-load-status" class="card" role="status" hidden><p id="admin-load-message"></p><button id="btn-admin-retry" class="btn btn-secondary btn-sm">다시 불러오기</button></section>
+
     <section id="admin-app" hidden>
       <section class="card admin-session-row"><div><strong id="admin-name"></strong><p id="admin-permissions"></p></div><button id="btn-admin-logout" class="btn btn-secondary btn-sm">로그아웃</button></section>
+      <div id="admin-analytics-section">
       <section class="card">
         <h2>조회 조건</h2>
         <form id="analytics-filter" class="filter-grid">
@@ -42,6 +45,7 @@
       <section class="card"><h2>게임권 원장 집계</h2><div id="ticket-ledger" class="admin-table-wrap"></div></section>
       <section class="card"><h2>수령 상태 집계</h2><div id="claim-summary" class="admin-table-wrap"></div></section>
       <section class="card"><h2>결과·초대·Gemini 전환</h2><div id="result-dwell" class="admin-table-wrap"></div><div id="invitation-summary" class="admin-table-wrap"></div><div id="gemini-summary" class="admin-table-wrap"></div></section>
+      </div>
       <section id="fault-review-section" class="card" hidden><div class="section-heading"><h2>게임 장애 환급 심사</h2><button id="btn-refresh-faults" class="btn btn-secondary btn-sm">새로고침</button></div><p class="status-note">서버 증거와 체크포인트를 확인해 승인 또는 거절합니다. 클라이언트 주장만으로 자동 지급하지 않습니다.</p><div id="admin-faults" class="admin-claims"></div></section>
       <section id="claim-operations-section" class="card" hidden><div class="section-heading"><h2>수동 연락·지급 원장</h2><button id="btn-refresh-claims" class="btn btn-secondary btn-sm">새로고침</button></div><p class="status-note">연락 정보는 claims:read 권한이 있는 운영자에게만 이 업무 화면에서 표시되며 분석 표에는 포함되지 않습니다.</p><div id="admin-claims" class="admin-claims"></div></section>
       <section id="ranking-contact-section" class="card" hidden><div class="section-heading"><h2>잠정 TOP3 연락 접수</h2><button id="btn-refresh-ranking-contacts" class="btn btn-secondary btn-sm">새로고침</button></div><div id="admin-ranking-contacts" class="admin-claims"></div></section>
