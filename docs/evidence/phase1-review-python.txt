@@ -1,0 +1,179 @@
+test_admin_fault_approve_and_deny_require_current_version (test_acceptance_boundaries.AcceptanceBoundaryTest.test_admin_fault_approve_and_deny_require_current_version) ... ok
+test_client_and_server_faults_stay_pending_until_eventual_admin_refund (test_acceptance_boundaries.AcceptanceBoundaryTest.test_client_and_server_faults_stay_pending_until_eventual_admin_refund) ... ok
+test_cooldown_boundary_and_pair_dedup_after_visit_expiry (test_acceptance_boundaries.AcceptanceBoundaryTest.test_cooldown_boundary_and_pair_dedup_after_visit_expiry) ... ok
+test_finished_response_replay_is_stable_and_has_no_duplicate_effects (test_acceptance_boundaries.AcceptanceBoundaryTest.test_finished_response_replay_is_stable_and_has_no_duplicate_effects) ... ok
+test_invitation_fault_refund_preserves_cooldown_and_grant_history (test_acceptance_boundaries.AcceptanceBoundaryTest.test_invitation_fault_refund_preserves_cooldown_and_grant_history) ... ok
+test_admin_permission_removal_blocks_cached_claim_replay (test_acceptance_regressions.AcceptanceRegressionTest.test_admin_permission_removal_blocks_cached_claim_replay) ... ok
+test_concurrent_same_participant_draws_return_one_fixed_result (test_acceptance_regressions.AcceptanceRegressionTest.test_concurrent_same_participant_draws_return_one_fixed_result) ... ok
+test_denied_fault_remains_not_due_on_repeated_fault_request (test_acceptance_regressions.AcceptanceRegressionTest.test_denied_fault_remains_not_due_on_repeated_fault_request) ... ok
+test_entry_codes_and_new_tracking_catalogue_are_bounded (test_acceptance_regressions.AcceptanceRegressionTest.test_entry_codes_and_new_tracking_catalogue_are_bounded) ... ok
+test_game_start_event_uses_only_owned_observation_attribution (test_acceptance_regressions.AcceptanceRegressionTest.test_game_start_event_uses_only_owned_observation_attribution) ... ok
+test_revoked_participant_cannot_replay_cached_mutation_response (test_acceptance_regressions.AcceptanceRegressionTest.test_revoked_participant_cannot_replay_cached_mutation_response) ... ok
+test_concurrent_grant_and_refund_reservation_never_exceeds_cap (test_backend_concurrency.BackendConcurrencyTest.test_concurrent_grant_and_refund_reservation_never_exceeds_cap) ... ok
+test_last_inventory_concurrent_draw_allocates_once_and_lock_is_not_fake_no_prize (test_backend_concurrency.BackendConcurrencyTest.test_last_inventory_concurrent_draw_allocates_once_and_lock_is_not_fake_no_prize) ... ok
+test_one_hundred_concurrent_valid_invites_cap_at_three_and_start_one_cooldown (test_backend_concurrency.BackendConcurrencyTest.test_one_hundred_concurrent_valid_invites_cap_at_three_and_start_one_cooldown) ... ok
+test_parallel_same_idempotency_key_consumes_one_ticket_once (test_backend_concurrency.BackendConcurrencyTest.test_parallel_same_idempotency_key_consumes_one_ticket_once) ... ok
+test_same_visitor_can_reward_two_different_inviters_concurrently (test_backend_concurrency.BackendConcurrencyTest.test_same_visitor_can_reward_two_different_inviters_concurrently) ... ok
+test_visits_started_while_full_do_not_credit_after_cooldown (test_backend_concurrency.BackendConcurrencyTest.test_visits_started_while_full_do_not_credit_after_cooldown) ... ok
+test_benefit_url_requires_exact_allowlisted_https_destination (test_backend_config.ConfigTest.test_benefit_url_requires_exact_allowlisted_https_destination) ... ok
+test_cookie_period_is_bounded_and_public_config_safe (test_backend_config.ConfigTest.test_cookie_period_is_bounded_and_public_config_safe) ... ok
+test_legacy_service_role_key_and_secret_key_are_rejected (test_backend_config.ConfigTest.test_legacy_service_role_key_and_secret_key_are_rejected) ... ok
+test_preview_allows_exact_friendly_and_immutable_vercel_origins_without_wildcard (test_backend_config.ConfigTest.test_preview_allows_exact_friendly_and_immutable_vercel_origins_without_wildcard) ... ok
+test_admin_can_block_participant_and_revoke_cookie_session (test_backend_phase1.BackendPhase1Test.test_admin_can_block_participant_and_revoke_cookie_session) ... ok
+test_analytics_rejects_pii_urls_stale_time_and_foreign_session (test_backend_phase1.BackendPhase1Test.test_analytics_rejects_pii_urls_stale_time_and_foreign_session) ... ok
+test_anonymous_replay_grants_exactly_one_initial_ticket (test_backend_phase1.BackendPhase1Test.test_anonymous_replay_grants_exactly_one_initial_ticket) ... ok
+test_app_role_cannot_change_guard_membership_or_append_only_ledger (test_backend_phase1.BackendPhase1Test.test_app_role_cannot_change_guard_membership_or_append_only_ledger) ... ok
+test_cooldown_allows_use_and_restarts_only_on_new_grant_to_three (test_backend_phase1.BackendPhase1Test.test_cooldown_allows_use_and_restarts_only_on_new_grant_to_three) ... ok
+test_cumulative_invitation_grants_do_not_block_while_balance_stays_below_three (test_backend_phase1.BackendPhase1Test.test_cumulative_invitation_grants_do_not_block_while_balance_stays_below_three) ... ok
+test_expired_reserved_refunds_but_expired_active_requires_review (test_backend_phase1.BackendPhase1Test.test_expired_reserved_refunds_but_expired_active_requires_review) ... ok
+test_fault_refunds_original_ticket_once (test_backend_phase1.BackendPhase1Test.test_fault_refunds_original_ticket_once) ... ok
+test_invalid_and_self_invites_return_explicit_rejections_and_share_attribution (test_backend_phase1.BackendPhase1Test.test_invalid_and_self_invites_return_explicit_rejections_and_share_attribution) ... ok
+test_invalid_cookie_is_not_replaced (test_backend_phase1.BackendPhase1Test.test_invalid_cookie_is_not_replaced) ... ok
+test_invitation_cap_and_cooldown_start_at_balance_three (test_backend_phase1.BackendPhase1Test.test_invitation_cap_and_cooldown_start_at_balance_three) ... ok
+test_last_inventory_item_is_never_allocated_twice (test_backend_phase1.BackendPhase1Test.test_last_inventory_item_is_never_allocated_twice) ... ok
+test_one_draw_per_campaign_participant (test_backend_phase1.BackendPhase1Test.test_one_draw_per_campaign_participant) ... ok
+test_one_hundred_concurrent_visits_never_exceed_three_tickets (test_backend_phase1.BackendPhase1Test.test_one_hundred_concurrent_visits_never_exceed_three_tickets) ... ok
+test_other_participant_cannot_read_game_session (test_backend_phase1.BackendPhase1Test.test_other_participant_cannot_read_game_session) ... ok
+test_same_visitor_rewards_two_inviters_but_each_pair_only_once (test_backend_phase1.BackendPhase1Test.test_same_visitor_rewards_two_inviters_but_each_pair_only_once) ... ok
+test_second_network_fault_in_24h_remains_pending_for_review (test_backend_phase1.BackendPhase1Test.test_second_network_fault_in_24h_remains_pending_for_review) ... ok
+test_top3_contact_persists_after_rank_drop_and_snapshot_never_finalizes_winner (test_backend_phase1.BackendPhase1Test.test_top3_contact_persists_after_rank_drop_and_snapshot_never_finalizes_winner) ... ok
+test_valid_cookie_links_second_tab_only_with_matching_bootstrap_proof (test_backend_phase1.BackendPhase1Test.test_valid_cookie_links_second_tab_only_with_matching_bootstrap_proof) ... ok
+test_analytics_dimensions_reject_pii_and_preserve_frontend_catalogue (test_backend_security_regression.BackendSecurityRegressionTest.test_analytics_dimensions_reject_pii_and_preserve_frontend_catalogue) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":13,"request_id":"81cc3e29-6863-4668-a711-1ef79cb8c4f3","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":6,"request_id":"c22f1435-3493-4e4f-a855-ee9cf4f90660","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":202,"method":"POST","route":"/api/events/batch","duration_ms":9,"request_id":"18343de5-56f2-4e65-958c-849ffdc3241f","deployment":"security-regression","error_code":null,"database_failure":null}
+ok
+test_finish_rejects_coerced_json_numbers_before_state_changes (test_backend_security_regression.BackendSecurityRegressionTest.test_finish_rejects_coerced_json_numbers_before_state_changes) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":6,"request_id":"95e54e81-3bdc-4708-bf0e-cb365c2f95d7","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":7,"request_id":"824f22bb-6cd7-453e-b659-7907e5abdd74","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/game-sessions","duration_ms":8,"request_id":"5e7d82b9-267c-4b38-86f4-e43e69e2d34c","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":200,"method":"POST","route":"/api/game-sessions/{id}/start","duration_ms":5,"request_id":"00f8b087-961c-4b5b-9106-0beb2699dec6","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":400,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":5,"request_id":"388ba9eb-f873-4477-896b-c9bc1b642874","deployment":"security-regression","error_code":"INVALID_GAME_INPUT","database_failure":null}
+{"event":"api_request","status":400,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":4,"request_id":"8e1e3810-f949-4163-ac2c-1ee29ba07b37","deployment":"security-regression","error_code":"INVALID_GAME_INPUT","database_failure":null}
+{"event":"api_request","status":400,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":4,"request_id":"aff98186-b0de-4415-b8b6-cd477b7675c0","deployment":"security-regression","error_code":"INVALID_GAME_INPUT","database_failure":null}
+{"event":"api_request","status":400,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":5,"request_id":"c3ac33b9-116f-4dc5-a00e-7e7e6c31b1af","deployment":"security-regression","error_code":"INVALID_GAME_INPUT","database_failure":null}
+ok
+test_invite_redirect_keeps_only_valid_attribution (test_backend_security_regression.BackendSecurityRegressionTest.test_invite_redirect_keeps_only_valid_attribution) ... ok
+test_known_observation_ids_cannot_recover_existing_identity (test_backend_security_regression.BackendSecurityRegressionTest.test_known_observation_ids_cannot_recover_existing_identity) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":6,"request_id":"a390cd23-b952-43e0-8b6e-1fb73c4e83d9","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":6,"request_id":"e9a2b5cb-30d7-4b93-be39-ec7b06ab5cf4","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":409,"method":"POST","route":"/api/observations","duration_ms":5,"request_id":"81f98d91-99a0-4f61-bba0-6e20d8631259","deployment":"security-regression","error_code":"OBSERVATION_REPLAY_DENIED","database_failure":null}
+ok
+test_nickname_edit_preserves_privacy_and_explicit_changes_still_work (test_backend_security_regression.BackendSecurityRegressionTest.test_nickname_edit_preserves_privacy_and_explicit_changes_still_work) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":5,"request_id":"72dba01a-9551-452b-b7fb-6a8270f6d767","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":6,"request_id":"58e3fc37-f698-4c4b-9491-eb375f31f33f","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":200,"method":"PATCH","route":"/api/me/profile","duration_ms":5,"request_id":"645837f1-34f1-43dc-8ba6-ca8520509bfd","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":200,"method":"PATCH","route":"/api/me/profile","duration_ms":5,"request_id":"8fba99f6-845f-4bd3-accd-995bdf7a12f8","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":200,"method":"PATCH","route":"/api/me/profile","duration_ms":5,"request_id":"7743b883-9da9-429a-b534-6fc1444fb4d7","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":200,"method":"PATCH","route":"/api/me/profile","duration_ms":5,"request_id":"f6b2d781-e679-4ccc-b0bd-30a0c7d8eecc","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":400,"method":"PATCH","route":"/api/me/profile","duration_ms":5,"request_id":"5c379b91-bf30-481d-82e6-1724e1a2411d","deployment":"security-regression","error_code":"VALIDATION_ERROR","database_failure":null}
+ok
+test_no_collision_cannot_finish_rank_or_unlock_draw (test_backend_security_regression.BackendSecurityRegressionTest.test_no_collision_cannot_finish_rank_or_unlock_draw) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":6,"request_id":"d3c65462-8bb8-4365-b6f5-cc69875d34d0","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":6,"request_id":"2ef20936-cd7a-451d-9e86-f0d3bf611441","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/game-sessions","duration_ms":8,"request_id":"f0e8823a-e4da-4a41-9f43-bc997e3514c2","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":200,"method":"POST","route":"/api/game-sessions/{id}/start","duration_ms":6,"request_id":"fbbc72d6-7282-4759-ae82-0016d3f02a2c","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":422,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":13,"request_id":"e578bfdb-6eb5-41a8-b89b-c32f83c7abd0","deployment":"security-regression","error_code":"GAME_VERIFICATION_FAILED","database_failure":null}
+{"event":"api_request","status":200,"method":"GET","route":"/api/draws/me","duration_ms":5,"request_id":"68bf28cb-fa5a-4406-89df-c3bcacc2a3d2","deployment":"security-regression","error_code":null,"database_failure":null}
+ok
+test_paid_claim_is_terminal_and_assignee_must_be_active_admin (test_backend_security_regression.BackendSecurityRegressionTest.test_paid_claim_is_terminal_and_assignee_must_be_active_admin) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":5,"request_id":"69dc8273-73c8-4907-adee-376354793e66","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":8,"request_id":"6e1eaa74-87f4-4411-aea6-d4cbcf5aba9c","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":409,"method":"PATCH","route":"/api/admin/claims/{id}","duration_ms":8,"request_id":"dfc9ac2f-27ee-415c-a6ee-c9c86c8a7598","deployment":"security-regression","error_code":"CLAIM_INFORMATION_REQUIRED","database_failure":null}
+{"event":"api_request","status":409,"method":"PATCH","route":"/api/admin/claims/{id}","duration_ms":11,"request_id":"01710df3-acf9-4749-866f-1e4d73c28f21","deployment":"security-regression","error_code":"CLAIM_INFORMATION_REQUIRED","database_failure":null}
+ok
+test_verifier_rejection_is_persisted_after_error_response (test_backend_security_regression.BackendSecurityRegressionTest.test_verifier_rejection_is_persisted_after_error_response) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":7,"request_id":"facb6292-04c1-4f12-9871-4b9df9f8fdc0","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":10,"request_id":"0d970985-3de3-4bea-8e95-4e222dca74d0","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/game-sessions","duration_ms":13,"request_id":"f6b8080d-6edf-471f-a556-c0203c02f892","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":200,"method":"POST","route":"/api/game-sessions/{id}/start","duration_ms":8,"request_id":"8cbaeb62-ecaf-4c30-9107-9df09f158ed2","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":422,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":8,"request_id":"36514588-d83a-4c0a-872e-9f6e402a8bd1","deployment":"security-regression","error_code":"GAME_VERIFICATION_FAILED","database_failure":null}
+{"event":"api_request","status":200,"method":"GET","route":"/api/game-sessions/{id}","duration_ms":7,"request_id":"31556aa6-02ad-4891-bc30-83146d796ec6","deployment":"security-regression","error_code":null,"database_failure":null}
+ok
+test_zero_tick_submission_cannot_finish_or_unlock_draw (test_backend_security_regression.BackendSecurityRegressionTest.test_zero_tick_submission_cannot_finish_or_unlock_draw) ... {"event":"api_request","status":201,"method":"POST","route":"/api/observations","duration_ms":8,"request_id":"0e0adbe1-ad98-47f8-82a0-d5e204cb7fd0","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/participants/anonymous","duration_ms":18,"request_id":"d270bbde-513b-4b01-ba79-17c7f4debbfb","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":201,"method":"POST","route":"/api/game-sessions","duration_ms":9,"request_id":"4e129965-f11c-43c6-a2c6-23aca8232537","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":200,"method":"POST","route":"/api/game-sessions/{id}/start","duration_ms":7,"request_id":"342b3d97-a68f-4f42-ad23-a596d18331ba","deployment":"security-regression","error_code":null,"database_failure":null}
+{"event":"api_request","status":422,"method":"POST","route":"/api/game-sessions/{id}/finish","duration_ms":21,"request_id":"a5aa2d5b-0ee2-431c-a941-676d53636a0a","deployment":"security-regression","error_code":"GAME_VERIFICATION_FAILED","database_failure":null}
+{"event":"api_request","status":200,"method":"GET","route":"/api/draws/me","duration_ms":6,"request_id":"bff6df1b-077c-4e5f-ab73-cdf8069a66c8","deployment":"security-regression","error_code":null,"database_failure":null}
+ok
+test_migration_backfills_only_unsubmitted_information_received_claims (test_claim_status_followup.ClaimMigrationFollowupTest.test_migration_backfills_only_unsubmitted_information_received_claims) ... ok
+test_late_submission_never_rolls_back_progressed_or_terminal_status (test_claim_status_followup.ClaimOperationsFollowupTest.test_late_submission_never_rolls_back_progressed_or_terminal_status) ... ok
+test_missing_contact_nonterminal_states_accept_information_then_continue (test_claim_status_followup.ClaimOperationsFollowupTest.test_missing_contact_nonterminal_states_accept_information_then_continue) ... ok
+test_new_claim_waits_for_information_and_blocks_every_admin_patch (test_claim_status_followup.ClaimOperationsFollowupTest.test_new_claim_waits_for_information_and_blocks_every_admin_patch) ... ok
+test_ranking_submission_sets_information_received_without_state_regression (test_claim_status_followup.ClaimOperationsFollowupTest.test_ranking_submission_sets_information_received_without_state_regression) ... ok
+test_submission_is_concurrent_safe_and_enables_review (test_claim_status_followup.ClaimOperationsFollowupTest.test_submission_is_concurrent_safe_and_enables_review) ... ok
+test_cli_does_not_accept_plaintext_dsn_or_pepper_arguments (test_cohort_guards.CohortGuardTest.test_cli_does_not_accept_plaintext_dsn_or_pepper_arguments) ... ok
+test_destructive_postgres_test_dsn_requires_local_dedicated_owner_database (test_cohort_guards.CohortGuardTest.test_destructive_postgres_test_dsn_requires_local_dedicated_owner_database) ... ok
+test_existing_prepared_manifest_recovers_without_rotating_identities (test_cohort_guards.CohortGuardTest.test_existing_prepared_manifest_recovers_without_rotating_identities) ... ok
+test_manifest_is_private_exact_unique_and_load_runner_compatible (test_cohort_guards.CohortGuardTest.test_manifest_is_private_exact_unique_and_load_runner_compatible) ... ok
+test_private_secret_file_rejects_group_or_world_permissions (test_cohort_guards.CohortGuardTest.test_private_secret_file_rejects_group_or_world_permissions) ... ok
+test_remote_and_local_target_guards_are_distinct_and_fail_closed (test_cohort_guards.CohortGuardTest.test_remote_and_local_target_guards_are_distinct_and_fail_closed) ... ok
+test_remote_dsn_requires_exact_scoped_pooler_role (test_cohort_guards.CohortGuardTest.test_remote_dsn_requires_exact_scoped_pooler_role) ... ok
+test_real_postgres_resume_is_idempotent_and_does_not_reset_balance (test_cohort_guards.CohortPostgresTest.test_real_postgres_resume_is_idempotent_and_does_not_reset_balance) ... ok
+test_business_body_emaxconn_error_is_never_replayed (test_database_connections.ConnectionTest.test_business_body_emaxconn_error_is_never_replayed) ... ok
+test_completed_concurrent_wave_leaves_no_idle_connection_without_checkout (test_database_connections.ConnectionTest.test_completed_concurrent_wave_leaves_no_idle_connection_without_checkout) ... ok
+test_concurrent_requests_have_exclusive_connections_and_bounded_count (test_database_connections.ConnectionTest.test_concurrent_requests_have_exclusive_connections_and_bounded_count) ... ok
+test_different_database_or_environment_never_reuses_connection (test_database_connections.ConnectionTest.test_different_database_or_environment_never_reuses_connection) ... ok
+test_emaxconn_admission_retries_twice_then_yields_business_body_once (test_database_connections.ConnectionTest.test_emaxconn_admission_retries_twice_then_yields_business_body_once) ... ok
+test_emaxconn_exhausts_four_attempts_without_yield_and_releases_capacity (test_database_connections.ConnectionTest.test_emaxconn_exhausts_four_attempts_without_yield_and_releases_capacity) ... ok
+test_emaxconn_retry_start_deadline_stops_late_attempts (test_database_connections.ConnectionTest.test_emaxconn_retry_start_deadline_stops_late_attempts) ... ok
+test_expired_connection_is_closed (test_database_connections.ConnectionTest.test_expired_connection_is_closed) ... ok
+test_failed_connect_releases_capacity_for_later_requests (test_database_connections.ConnectionTest.test_failed_connect_releases_capacity_for_later_requests) ... ok
+test_failed_semaphore_acquire_drains_idle_and_borrower_count (test_database_connections.ConnectionTest.test_failed_semaphore_acquire_drains_idle_and_borrower_count) ... ok
+test_failure_is_not_replayed_and_discards_connection (test_database_connections.ConnectionTest.test_failure_is_not_replayed_and_discards_connection) ... ok
+test_non_emaxconn_connection_errors_are_not_retried (test_database_connections.ConnectionTest.test_non_emaxconn_connection_errors_are_not_retried) ... ok
+test_open_transaction_is_never_shared_with_next_request (test_database_connections.ConnectionTest.test_open_transaction_is_never_shared_with_next_request) ... ok
+test_sequential_connections_close_at_quiescence_and_reopen_tls (test_database_connections.ConnectionTest.test_sequential_connections_close_at_quiescence_and_reopen_tls) ... ok
+test_stale_socket_is_checked_before_business_code (test_database_connections.ConnectionTest.test_stale_socket_is_checked_before_business_code) ... ok
+test_waiting_borrower_reuses_returned_connection_during_overlap (test_database_connections.ConnectionTest.test_waiting_borrower_reuses_returned_connection_during_overlap) ... ok
+test_absent_collision_cannot_be_replaced_by_the_submitted_finish (test_game_verifier_safety.GameVerifierSafetyTest.test_absent_collision_cannot_be_replaced_by_the_submitted_finish) ... ok
+test_high_jump_flag_requires_boolean (test_game_verifier_safety.GameVerifierSafetyTest.test_high_jump_flag_requires_boolean) ... ok
+test_numeric_fields_require_integers_without_coercion (test_game_verifier_safety.GameVerifierSafetyTest.test_numeric_fields_require_integers_without_coercion) ... ok
+test_real_collision_still_verifies (test_game_verifier_safety.GameVerifierSafetyTest.test_real_collision_still_verifies) ... ok
+test_approved_time_extension_preserves_consumption_and_enforces_cap (test_load_guards.LoadGuardTests.test_approved_time_extension_preserves_consumption_and_enforces_cap) ... ok
+test_budget_and_fresh_participant_cursor_persist (test_load_guards.LoadGuardTests.test_budget_and_fresh_participant_cursor_persist) ... ok
+test_budget_ledger_is_locked_0600_and_charges_admission_before_completion (test_load_guards.LoadGuardTests.test_budget_ledger_is_locked_0600_and_charges_admission_before_completion) ... ok
+test_cohort_fingerprint_is_stable_but_changes_with_identity (test_load_guards.LoadGuardTests.test_cohort_fingerprint_is_stable_but_changes_with_identity) ... ok
+test_cohort_preparation_calls_are_charged_once_to_same_cap (test_load_guards.LoadGuardTests.test_cohort_preparation_calls_are_charged_once_to_same_cap) ... ok
+test_dry_run_is_bounded_and_has_write_tracking_cost_envelopes (test_load_guards.LoadGuardTests.test_dry_run_is_bounded_and_has_write_tracking_cost_envelopes) ... ok
+test_endpoint_metrics_never_include_opaque_ids (test_load_guards.LoadGuardTests.test_endpoint_metrics_never_include_opaque_ids) ... ok
+test_failed_redeployment_cursor_write_leaves_original_ledger_intact (test_load_guards.LoadGuardTests.test_failed_redeployment_cursor_write_leaves_original_ledger_intact) ... ok
+test_http_client_uses_cookie_idempotency_and_protection_headers (test_load_guards.LoadGuardTests.test_http_client_uses_cookie_idempotency_and_protection_headers) ... ok
+test_last_stock_probe_requires_one_synthetic_item (test_load_guards.LoadGuardTests.test_last_stock_probe_requires_one_synthetic_item) ... ok
+test_network_failure_writes_sanitized_private_report (test_load_guards.LoadGuardTests.test_network_failure_writes_sanitized_private_report) ... ok
+test_no_jump_payload_uses_real_physics_and_wait_duration (test_load_guards.LoadGuardTests.test_no_jump_payload_uses_real_physics_and_wait_duration) ... ok
+test_performance_targets_separate_general_finish_draw_and_failures (test_load_guards.LoadGuardTests.test_performance_targets_separate_general_finish_draw_and_failures) ... ok
+test_redeployment_cursor_migration_is_audited_idempotent_and_keeps_spend (test_load_guards.LoadGuardTests.test_redeployment_cursor_migration_is_audited_idempotent_and_keeps_spend) ... ok
+test_redeployment_retarget_requires_explicit_ids_and_preserves_identities (test_load_guards.LoadGuardTests.test_redeployment_retarget_requires_explicit_ids_and_preserves_identities) ... ok
+test_redeployment_target_proof_rejects_project_schema_campaign_or_deployment_change (test_load_guards.LoadGuardTests.test_redeployment_target_proof_rejects_project_schema_campaign_or_deployment_change) ... ok
+test_remote_cohort_requires_exactly_5000_private_cookie_identities (test_load_guards.LoadGuardTests.test_remote_cohort_requires_exactly_5000_private_cookie_identities) ... ok
+test_remote_redeployment_resume_moves_existing_cursor_after_new_preflight (test_load_guards.LoadGuardTests.test_remote_redeployment_resume_moves_existing_cursor_after_new_preflight) ... ok
+test_remote_target_and_preflight_fail_closed (test_load_guards.LoadGuardTests.test_remote_target_and_preflight_fail_closed) ... ok
+test_required_profiles_are_exact_and_total_690_seconds (test_load_guards.LoadGuardTests.test_required_profiles_are_exact_and_total_690_seconds) ... ok
+test_security_probe_uses_checkpointed_fault_and_recovery (test_load_guards.LoadGuardTests.test_security_probe_uses_checkpointed_fault_and_recovery) ... ok
+test_stage_and_overall_flow_counts_are_both_recorded (test_load_guards.LoadGuardTests.test_stage_and_overall_flow_counts_are_both_recorded) ... ok
+test_completed_recent_screen_remains_in_exit_denominator (test_metrics.MetricsTest.test_completed_recent_screen_remains_in_exit_denominator) ... ok
+test_ctr_closes_windows_deduplicates_and_keeps_pending_separate (test_metrics.MetricsTest.test_ctr_closes_windows_deduplicates_and_keeps_pending_separate) ... ok
+test_ctr_window_ending_at_report_end_stays_pending_until_next_report (test_metrics.MetricsTest.test_ctr_window_ending_at_report_end_stays_pending_until_next_report) ... ok
+test_future_report_and_naive_times_are_rejected (test_metrics.MetricsTest.test_future_report_and_naive_times_are_rejected) ... ok
+test_game_last_checkpoint_and_stage_active_dwell_keep_unknown_explicit (test_metrics.MetricsTest.test_game_last_checkpoint_and_stage_active_dwell_keep_unknown_explicit) ... ok
+test_invitation_ledger_reports_period_ratio_and_post_cooldown_reparticipation (test_metrics.MetricsTest.test_invitation_ledger_reports_period_ratio_and_post_cooldown_reparticipation) ... ok
+test_loading_last_active_no_checkpoint_double_count_and_unknown (test_metrics.MetricsTest.test_loading_last_active_no_checkpoint_double_count_and_unknown) ... ok
+test_open_observation_window_is_not_abandonment (test_metrics.MetricsTest.test_open_observation_window_is_not_abandonment) ... ok
+test_ordered_same_position_window_and_environment_ctr (test_metrics.MetricsTest.test_ordered_same_position_window_and_environment_ctr) ... ok
+test_reentered_screen_active_time_is_added_without_checkpoint_overlap (test_metrics.MetricsTest.test_reentered_screen_active_time_is_added_without_checkpoint_overlap) ... ok
+test_sharing_and_content_report_observed_actions_without_delivery_inference (test_metrics.MetricsTest.test_sharing_and_content_report_observed_actions_without_delivery_inference) ... ok
+test_source_cohort_new_return_and_conversion_are_unique (test_metrics.MetricsTest.test_source_cohort_new_return_and_conversion_are_unique) ... ok
+test_stage_replays_do_not_count_completed_person_as_an_exit (test_metrics.MetricsTest.test_stage_replays_do_not_count_completed_person_as_an_exit) ... ok
+test_zero_exposure_null_rate_and_guide_not_a_conversion (test_metrics.MetricsTest.test_zero_exposure_null_rate_and_guide_not_a_conversion) ... ok
+test_abandoned_active_dwell_and_gemini_stages_are_observed (test_metrics_acceptance.MetricsAcceptanceTest.test_abandoned_active_dwell_and_gemini_stages_are_observed) ... ok
+test_filters_scope_real_rows_and_leaderboard_masks_private_nickname (test_metrics_acceptance.MetricsAcceptanceTest.test_filters_scope_real_rows_and_leaderboard_masks_private_nickname) ... ok
+test_first_and_current_visit_server_conversion_are_separate (test_metrics_acceptance.MetricsAcceptanceTest.test_first_and_current_visit_server_conversion_are_separate) ... ok
+test_loading_ready_next_screen_fallback_exit_rate_and_unlinked (test_metrics_acceptance.MetricsAcceptanceTest.test_loading_ready_next_screen_fallback_exit_rate_and_unlinked) ... ok
+test_additions_apply_to_foundation_only_and_are_idempotent (test_migration_acceptance.MigrationAcceptanceTest.test_additions_apply_to_foundation_only_and_are_idempotent) ... ok
+test_foundation_reapply_fails_without_damaging_existing_data (test_migration_acceptance.MigrationAcceptanceTest.test_foundation_reapply_fails_without_damaging_existing_data) ... ok
+test_full_migration_stack_applies_to_database_without_dino_schema (test_migration_acceptance.MigrationAcceptanceTest.test_full_migration_stack_applies_to_database_without_dino_schema) ... ok
+test_anonymous_and_admin_use_the_same_shared_ip_bucket (test_rate_limit_buckets.RateLimitBucketTest.test_anonymous_and_admin_use_the_same_shared_ip_bucket) ... ok
+test_database_rejection_remains_a_retryable_429 (test_rate_limit_buckets.RateLimitBucketTest.test_database_rejection_remains_a_retryable_429) ... ok
+test_every_participant_on_an_ip_uses_one_shared_12000_request_bucket (test_rate_limit_buckets.RateLimitBucketTest.test_every_participant_on_an_ip_uses_one_shared_12000_request_bucket) ... ok
+test_participant_requests_keep_the_same_shared_ip_bucket (test_rate_limit_buckets.RateLimitBucketTest.test_participant_requests_keep_the_same_shared_ip_bucket) ... ok
+test_route_subjects_and_existing_limits_are_unchanged (test_rate_limit_buckets.RateLimitBucketTest.test_route_subjects_and_existing_limits_are_unchanged) ... ok
+
+----------------------------------------------------------------------
+Ran 131 tests in 8.842s
+
+OK

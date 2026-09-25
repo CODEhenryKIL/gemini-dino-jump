@@ -155,7 +155,7 @@ def get_me(conn,ctx):
     return 200,{"participant":_public(p),"tickets":_tickets(p),"best_score":best["score"] if best else 0,"rank":rank["rank"] if rank else None,"pending_game_session":dict(live) if live else None,"draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":{"status":contact["status"] if contact else "NOT_REQUIRED"},"claim_count":claims}
 
 def patch_profile(conn,body,ctx):
-    p=_participant(conn,ctx,True,True); nickname=str(body.get("nickname") or "").strip(); public=body.get("is_public")
+    p=_participant(conn,ctx,True,True); nickname=str(body.get("nickname") or "").strip(); public=body.get("is_public",p["is_public"])
     if not 1<=len(nickname)<=24 or not isinstance(public,bool): raise DomainError("VALIDATION_ERROR","프로필 값을 확인해 주세요.")
     p=_one(conn,"update dino_dev.participant set nickname=%s,is_public=%s,updated_at=clock_timestamp() where id=%s returning *",(nickname,public,p["id"]))
     return 200,{"participant":_public(p)}
@@ -258,7 +258,7 @@ def finish_session(conn,sid,body,ctx):
     if not v: raise DomainError("VERIFICATION_REQUIRED","게임 검증 결과가 없습니다.",500)
     valid,score,ticks,reason=v; status="FINISHED" if valid else "REJECTED"
     elapsed=(dt.datetime.now(UTC)-s["started_at"]).total_seconds() if s["started_at"] else 0
-    if ticks<60 or ticks/60.0>elapsed+1.0:valid=False;status="REJECTED";reason="IMPOSSIBLE_WALLCLOCK_DURATION"
+    if valid and (ticks<60 or ticks/60.0>elapsed+1.0):valid=False;status="REJECTED";reason="IMPOSSIBLE_WALLCLOCK_DURATION"
     _settle_invitation_pending(conn,s)
     s=_one(conn,"update dino_dev.game_session set status=%s,score=%s,valid_ticks=%s,verification_result=%s,finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s returning *",(status,score,ticks,reason,sid))
     if not valid:

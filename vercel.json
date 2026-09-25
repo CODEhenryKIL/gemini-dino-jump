@@ -22,7 +22,7 @@
       "destination": "/api/index.py"
     },
     {
-      "source": "/invite/([A-Za-z0-9_-]{1,64})",
+      "source": "/invite/([A-Za-z0-9_-]{12,64})",
       "destination": "/index.html?invite=$1"
     }
   ],

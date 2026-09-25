@@ -1,7 +1,7 @@
 """Dino Jump HTTP transport for local use and Vercel Python Functions."""
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler,ThreadingHTTPServer
-from urllib.parse import parse_qs,quote,urlparse
+from urllib.parse import parse_qs,urlencode,urlparse
 import datetime as dt
 import hashlib,hmac,json,os,re,secrets,sys,time,uuid
 sys.path.insert(0,os.path.dirname(__file__))
@@ -123,7 +123,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                     sid=path.split("/")[-2];session=conn.execute("select seed,version from dino_dev.game_session where id=%s and participant_id=(select id from dino_dev.participant where token_hash=%s)",(sid,ctx.get("participant_token_hash"))).fetchone()
                     if not session:raise DomainError("SESSION_NOT_FOUND","게임 기록을 찾을 수 없습니다.",404)
                     if body.get("version",session["version"])!=session["version"]:raise DomainError("GAME_VERSION_MISMATCH","게임 버전이 일치하지 않습니다.",409)
-                    try:ctx["verification"]=game_verifier.simulate_and_verify(session["seed"],body.get("jump_ticks",[]),int(body.get("score")),int(body.get("ticks",body.get("valid_ticks"))))
+                    try:ctx["verification"]=game_verifier.simulate_and_verify(session["seed"],body.get("jump_ticks",[]),body.get("score"),body.get("ticks",body.get("valid_ticks")))
                     except (TypeError,ValueError,KeyError):raise DomainError("INVALID_GAME_INPUT","게임 기록 형식을 확인해 주세요.") from None
                 with db.transaction(conn):status,response=dispatch(conn,method,path,body,query,ctx)
             cookie=response.pop("_set_cookie_token",None)
@@ -151,7 +151,14 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         if path.startswith("/invite/"):
             code=path.rsplit("/",1)[-1]
             if not re.fullmatch(r"[A-Za-z0-9_-]{12,64}",code):self.send_error(404);return
-            self.send_response(302);self.send_header("Location","/?invite="+quote(code));self.send_header("Cache-Control","no-store");self.end_headers();return
+            incoming=parse_qs(urlparse(self.path).query)
+            target={"invite":code}
+            allowed={"link":r"initial|retry_invite|prize_share","share":r"[A-Za-z0-9:_-]{8,128}",
+                     "channel":r"[A-Za-z][A-Za-z0-9_-]{0,31}","campaign":r"[A-Za-z][A-Za-z0-9_-]{0,31}"}
+            for key,pattern in allowed.items():
+                values=incoming.get(key,[])
+                if len(values)==1 and re.fullmatch(pattern,values[0]):target[key]=values[0]
+            self.send_response(302);self.send_header("Location","/?"+urlencode(target));self.send_header("Cache-Control","no-store");self.end_headers();return
         return super().do_HEAD() if self.command=="HEAD" else super().do_GET()
     def do_GET(self):return self._api() if urlparse(self.path).path.startswith("/api/") else self._static()
     def do_HEAD(self):return self.do_GET()

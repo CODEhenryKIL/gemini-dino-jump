@@ -166,6 +166,82 @@ class BackendSecurityRegressionTest(unittest.TestCase):
         self.assertEqual(status, 200, started)
         return session_id
 
+    def test_no_collision_cannot_finish_rank_or_unlock_draw(self):
+        participant, cookie = self.participant()
+        session_id = self.create_started_session(cookie)
+        with psycopg.connect(DSN) as conn:
+            conn.execute("update dino_dev.game_session set started_at=clock_timestamp()-interval '20 seconds' where id=%s", (session_id,))
+        with mock.patch.object(app.game_verifier, 'check_aabb', return_value=False):
+            status, rejected, _ = self.request(
+                'POST', f'/api/game-sessions/{session_id}/finish',
+                {'event_id': self.idem('evt'), 'score': 100, 'ticks': 600, 'jump_ticks': []},
+                cookie=cookie, headers={'Idempotency-Key': self.idem('unfinished')},
+            )
+        self.assertEqual(status, 422, rejected)
+        self.assertEqual(rejected['verification'], 'NO_COLLISION')
+        self.assertEqual(self.request('GET', '/api/draws/me', cookie=cookie)[1]['status'], 'LOCKED')
+        with psycopg.connect(DSN) as conn:
+            row = conn.execute('select status,score,valid_ticks from dino_dev.game_session where id=%s', (session_id,)).fetchone()
+            scores = conn.execute('select count(*) from dino_dev.best_score where participant_id=%s', (participant['id'],)).fetchone()[0]
+        self.assertEqual(row, ('REJECTED', 0, 0))
+        self.assertEqual(scores, 0)
+
+    def test_finish_rejects_coerced_json_numbers_before_state_changes(self):
+        _participant, cookie = self.participant()
+        session_id = self.create_started_session(cookie)
+        with psycopg.connect(DSN) as conn:
+            seed = conn.execute("update dino_dev.game_session set started_at=clock_timestamp()-interval '20 seconds' where id=%s returning seed", (session_id,)).fetchone()[0]
+        _, score, ticks, _ = app.game_verifier.simulate_and_verify(seed, [], 0, 600)
+        for invalid in ({'score': score + 0.5}, {'ticks': ticks + 0.5}, {'score': str(score)}, {'ticks': True}):
+            with self.subTest(invalid=invalid):
+                status, response, _ = self.request(
+                    'POST', f'/api/game-sessions/{session_id}/finish',
+                    {'event_id': self.idem('evt'), 'score': score, 'ticks': ticks, 'jump_ticks': [], **invalid},
+                    cookie=cookie, headers={'Idempotency-Key': self.idem('invalid-type')},
+                )
+                self.assertEqual(status, 400, response)
+                self.assertEqual(response['error'], 'INVALID_GAME_INPUT')
+        with psycopg.connect(DSN) as conn:
+            self.assertEqual(conn.execute('select status from dino_dev.game_session where id=%s', (session_id,)).fetchone()[0], 'ACTIVE')
+
+    def test_nickname_edit_preserves_privacy_and_explicit_changes_still_work(self):
+        participant, cookie = self.participant()
+        for is_public in (False, True):
+            with self.subTest(is_public=is_public):
+                with psycopg.connect(DSN) as conn:
+                    conn.execute('update dino_dev.participant set is_public=%s where id=%s', (is_public, participant['id']))
+                status, response, _ = self.request('PATCH', '/api/me/profile', {'nickname': '새닉네임'}, cookie=cookie, headers={'Idempotency-Key': self.idem('profile')})
+                self.assertEqual(status, 200, response)
+                self.assertEqual(response['participant']['is_public'], is_public)
+                with psycopg.connect(DSN) as conn:
+                    self.assertEqual(conn.execute('select nickname,is_public from dino_dev.participant where id=%s', (participant['id'],)).fetchone(), ('새닉네임', is_public))
+                status, response, _ = self.request('PATCH', '/api/me/profile', {'nickname': '새닉네임', 'is_public': not is_public}, cookie=cookie, headers={'Idempotency-Key': self.idem('profile')})
+                self.assertEqual(status, 200, response)
+                self.assertEqual(response['participant']['is_public'], not is_public)
+        status, response, _ = self.request('PATCH', '/api/me/profile', {'nickname': '새닉네임', 'is_public': 'false'}, cookie=cookie, headers={'Idempotency-Key': self.idem('profile')})
+        self.assertEqual(status, 400, response)
+        self.assertEqual(response['error'], 'VALIDATION_ERROR')
+
+    def test_invite_redirect_keeps_only_valid_attribution(self):
+        code = 'Abcdef_123456'
+        cases = [
+            ({'link': 'prize_share', 'share': 'share_1234', 'channel': 'campus-A', 'campaign': 'fall_2026', 'token': 'private', 'view': 'claims'},
+             {'invite': [code], 'link': ['prize_share'], 'share': ['share_1234'], 'channel': ['campus-A'], 'campaign': ['fall_2026']}),
+            ({'link': 'https://evil.example', 'share': 'bad!', 'channel': 'private@example.com', 'campaign': 'bad space', 'invite': 'spoof'},
+             {'invite': [code]}),
+        ]
+        parsed = urllib.parse.urlsplit(self.base_url)
+        for query, expected in cases:
+            with self.subTest(query=query):
+                conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+                conn.request('GET', f'/invite/{code}?' + urllib.parse.urlencode(query))
+                response = conn.getresponse()
+                location = response.getheader('Location')
+                response.read(); conn.close()
+                self.assertEqual(response.status, 302)
+                self.assertEqual(urllib.parse.urlsplit(location).path, '/')
+                self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(location).query), expected)
+
     def test_zero_tick_submission_cannot_finish_or_unlock_draw(self):
         _participant, cookie = self.participant()
         session_id = self.create_started_session(cookie)
