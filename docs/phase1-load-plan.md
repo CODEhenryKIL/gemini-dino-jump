@@ -75,6 +75,33 @@ The current resume invocation is:
 
 The first attempt reserved 784 seconds, including the separate invitation probe. This full rerun reserves 780 seconds, bringing the immutable cumulative reservation to 1,564 of 1,800 seconds and leaving 236 seconds. The report records its measured runtime separately. An in-progress run is not evidence that the stages or performance targets passed; completion and reconciliation must be read from the final report and database checks.
 
+For a second redeployment, derive a new private manifest from the original without changing either source file. The derivation must recreate the audited OLD1→OLD2 retarget in memory, require its cohort fingerprint to equal the ledger's single active cohort, require its participant identity digest to equal the first migration audit, and verify the ledger bytes and cursor are unchanged before and after writing. The resulting `.local/phase1/remote-cohort-resumed.json` is mode `0600`, contains the same 5,000 private identities, and identifies OLD2:
+
+- URL: `https://dino-nanobanana-1aacrhim0-henry-kils-projects.vercel.app`
+- deployment: `dpl_DtuPX3jMcdSm3juRS6wU7aZ6fEjw`
+- active cohort fingerprint: `53dbe5284a3bfaad83b15048ec7c2bba8fbf15969c18a728d60733a39b83776e`
+- participant identity digest: `11640ea6dd6426270bcbe7ae4a7adfdd93cf55a8dfe8e853a0a8137ebe69e113`
+- preserved cursor: `2222 / 5000`
+
+The next performance-fix run can therefore migrate OLD2→NEW3 and execute only the required 200-VU burst:
+
+```bash
+.venv/bin/python scripts/phase1_load.py \
+  --mode remote \
+  --profile burst \
+  --base-url "$NEW3_IMMUTABLE_VERCEL_URL" \
+  --expected-deployment-id "$NEW3_DEPLOYMENT_ID" \
+  --resume-from-base-url https://dino-nanobanana-1aacrhim0-henry-kils-projects.vercel.app \
+  --resume-from-deployment-id dpl_DtuPX3jMcdSm3juRS6wU7aZ6fEjw \
+  --expected-project-ref igfrnexknwtiljdqjrbp \
+  --cohort .local/phase1/remote-cohort-resumed.json \
+  --ledger .local/phase1/remote-load-budget.json \
+  --report .local/phase1/remote-load-report-burst-new3.json \
+  --deployment-auth-cookie-file .local/phase1/deployment-auth-cookie
+```
+
+Before NEW3, the durable totals are 21,778 completed/admitted calls and 1,564 reserved seconds. The burst reserves another 120 seconds and has a conservative 2,439-call envelope, so it fits the remaining 236 seconds and 8,222 calls without lowering traffic or resetting the ledger. A successful admission would bring reserved time to 1,684 seconds, leaving 116 seconds. Its actual runtime is reported separately and does not alter those reservations.
+
 ## Fail-closed Preview checks
 
 Before load, `/api/health`, `/api/config`, the cohort, and command arguments must agree on:

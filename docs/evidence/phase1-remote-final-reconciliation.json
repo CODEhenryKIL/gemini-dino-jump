@@ -1,0 +1,29 @@
+{
+  "date": "2026-09-25",
+  "environment": "preview",
+  "schema": "dino_dev",
+  "project_ref": "igfrnexknwtiljdqjrbp",
+  "synthetic_only": true,
+  "reconciliation": {
+    "draws": 2163,
+    "sessions": 2285,
+    "paid_claims": 1,
+    "admin_audits": 5,
+    "participants": 5003,
+    "admin_members": 2,
+    "inventory_paid": 1,
+    "duplicate_draws": 0,
+    "inventory_total": 25,
+    "duplicate_rewards": 0,
+    "verified_finishes": 2211,
+    "inventory_reserved": 24,
+    "inventory_allocations": 25,
+    "invalid_ticket_balances": 0,
+    "duplicate_inventory_allocations": 0
+  },
+  "notes": [
+    "After full rerun and stopped NEW3 burst.",
+    "One PAID claim is a synthetic workflow validation; no actual contact or prize delivery.",
+    "No duplicate reward, duplicate allocation or invalid ticket balance observed."
+  ]
+}

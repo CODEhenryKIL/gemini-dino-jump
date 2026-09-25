@@ -1,0 +1,10 @@
+test_anonymous_and_admin_use_the_same_shared_ip_bucket (tests.test_rate_limit_buckets.RateLimitBucketTest.test_anonymous_and_admin_use_the_same_shared_ip_bucket) ... ok
+test_database_rejection_remains_a_retryable_429 (tests.test_rate_limit_buckets.RateLimitBucketTest.test_database_rejection_remains_a_retryable_429) ... ok
+test_every_participant_on_an_ip_uses_one_shared_12000_request_bucket (tests.test_rate_limit_buckets.RateLimitBucketTest.test_every_participant_on_an_ip_uses_one_shared_12000_request_bucket) ... ok
+test_participant_requests_keep_the_same_shared_ip_bucket (tests.test_rate_limit_buckets.RateLimitBucketTest.test_participant_requests_keep_the_same_shared_ip_bucket) ... ok
+test_route_subjects_and_existing_limits_are_unchanged (tests.test_rate_limit_buckets.RateLimitBucketTest.test_route_subjects_and_existing_limits_are_unchanged) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.003s
+
+OK
