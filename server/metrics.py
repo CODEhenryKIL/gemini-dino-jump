@@ -5,6 +5,7 @@ import datetime as dt
 import os
 
 UTC = dt.timezone.utc
+EVENT_LABELS = {'draw_cta_clicked': '복주머니 버튼 클릭'}
 
 
 def _iso(value):
@@ -448,7 +449,8 @@ def build_overview(conn, query, ctx):
       unique=claim_conversion['submitted_winning_claims'],events=claim_conversion['eligible_winning_claims'],
       definition='미당첨자는 분모에서 제외; 실제 수령 업무 원장 기준',window=window))
     for row in funnel:
-        metrics.append(_metric('event.'+row['source']+'.'+row['event_name'], row['event_name']+' ('+row['source']+')', row['events'], unique=row['participants'], events=row['events'], window=window))
+        label = EVENT_LABELS.get(row['event_name'], row['event_name'])
+        metrics.append(_metric('event.'+row['source']+'.'+row['event_name'], label+' ('+row['source']+')', row['events'], unique=row['participants'], events=row['events'], window=window))
     metrics.extend([
       _metric('game.completion','정상 게임 완료',game['finished'],game['approved'],unique=game['finished_participants'],events=game['finished'],definition='서버 승인 세션 중 정상 물리 검증 완료 세션',window=window),
       _metric('game.rejected','검증 거절',game['rejected'],game['approved'],unique=game['rejected_participants'],events=game['rejected'],window=window),

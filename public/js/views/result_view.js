@@ -23,7 +23,10 @@ export const ResultView = {
     const gapNode = container.querySelector('#result-top3-gap');
     if (gapNode) ui.text(gapNode, this.top3GapMessage(result));
     ui.text(container.querySelector('#result-nickname'), router.state.participant?.nickname || '익명 러너');
-    container.querySelector('#btn-go-pouch').onclick = () => router.navigate('draw');
+    container.querySelector('#btn-go-pouch').onclick = () => {
+      analytics.track('draw_cta_clicked', { source: 'result', draw_status: router.state.draw?.status || 'LOCKED' });
+      router.navigate('draw');
+    };
     container.querySelector('#btn-share-record').onclick = () => { router.shareContext = 'record_share'; router.navigate('invite'); };
     container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router, renderToken);
     const profile = router.state.top3Profile || result.top3Profile;

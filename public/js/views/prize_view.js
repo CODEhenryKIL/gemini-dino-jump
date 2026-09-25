@@ -39,7 +39,10 @@ export const PrizeView = {
   renderEmpty(container, router) {
     const card = document.createElement('section'); card.className = 'card empty-state';
     const title = document.createElement('h2'); title.textContent = '접수할 경품이 아직 없어요';
-    const button = document.createElement('button'); button.className = 'btn btn-primary'; button.textContent = '복주머니 확인'; button.onclick = () => router.navigate('draw');
+    const button = document.createElement('button'); button.className = 'btn btn-primary'; button.textContent = '복주머니 확인'; button.onclick = () => {
+      analytics.track('draw_cta_clicked', { source: 'claims', draw_status: router.state?.draw?.status || 'LOCKED' });
+      router.navigate('draw');
+    };
     card.append(title, button); container.appendChild(card);
   },
 

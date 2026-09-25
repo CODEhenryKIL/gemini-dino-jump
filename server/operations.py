@@ -471,7 +471,7 @@ def submit_claim(conn,cid,body,ctx):
     _event(conn,"claim_information_received",ctx,p["id"],"claim_submit:"+cid,dimensions={"claim_type":claim["claim_type"]})
     return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
 
-CLIENT_EVENTS={"entry_viewed","participant_ready","loading_data_ready","loading_intro_completed","loading_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_coin_collected","game_heart_collected","game_revived","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_reveal_requested","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","content_viewed","notion_redirect_requested","page_view"}
+CLIENT_EVENTS={"entry_viewed","participant_ready","loading_data_ready","loading_intro_completed","loading_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","draw_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_coin_collected","game_heart_collected","game_revived","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_reveal_requested","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","content_viewed","notion_redirect_requested","page_view"}
 SCREENS={"loading","home","game","result","draw","claim","claims","invite","benefit","ranking","content","admin"}
 DIMENSIONS={"previous_screen","source","link_kind","channel","campaign_code","content","position","action","status","reason","stage","bucket","result_type","prize_kind","share_method","share_id","checkpoint","is_new","is_synthetic","connected","observed","score","rank","game_version","draw_status","claim_type","end_reason","coin_count","coin_score","hearts","revive_count","tick","reduced_motion"}
 SERVER_EVENT_NAMES={"game_start_approved","game_fault_reported","game_completed","invite_visit_qualified","scratch_completed","claim_form_submitted","top3_profile_submitted"}
@@ -479,7 +479,7 @@ BOOLEAN_DIMENSIONS={"is_new","is_synthetic","connected","observed","reduced_moti
 INTEGER_DIMENSION_RANGES={"score":(0,9000),"rank":(0,100000),"checkpoint":(0,36000),"coin_count":(0,300),"coin_score":(0,3000),"hearts":(0,1),"revive_count":(0,30),"tick":(0,36000)}
 ENUM_DIMENSIONS={
   "previous_screen":SCREENS|{"unknown"},
-  "source":{"home","gemini","phase1_load","phase2_load","unknown"},
+  "source":{"home","result","invite","claims","gemini","phase1_load","phase2_load","unknown"},
   "link_kind":{"initial","retry_invite","record_share","prize_share","direct","unknown"},
   "content":{"study","photo","study_note","job_photo","other","unknown"},
   "position":{"benefit_main","benefit_guides","unknown"},

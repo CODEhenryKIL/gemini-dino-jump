@@ -269,7 +269,7 @@ test('loading milestones are independently deduplicated and remain attributed to
   assert.equal(milestones[1].dimensions.reduced_motion, true);
 });
 
-test('new view exposure and scratch accessibility events survive client filtering and match the server contract', () => {
+test('view exposure, draw CTA, and scratch accessibility events survive client filtering and match the server contract', () => {
   const api = { createRequestId: (prefix) => `${prefix}_phase2_contract`, setTrackingContext() {}, postEvents: async () => ({}) };
   const context = {
     __api: api,
@@ -285,16 +285,19 @@ test('new view exposure and scratch accessibility events survive client filterin
     .replace("import { api } from './api.js';", 'const api = globalThis.__api;')
     .replace('export const analytics = new Analytics();\nexport { EVENT_ALLOWLIST, SAFE_DIMENSIONS };', 'globalThis.analytics = new Analytics();');
   vm.runInNewContext(source, context, { filename: 'analytics.js' });
-  context.analytics.track('content_viewed', { content: 'guide_1', position: 'benefit_guides' });
+  context.analytics.track('content_viewed', { content: 'study_note', position: 'benefit_guides' });
   context.analytics.track('scratch_reveal_requested', { action: 'accessibility_button' });
-  const queued = context.analytics.queue.filter(({ name }) => ['content_viewed', 'scratch_reveal_requested'].includes(name));
-  assert.deepEqual([...queued.map(({ name }) => name)], ['content_viewed', 'scratch_reveal_requested']);
-  assert.equal(queued[0].dimensions.content, 'guide_1');
+  context.analytics.track('draw_cta_clicked', { source: 'invite', draw_status: 'AVAILABLE' });
+  const queued = context.analytics.queue.filter(({ name }) => ['content_viewed', 'scratch_reveal_requested', 'draw_cta_clicked'].includes(name));
+  assert.deepEqual([...queued.map(({ name }) => name)], ['content_viewed', 'scratch_reveal_requested', 'draw_cta_clicked']);
+  assert.equal(queued[0].dimensions.content, 'study_note');
   assert.equal(queued[0].dimensions.position, 'benefit_guides');
   assert.equal(queued[1].dimensions.action, 'accessibility_button');
+  assert.equal(queued[2].dimensions.source, 'invite');
+  assert.equal(queued[2].dimensions.draw_status, 'AVAILABLE');
 
   const server = read('server/operations.py');
-  for (const eventName of ['content_viewed', 'scratch_reveal_requested']) assert.match(server, new RegExp(`CLIENT_EVENTS=.*${eventName}`));
+  for (const eventName of ['content_viewed', 'scratch_reveal_requested', 'draw_cta_clicked']) assert.match(server, new RegExp(`CLIENT_EVENTS=.*${eventName}`));
   for (const dimension of ['content', 'position', 'action']) assert.match(server, new RegExp(`DIMENSIONS=.*[\"']${dimension}[\"']`));
 });
 

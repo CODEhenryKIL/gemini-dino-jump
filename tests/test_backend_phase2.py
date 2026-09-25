@@ -38,6 +38,29 @@ class BackendPhase2Test(unittest.TestCase):
             conn.execute("update dino_dev.game_session set seed=4,started_at=clock_timestamp()-make_interval(secs=>%s) where id=%s",(self.play['ticks']/60+1,session['session_id']))
         return ctx,started
 
+    def attributed_visit(self, visitor, code, kind):
+        event_id='evt_'+secrets.token_hex(10);observation_id='obs_'+secrets.token_hex(10)
+        idempotency_key=secrets.token_urlsafe(32);bootstrap=secrets.token_urlsafe(32)
+        share_id='share_'+secrets.token_hex(8);nonce=secrets.token_urlsafe(32)
+        ctx=self.ctx(visitor,idempotency_key=idempotency_key,bootstrap_token=bootstrap,
+                     bootstrap_token_hash=fixtures.h(bootstrap),invite_nonce=nonce,
+                     invite_nonce_hash=fixtures.h(nonce))
+        observation={'observation_id':observation_id,'event_id':event_id,'link_kind':kind,
+                     'channel_code':'unknown','share_id':share_id}
+        with fixtures.app_tx() as conn:
+            status,created=operations.create_observation(conn,observation,ctx)
+            self.assertEqual((status,created['accepted']),(201,True))
+            status,initialized=operations.participant_init(conn,{
+                'invite_code':code,'bootstrap_token':bootstrap,'observation_id':observation_id,
+                'link_kind':kind,'channel':'unknown','share_id':share_id,
+            },ctx)
+            self.assertEqual(status,200)
+            linked=conn.execute('select link_kind,share_id,participant_id from dino_dev.observation where id=%s',(observation_id,)).fetchone()
+            self.assertEqual((linked['link_kind'],linked['share_id'],linked['participant_id']),
+                             (kind,share_id,initialized['participant']['id']))
+        self.assertEqual(initialized['invite_visit']['status'],'PENDING')
+        return initialized['invite_visit']['visit_nonce']
+
     def test_verified_summary_versioned_rank_and_draw_are_atomic(self):
         raw,_,p=self.make_participant();ctx,s=self.started(raw)
         with fixtures.app_tx() as conn:
@@ -148,20 +171,42 @@ class BackendPhase2Test(unittest.TestCase):
         raw,_,_=self.make_participant();ctx=self.ctx(raw)
         contracts=[('loading_data_ready',{'connected':True}),('loading_intro_completed',{'reduced_motion':True}),('game_coin_collected',{'coin_count':2,'coin_score':20,'score':6200,'tick':200}),('game_heart_collected',{'hearts':1}),('game_revived',{'revive_count':2}),('content_viewed',{'content':'study_note','position':'benefit_guides'}),('content_clicked',{'content':'job_photo','position':'benefit_guides'}),('scratch_reveal_requested',{'action':'keyboard'}),('share_attempted',{'link_kind':'record_share','status':'attempted'}),('game_completed',{'end_reason':'TIME_LIMIT','game_version':'2.0.0'})]
         events=[{'event_id':'evt_'+secrets.token_hex(10),'name':name,'screen':'home','occurred_at':dt.datetime.now(dt.timezone.utc).isoformat(),'dimensions':dims} for name,dims in contracts]
+        draw_ctas=[('home','LOCKED'),('result','AVAILABLE'),('invite','DRAWN'),('claims','AVAILABLE')]
+        events.extend({'event_id':'evt_'+secrets.token_hex(10),'name':'draw_cta_clicked','screen':source,
+                       'occurred_at':dt.datetime.now(dt.timezone.utc).isoformat(),
+                       'dimensions':{'source':source,'draw_status':draw_status}}
+                      for source,draw_status in draw_ctas)
         events.append(dict(events[-1],event_id='evt_'+secrets.token_hex(10),dimensions={'content':'my-phone-01000000000'}))
         with fixtures.app_tx() as conn:
             _,result=operations.events_batch(conn,{'events':events},ctx)
-            self.assertEqual(result,{'accepted':10,'duplicates':0,'rejected':1})
+            self.assertEqual(result,{'accepted':14,'duplicates':0,'rejected':1})
+            stored=conn.execute("select screen,dimensions->>'source' source,dimensions->>'draw_status' draw_status from dino_dev.analytics_event where event_name='draw_cta_clicked' order by screen").fetchall()
+            self.assertEqual({(row['screen'],row['source'],row['draw_status']) for row in stored},
+                             {(source,source,draw_status) for source,draw_status in draw_ctas})
 
     def test_share_kinds_do_not_bypass_pair_deduplication(self):
-        inviter,_,p=self.make_participant();code=p['participant']['referral_code'];visitor,_,v=self.make_participant(code)
-        first=self.qualify(visitor,code,v['invite_visit']['visit_nonce']);self.assertEqual(first['granted'],1)
+        inviter,_,p=self.make_participant();code=p['participant']['referral_code'];visitor,_,_=self.make_participant()
+        first=self.qualify(visitor,code,self.attributed_visit(visitor,code,'retry_invite'))
+        self.assertEqual((first['status'],first['granted']),('REWARDED',1))
         for kind in ('record_share','prize_share','retry_invite'):
-            nonce=secrets.token_urlsafe(32)
-            with fixtures.app_tx() as conn:
-                _,again=operations.participant_init(conn,{'invite_code':code,'share_id':'share_'+secrets.token_hex(6)},self.ctx(visitor,invite_nonce=nonce,invite_nonce_hash=fixtures.h(nonce)))
-            self.assertEqual(self.qualify(visitor,code,again['invite_visit']['visit_nonce'])['granted'],0)
+            again=self.qualify(visitor,code,self.attributed_visit(visitor,code,kind))
+            self.assertEqual((again['status'],again['reason'],again['granted']),
+                             ('ALREADY_REWARDED','PAIR_ALREADY_REWARDED',0))
         with fixtures.app_tx() as conn:
             info=operations.referral_me(conn,self.ctx(inviter))[1]
             self.assertEqual(info['ticket_totals'],{'granted':1,'used':0,'refunded':0})
             self.assertEqual(info['valid_visits'],1)
+
+    def test_each_share_kind_rewards_a_distinct_visitor_and_third_starts_cooldown(self):
+        inviter,_,p=self.make_participant();code=p['participant']['referral_code']
+        for expected_balance,kind in enumerate(('retry_invite','record_share','prize_share'),start=1):
+            visitor,_,_=self.make_participant()
+            result=self.qualify(visitor,code,self.attributed_visit(visitor,code,kind))
+            self.assertEqual((result['status'],result['granted'],result['inviter_balance']),
+                             ('REWARDED',1,expected_balance))
+            self.assertEqual(result['cooldown_until'] is not None,expected_balance==3)
+        with fixtures.app_tx() as conn:
+            info=operations.referral_me(conn,self.ctx(inviter))[1]
+            self.assertEqual(info['ticket_totals'],{'granted':3,'used':0,'refunded':0})
+            self.assertEqual((info['valid_visits'],info['rewarded_pairs'],info['invitation_balance']),(3,3,3))
+            self.assertIsNotNone(info['cooldown_until'])

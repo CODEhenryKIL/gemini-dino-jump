@@ -5,7 +5,7 @@ const EVENT_ALLOWLIST = new Set([
   'game_cta_clicked', 'game_start_approved', 'game_checkpoint', 'game_coin_collected', 'game_heart_collected', 'game_revived', 'game_completed',
   'game_fault_reported', 'game_recovered', 'ranking_viewed', 'top3_profile_started',
   'top3_profile_submitted', 'invite_cta_viewed', 'share_attempted', 'invite_visit_interacted',
-  'invite_visit_qualified', 'invite_visit_rejected', 'draw_entered', 'pouch_selected',
+  'invite_visit_qualified', 'invite_visit_rejected', 'draw_cta_clicked', 'draw_entered', 'pouch_selected',
   'scratch_reveal_requested', 'scratch_started', 'scratch_completed', 'draw_result_viewed', 'claim_form_started',
   'claim_form_submitted', 'benefit_viewed', 'gemini_cta_viewed', 'gemini_cta_clicked',
   'content_viewed', 'content_clicked', 'notion_redirect_requested',

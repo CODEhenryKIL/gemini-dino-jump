@@ -135,6 +135,26 @@ class Phase2MetricsTest(unittest.TestCase):
         data = self.report()
         self.assertEqual(data["ranking"], {"requested": 1, "submitted": 0})
 
+    def test_draw_cta_metric_counts_events_and_unique_participants_with_readable_label(self):
+        first = self.person("draw_cta_first")
+        first_obs = self.observation("draw_cta_first", first)
+        self.event("draw_cta_clicked", first, first_obs, 1,
+                   {"source": "result", "draw_status": "AVAILABLE"}, "result")
+        self.event("draw_cta_clicked", first, first_obs, 2,
+                   {"source": "invite", "draw_status": "DRAWN"}, "invite")
+        second = self.person("draw_cta_second")
+        second_obs = self.observation("draw_cta_second", second)
+        self.event("draw_cta_clicked", second, second_obs, 3,
+                   {"source": "claims", "draw_status": "LOCKED"}, "claims")
+
+        data = self.report()
+        funnel = next(row for row in data["funnel"]
+                      if row["event_name"] == "draw_cta_clicked" and row["source"] == "client")
+        self.assertEqual((funnel["events"], funnel["participants"]), (3, 2))
+        metric = next(row for row in data["metrics"] if row["key"] == "event.client.draw_cta_clicked")
+        self.assertEqual((metric["label"], metric["event_count"], metric["unique_participants"]),
+                         ("복주머니 버튼 클릭 (client)", 3, 2))
+
 
 if __name__ == "__main__":
     unittest.main()

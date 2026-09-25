@@ -24,7 +24,7 @@ export const InviteView = {
       const copy = SHARE_COPY[shareKind];
       router.shareContext = null;
       container.innerHTML = `
-        <section class="card compact-card"><span class="sticker-badge badge-blue">최대 3장 보유</span><h1 id="invite-title"></h1><p id="invite-description"></p><p>친구가 링크를 열고 화면이 보이는 상태에서 3초 이상 머문 뒤 한 번 누르면 방문을 확인해요.</p></section>
+        <section class="card compact-card"><span class="sticker-badge badge-blue">최대 3장 보유</span><h1 id="invite-title"></h1><p id="invite-description"></p><p>친구가 링크를 열고 화면이 보이는 상태에서 3초 이상 머문 뒤 한 번 누르면 방문을 확인해요.</p><button id="btn-invite-draw" class="btn btn-secondary" hidden>친구를 기다리지 않고 복주머니 열기</button></section>
         <section class="card share-card"><h2 id="invite-score"></h2><p class="public-share-note">공개 카드에는 닉네임·점수·공개 경품명만 사용할 수 있어요. 연락처와 수령 정보는 포함하지 않아요.</p><button id="btn-share-native" class="btn btn-primary">공유 창 열기</button><button id="btn-copy-link" class="btn btn-outline">초대 링크 복사</button><p id="share-fallback" class="status-note">공유 창이 열리지 않으면 링크 복사를 이용해 주세요.</p></section>
         <section class="card"><div class="stat-grid"><div><small>현재 초대권</small><strong id="invite-balance"></strong></div><div><small>누적 지급</small><strong id="ticket-granted"></strong></div><div><small>유효 방문</small><strong id="valid-visits"></strong></div></div><div class="ticket-ledger"><span id="ticket-used"></span><span id="ticket-refunded"></span></div><p id="invite-cooldown" class="status-note" role="status"></p><p class="status-note">먼저 복주머니를 열고 나중에 재도전해도 돼요. 추가 추첨은 없으며, 같은 브라우저와 쿠키를 유지할 때 참여 기록을 복원해요.</p></section>`;
       const setText = (selector, value) => { const node = container.querySelector(selector); if (node) ui.text(node, value); };
@@ -32,6 +32,7 @@ export const InviteView = {
       setText('#invite-description', copy.description);
       setText('#invite-score', shareKind === 'prize_share' ? '복주머니 결과 공유' : `내 최고 기록 ${router.state.bestScore || 0}점`);
       this.updateSummary(container, data);
+      this.updateDrawAction(container, router);
       const buildInviteUrl = (shareId) => {
         const url = new URL(data.invite_url, window.location.origin);
         url.searchParams.set('link', shareKind);
@@ -70,10 +71,14 @@ export const InviteView = {
       const card = document.createElement('section'); card.className = 'card empty-state';
       const text = document.createElement('p'); text.textContent = error.message || '초대 현황을 불러오지 못했습니다.';
       const retry = document.createElement('button'); retry.className = 'btn btn-primary'; retry.textContent = '다시 불러오기'; retry.onclick = () => router.navigate('invite');
-      card.append(text, retry); container.appendChild(card);
+      const drawButton = document.createElement('button'); drawButton.id = 'btn-invite-draw'; drawButton.className = 'btn btn-secondary'; drawButton.hidden = true;
+      card.append(text, retry, drawButton); container.appendChild(card);
+      this.updateDrawAction(container, router);
     }
   },
   async updateState(container, router, renderToken) {
+    if (!router.isCurrent(renderToken)) return;
+    this.updateDrawAction(container, router);
     if (!container.querySelector('#invite-balance')) return;
     try {
       const data = await api.getReferralInfo();
@@ -82,6 +87,19 @@ export const InviteView = {
     } catch (_) {
       if (router.isCurrent(renderToken)) ui.text(container.querySelector('#invite-cooldown'), '최신 초대 현황을 불러오지 못했어요. 다시 접속하면 재확인하며, 적립된 게임권은 그대로 보존돼요.');
     }
+  },
+  updateDrawAction(container, router) {
+    const button = container.querySelector?.('#btn-invite-draw');
+    if (!button) return;
+    const status = router.state?.draw?.status;
+    button.hidden = !['AVAILABLE', 'DRAWN'].includes(status);
+    button.textContent = status === 'DRAWN' ? '내 복주머니 결과 보기' : '친구를 기다리지 않고 복주머니 열기';
+    button.onclick = () => {
+      const latest = router.state?.draw?.status;
+      if (!['AVAILABLE', 'DRAWN'].includes(latest)) return;
+      analytics.track('draw_cta_clicked', { source: 'invite', draw_status: latest });
+      router.navigate('draw');
+    };
   },
   updateSummary(container, data) {
     const setText = (selector, value) => { const node = container.querySelector(selector); if (node) ui.text(node, value); };

@@ -21,13 +21,20 @@
 | 랭킹 | `ranking_viewed`, `top3_profile_started`, `top3_profile_submitted` | 랭킹 조회·프로필 접수 | TOP3 노출과 정보 접수. 최종 수상·지급을 의미하지 않음 |
 | 공유 | `invite_cta_viewed`, `share_attempted` | 추천 현황 조회 | `link_kind`, `share_id`, 실제 사용한 수단, attempted/copied/cancelled/failed/share_sheet_closed 기록. 실제 메시지 전달은 알 수 없음 |
 | 유효 방문 | `invite_visit_interacted`, `invite_visit_qualified`, `invite_visit_rejected` | `POST /api/referrals/qualify` | 3초 활성+상호작용 후 서버 판정. 링크 조회나 크롤러 요청만으로 보상하지 않음 |
-| 복주머니 | `draw_entered`, `pouch_selected` | 추첨 상태 조회·서버 추첨 | 선택과 서버 확정을 구분. 선택 이벤트가 당첨 결과를 결정하지 않음 |
+| 복주머니 | `draw_cta_clicked`, `draw_entered`, `pouch_selected` | 추첨 상태 조회·서버 추첨 | 홈·초대·결과·수령함의 버튼 클릭, 화면 진입, 주머니 선택, 서버 확정을 구분. 클릭만으로 추첨하거나 보상하지 않음 |
 | 긁기 | `scratch_started`, `scratch_reveal_requested`, `scratch_completed`, `draw_result_viewed` | scratch 완료 저장 | 보조 버튼/키보드 요청, 저장 완료, 실제 화면 결과 노출을 분리. 모든 방식은 같은 서버 결과를 공개 |
 | 수령 | `claim_form_started`, `claim_form_submitted` | 수령 정보 접수 | 접수 성공까지만 의미. 연락 완료·지급 완료는 관리자 상태 전이 |
 | Gemini | `benefit_viewed`, `gemini_cta_viewed`, `gemini_cta_clicked` | 설정의 공식 URL | CTA 가시 노출과 클릭을 구분. 도착·학생 인증·혜택 등록은 측정하지 않음 |
 | 가이드 | `content_viewed`, `content_clicked` | 설정의 공개 가이드 URL | 전자는 가이드 카드가 전경에서 50% 이상 보인 사건, 후자는 외부 링크 클릭. 둘 다 Notion 본문 도착·열람·체류 완료를 뜻하지 않음 |
 
 ## 새 이벤트 계약
+
+### `draw_cta_clicked`
+
+- 화면/차원: `source=home|invite|result|claims`, `draw_status=LOCKED|AVAILABLE|DRAWN`.
+- 시점: 복주머니 화면으로 이동하는 버튼을 누를 때. 홈·초대에서는 서버가 `AVAILABLE` 또는 `DRAWN`으로 알려준 경우에만 버튼을 노출한다.
+- 관리자: 기존 이벤트 집계에 `복주머니 버튼 클릭 (client)`로 표시하며 클릭 건수와 고유 참가자 수를 분리한다.
+- 제한: 추첨 횟수나 결과 노출 수가 아니다. 친구 초대나 게임권 잔액을 복주머니 접근의 추가 조건으로 사용하지 않는다.
 
 ### `scratch_reveal_requested`
 

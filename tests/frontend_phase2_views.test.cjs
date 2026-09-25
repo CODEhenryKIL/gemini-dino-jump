@@ -69,6 +69,61 @@ test('home distinguishes expired cooldown from current waiting and explains an e
   assert.doesNotMatch(nodes.get('#home-ticket-note').textContent, /다시 시작/);
 });
 
+test('home restores a draw route without requiring another ticket or another game', () => {
+  const nodes = new Map();
+  const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
+  const routes = [], events = [];
+  const view = loadView('public/js/views/home.js', 'HomeView', {
+    analytics: { track: (name, dimensions) => events.push({ name, ...dimensions }) },
+  });
+  const router = { state: { tickets: { initial: 0, invitation: 0 }, draw: { status: 'LOCKED' } }, navigate: (route) => routes.push(route) };
+  view.render(container, router);
+  const draw = nodes.get('#btn-home-draw');
+  assert.equal(draw.hidden, true);
+  draw.onclick();
+  assert.deepEqual(routes, []);
+  router.state.draw.status = 'AVAILABLE';
+  view.updateState(container, router);
+  assert.equal(nodes.get('#btn-start-jump').disabled, true);
+  assert.equal(draw.hidden, false);
+  assert.equal(draw.textContent, '복주머니 열기');
+  draw.onclick();
+  router.state.draw.status = 'DRAWN';
+  view.updateState(container, router);
+  assert.equal(draw.textContent, '내 복주머니 결과 보기');
+  draw.onclick();
+  assert.deepEqual(routes, ['draw', 'draw']);
+  assert.deepEqual(events, [
+    { name: 'draw_cta_clicked', source: 'home', draw_status: 'AVAILABLE' },
+    { name: 'draw_cta_clicked', source: 'home', draw_status: 'DRAWN' },
+  ]);
+});
+
+test('result and empty claims draw buttons track their own source before entering the draw screen', () => {
+  const events = [], routes = [];
+  const globals = {
+    analytics: { track: (name, dimensions) => events.push({ name, ...dimensions }) },
+    ui: { text: (target, value) => { target.textContent = String(value); } },
+    document: { createElement: () => node() },
+  };
+  const result = loadView('public/js/views/result_view.js', 'ResultView', globals);
+  const nodes = new Map();
+  const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
+  const router = { state: { lastResult: { score: 32, bestScore: 32, top3_gap: { status: 'TOO_FEW' } }, draw: { status: 'AVAILABLE' } }, navigate: (route) => routes.push(route) };
+  result.render(container, router, 1);
+  nodes.get('#btn-go-pouch').onclick();
+  const prize = loadView('public/js/views/prize_view.js', 'PrizeView', globals);
+  const claims = node();
+  router.state.draw.status = 'DRAWN';
+  prize.renderEmpty(claims, router);
+  claims.children[0].children[1].onclick();
+  assert.deepEqual(routes, ['draw', 'draw']);
+  assert.deepEqual(events, [
+    { name: 'draw_cta_clicked', source: 'result', draw_status: 'AVAILABLE' },
+    { name: 'draw_cta_clicked', source: 'claims', draw_status: 'DRAWN' },
+  ]);
+});
+
 test('prize claim preserves the form and rejects an empty school before sending the request', async () => {
   const fields = new Map();
   let modal;
@@ -120,7 +175,7 @@ test('an old-version TOP3 contact request stays actionable without implying curr
 });
 
 test('record sharing emits a public URL with explicit context and authoritative ticket totals', async () => {
-  const selectors = ['#invite-title', '#invite-description', '#invite-score', '#invite-balance', '#ticket-granted', '#ticket-used', '#ticket-refunded', '#valid-visits', '#invite-cooldown', '#share-fallback', '#btn-share-native', '#btn-copy-link'];
+  const selectors = ['#invite-title', '#invite-description', '#invite-score', '#invite-balance', '#ticket-granted', '#ticket-used', '#ticket-refunded', '#valid-visits', '#invite-cooldown', '#share-fallback', '#btn-share-native', '#btn-copy-link', '#btn-invite-draw'];
   const nodes = new Map(selectors.map((selector) => [selector, node()]));
   const copied = [];
   const events = [];
@@ -137,7 +192,16 @@ test('record sharing emits a public URL with explicit context and authoritative 
     document: { createElement: () => node() },
   });
   const container = { innerHTML: '', querySelector: (selector) => nodes.get(selector), replaceChildren() { throw new Error('unexpected error state'); } };
-  await view.render(container, { state: { bestScore: 812 }, shareContext: 'record_share', isCurrent: () => true }, 1);
+  const routes = [];
+  const router = { state: { bestScore: 812, draw: { status: 'AVAILABLE' } }, shareContext: 'record_share', isCurrent: () => true, navigate: (route) => routes.push(route) };
+  await view.render(container, router, 1);
+  const draw = nodes.get('#btn-invite-draw');
+  assert.equal(draw.hidden, false);
+  draw.onclick();
+  assert.deepEqual(routes, ['draw'], 'the draw can open before sharing or waiting for a friend');
+  assert.deepEqual(JSON.parse(JSON.stringify(events.filter(({ name }) => name === 'draw_cta_clicked'))), [
+    { name: 'draw_cta_clicked', dimensions: { source: 'invite', draw_status: 'AVAILABLE' } },
+  ]);
   await nodes.get('#btn-copy-link').onclick();
   assert.equal(nodes.get('#ticket-granted').textContent, '5장');
   assert.equal(nodes.get('#ticket-used').textContent, '사용 2장');
@@ -148,7 +212,9 @@ test('record sharing emits a public URL with explicit context and authoritative 
     { share_method: 'copy', share_id: 'share_phase2_1234', link_kind: 'record_share', status: 'copied' },
   ]);
   referral = { ...referral, invitation_balance: 3, valid_visits: 8, cooldown_until: '2000-01-01T00:00:00Z', ticket_totals: { granted: 6, used: 2, refunded: 1 } };
-  await view.updateState(container, { isCurrent: () => true }, 1);
+  router.state.draw.status = 'DRAWN';
+  await view.updateState(container, router, 1);
+  assert.equal(draw.textContent, '내 복주머니 결과 보기');
   assert.equal(nodes.get('#invite-balance').textContent, '3장');
   assert.equal(nodes.get('#valid-visits').textContent, '8회');
   assert.equal(nodes.get('#ticket-granted').textContent, '6장');
@@ -159,6 +225,12 @@ test('record sharing emits a public URL with explicit context and authoritative 
   referral = { ...referral, invitation_balance: 1 };
   await view.updateState(container, { isCurrent: () => false }, 1);
   assert.equal(nodes.get('#invite-balance').textContent, '3장', 'an older response must not change the current screen');
+  assert.equal(draw.hidden, false, 'an older refresh must not hide the current draw action');
+  router.state.draw.status = 'LOCKED';
+  await view.updateState(container, router, 1);
+  assert.equal(draw.hidden, true);
+  draw.onclick();
+  assert.deepEqual(routes, ['draw'], 'a now-locked draw action does not navigate');
 });
 
 test('restored scratched draw reveals the same server result without another draw or completion request', async () => {

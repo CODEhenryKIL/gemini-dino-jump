@@ -30,7 +30,7 @@ The landing parser accepts only the named attribution query values used by this 
 | `top3_profile_started`, `top3_profile_submitted` | Provisional TOP3 contact funnel. |
 | `invite_cta_viewed`, `share_attempted` | Invite CTA exposure and share/copy status. Copy success is recorded only after the clipboard write succeeds. Native share records attempted, cancelled, failed, or share-sheet-closed and never claims that a message was delivered. |
 | `invite_visit_interacted`, `invite_visit_qualified`, `invite_visit_rejected` | Visible 3-second visit interaction and server decision shown to the visitor. |
-| `draw_entered`, `pouch_selected` | Draw funnel entry and presentation choice. Choice does not determine probability. |
+| `draw_cta_clicked`, `draw_entered`, `pouch_selected` | Phase 2 adds draw CTA clicks (`source=home|invite|result|claims`, `draw_status`). Clicks, screen entry and presentation choice are separate; none determine probability. |
 | `scratch_started`, `scratch_completed`, `draw_result_viewed` | Browser reveal funnel, separate from the earlier server draw decision. `scratch_completed` is emitted only after the server accepts the stable retry key; revisiting an already revealed result emits only the view event for that screen entry. |
 | `claim_form_started`, `claim_form_submitted` | Synthetic Preview claim contact funnel. |
 | `benefit_viewed`, `gemini_cta_viewed`, `gemini_cta_clicked` | Ordered Gemini exposure and click funnel. Click is not registration. Benefit link copy/native-share observations reuse `share_attempted` with `source=gemini`; actual delivery remains unknown. |

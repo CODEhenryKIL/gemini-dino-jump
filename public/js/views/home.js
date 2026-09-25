@@ -37,6 +37,7 @@ export const HomeView = {
         <p id="home-ticket-note" class="status-note" role="status"></p>
         <p id="home-draw-state" class="status-note"></p>
         <button id="btn-start-jump" class="btn btn-primary">공룡 점프 시작</button>
+        <button id="btn-home-draw" class="btn btn-secondary" hidden>복주머니 열기</button>
         <button id="btn-how-to-play" class="btn btn-outline btn-sm">조작 방법과 규칙</button>
       </section>
       <section class="card compact-card">
@@ -54,6 +55,12 @@ export const HomeView = {
       else this.showGuideModal(router, true);
     };
     container.querySelector('#btn-how-to-play').onclick = () => this.showGuideModal(router, false);
+    container.querySelector('#btn-home-draw').onclick = () => {
+      const status = router.state.draw?.status;
+      if (!['AVAILABLE', 'DRAWN'].includes(status)) return;
+      analytics.track('draw_cta_clicked', { source: 'home', draw_status: status });
+      router.navigate('draw');
+    };
   },
   updateState(container, router) {
     const { tickets = {}, bestScore } = router.state;
@@ -67,6 +74,9 @@ export const HomeView = {
     const drawStatus = router.state.draw?.status || 'LOCKED';
     const drawMessages = { LOCKED: '복주머니: 첫 정상 게임 뒤 이용 가능', AVAILABLE: '복주머니: 지금 선택 가능', DRAWN: '복주머니: 서버에 저장된 결과 확인 가능' };
     container.querySelector('#home-draw-state').textContent = drawMessages[drawStatus] || '복주머니 상태를 확인하는 중';
+    const drawButton = container.querySelector('#btn-home-draw');
+    drawButton.hidden = !['AVAILABLE', 'DRAWN'].includes(drawStatus);
+    drawButton.textContent = drawStatus === 'DRAWN' ? '내 복주머니 결과 보기' : '복주머니 열기';
     const campaignStatus = router.config?.campaign?.status || 'ACTIVE';
     const note = container.querySelector('#home-ticket-note');
     if (tickets.invitation_reserved) note.textContent = `장애 복구 중인 초대권 ${tickets.invitation_reserved}장이 별도로 보호되고 있어요.`;
