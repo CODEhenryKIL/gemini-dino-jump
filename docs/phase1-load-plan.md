@@ -4,7 +4,7 @@ This plan defines the only approved use of `scripts/phase1_load.py`. It prepares
 
 ## Latest authorization — 2026-09-25
 
-Latest user update: “40분까지 늘려”. The cumulative time cap is now **40 minutes (2,400 seconds)**; the 30,000-request cap, old reservations and participant cursor remain intact. Following the completed additional burst, consumption is 22,363 calls and 1,844 reserved seconds, leaving 556 seconds. Announce the next 200-VU start before dispatch so the user can try the site concurrently. This does not change the service plan, purchase resources, or mean that a single run lasts 40 minutes.
+Final status: the user accepted the Phase 1 test experience after playing the final Preview. Remote load execution is finished at **25,065 calls and 2,204 reserved seconds (36m 44s)** within the approved **40 minutes / 30,000 requests**. The final 200-VU burst completed all 200 flows with zero unexpected failures/timeouts; general API p95 still missed the proposed 1s target. Preserve this as a follow-up improvement, not a full performance-target pass. The old ledger reservations and participant cursor remain intact; do not start more tests automatically. The time cap does not change a service plan or site lifetime.
 
 The user approved one additional 200-VU burst with “한번 더 해줘”. Only the cumulative time cap increases from 30 to **32 minutes (1,920 seconds)**; the **30,000 API-call cap**, existing ledger, and participant cursor remain intact. Before this run the ledger contains 22,116 admitted/completed calls, 1,724 reserved seconds, and cursor 2,424/5,000. The burst reserves 120 seconds, bringing reserved time to 1,844 seconds. No new paid resource or compute upgrade is authorized. Historical 1,800-second references below describe the earlier runs.
 

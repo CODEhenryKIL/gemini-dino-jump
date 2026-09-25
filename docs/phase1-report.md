@@ -2,7 +2,7 @@
 
 작성일: 2026-09-25
 
-상태: 구현 및 기능 검증 수행, **성능 목표 미달·추가 순간 부하 1회 수행 및 연결 한도 확인**
+상태: **사용자 확인으로 1차 테스트 마무리 — 최종 200명 흐름 완료·서버 오류 0건, 1초 응답 목표 미달은 후속 개선으로 보존**
 
 작업 브랜치: `codex/phase1-clean-start`
 
@@ -10,12 +10,11 @@
 
 게이트러너 제거 기준에서 다시 시작한 공룡 점프 1차 범위는 코드 구현, 원격 Supabase 전용 영역, 관리자 권한, 보호된 Vercel Preview, 참가자·관리자 실제 브라우저 흐름까지 구현하고 검증했다.
 
-그러나 1차 작업 전체를 완료로 판정할 수는 없다.
-
-- OLD2(`b3d404a`) 전체 부하 재실행은 10→50→100→200 VU와 burst를 모두 끝냈고 예기치 않은 실패와 timeout은 없었다. 다만 `/api/me`와 게임 시작 p95가 1초 목표를 넘었다.
-- NEW3(`da3fbf4`) burst 재검증은 503 오류 57건으로 serious stop 조건에 도달했다. 연결 단계 오류였으며 SQLSTATE가 기록되지 않은 연결 오류로 분류됐지만, 어느 자원 한도가 직접 원인이었는지는 아직 확정하지 않았다.
-- 최신 `a4a8606` 추가 burst는 247호출 중 503 15건으로 자동 중단됐다. 같은 시간대 Supavisor 로그에 `(EMAXCONN) max client connections reached, limit: 200`이 확인됐다. 연결 한도에 도달한 증거이며, Vercel 인스턴스별 연결 분포는 아직 측정하지 않았다.
-- 따라서 **기능 구현과 주요 운영 검증은 수행됐지만 성능 인수 기준은 실패한 상태**다. 연결 수 관리 개선과 재검증이 필요하다. 사용자가 누적 시험 한도를 40분으로 늘렸다. 다음 부하 시작 전에 신호를 알려 직접 접속을 함께 확인한다.
+- 최종 코드 `4fd36f4`의 200명 동시 시험은 200명 모두 게임·추첨 흐름을 완료했고 예기치 않은 실패·timeout·429가 모두 0건이었다. 부하 구간 2,000호출과 사전 검사 18호출을 수행했다.
+- 일반 API p95는 약 1.5~1.9초로 원래 1초 목표에 미달했다. 게임 완료·추첨 p95는 2초 이내였다. **원래 성능 기준 전체 통과로 표시하지 않는다.**
+- 사용자는 최종 Preview를 직접 플레이한 뒤 “게임 못할 정도는 아니고 스테이지 넘어갈 때마다 약간 멈춤있는데 200명 동시 접속이 흔한 건 아니니까 이정도면 괜찮을 듯”이라고 평가했다. 이를 근거로 1차 테스트를 마무리하고 속도·전환 끊김을 후속 개선에 남긴다. 원 지시서의 수치 목표 자체를 소급 변경하지 않는다.
+- 이전 단계별 전체 부하와 실패한 후보 기록을 모두 보존한다. 마지막 후보에서 전체 단계별 시험을 반복한 것은 아니며 200명 burst를 검증했다.
+- 추가 부하 시험은 종료했다. 누적 25,065호출, 준비·정리 포함 예약 2,204초(36분 44초)로 승인된 30,000호출·40분 이내다. 이 시간은 요금제나 사이트 이용 기간이 아니다.
 - Draft PR은 검토 상태로 유지하고 Production은 변경하지 않는다.
 
 ## 2. 구현 범위
@@ -58,7 +57,7 @@
 
 | 항목 | 최종 확인 결과 |
 | --- | --- |
-| Python 전체 검사 | **110개 통과** |
+| Python 전체 검사 | **115개 통과** |
 | Node 프론트 회귀 검사 | **28개 통과** |
 | JavaScript 구문 검사 | 통과 |
 | Python compileall | 임시 pycache 경로에서 통과 |
@@ -68,7 +67,7 @@ Python 검사에는 PostgreSQL 기능·동시성·권한, 5,000명 합성 데이
 
 - [Python 검사 원본](evidence/phase1-local-python.txt)
 - [Node 검사 원본](evidence/phase1-local-node.txt)
-- 최신 기능 수정 전체에 대해 Python 110개, Node 28개를 다시 실행했다. 쿠키/관리자 권한 취소 뒤 캐시 재생 차단, 환급 거절 상태 보존, 동일 참가자 동시 추첨, 쿨다운 경계, 실제 빈 DB migration 및 지표 필터 검사를 포함한다.
+- 최종 DB 연결 수정 후 Python 115개가 통과했다. 프론트 변경 후 Node 28개가 통과했고 이후 프론트 코드는 변경하지 않았다. 쿠키/관리자 권한 취소 뒤 캐시 재생 차단, 환급 거절 상태 보존, 동일 참가자 동시 추첨, 쿨다운 경계, 실제 빈 DB migration 및 지표 필터 검사를 포함한다.
 - 로딩 완료와 이번 방문의 게임 시작 귀속, Gemini 복사·공유 관측, 관리자 순위·이탈 체류 표시를 보완했다. 게임 물리 엔진은 `f57c3d1`과 diff가 없다.
 
 ## 4. 실제 브라우저 검증
@@ -107,7 +106,7 @@ Python 검사에는 PostgreSQL 기능·동시성·권한, 5,000명 합성 데이
 - 새 Supabase 프로젝트를 만들지 않고 기존 프로젝트 안에 공룡 점프 전용 스키마를 구성했다.
 - 전용 역할은 필요한 `dino_dev` 범위에만 접근하며 기존 `public`, 기존 `dino`, Auth, Storage 데이터를 초기화하지 않았다.
 - 기존 `public` 11개 테이블, 기존 Auth 사용자, 합성 관리자 2명, Storage 객체 47개와 기존 `dino` 5,000행을 보존했다.
-- 원격 참가자 5,005명, 게임 세션 2,303개, 검증 완료 2,212개, 추첨 2,163개를 재확인했다.
+- 최종 시험 뒤 원격 참가자 5,010명, 게임 세션 2,682개, 검증 완료 2,415개, 추첨 2,365개를 재확인했다. 별도 브라우저 검증 기록도 포함한다.
 - 중복 추첨 0건, 중복 보상 0건, 잘못된 게임권 잔액 0건이었다.
 - 재고는 총 25개이며 예약 24개, 지급 1개, 할당 25개, 중복 할당 0건이었다.
 - 이 최종 대조 결과는 [원격 최종 reconciliation](evidence/phase1-remote-final-reconciliation.json)에 보존했다.
@@ -233,14 +232,23 @@ Vercel의 연결 오류 분류와 같은 시간대 Supavisor handshake/connectin
 
 [연결 정리 후보 시험 원본](evidence/phase1-remote-load-burst-drain.json)
 
+### 7.8 최종 4fd36f4 공동 시험
+
+- 사용자에게 시작을 알린 뒤 200명을 동시에 투입했다. 30.02초 부하 구간에서 200명 모두 완료했고 2,000호출의 서버 오류·timeout·429는 0건이었다. 준비·대기를 포함한 실제 실행은 71.4초, 예약은 120초, 사전 검사 포함 2,018호출이었다.
+- p95: 입장 1,779.98ms, 게임 생성 1,868.04ms, 게임 시작 승인 1,526.51ms, 결과 검증 1,691.74ms, 추첨 1,755.11ms. 일반 API의 제안 목표 1초는 미달했고 결과 검증·추첨 2초와 예상 밖 실패율 1% 미만은 충족했다.
+- 같은 시간대 Supavisor 접속 한도 로그는 2건이었다. 연결 획득 재시도를 포함한 최종 HTTP 응답은 모두 성공했다. 전체 인스턴스 분포와 실제 기기 FPS는 이 결과만으로 판단하지 않는다.
+- 사용자 직접 플레이 평가와 현재 지연을 함께 기록하고 추가 부하 실행을 종료했다. 스테이지 전환은 코드상 네트워크 응답 대기나 의도된 pause가 없지만, 사용자가 느낀 순간 끊김의 원인은 계측 전이라 미확정이다. 2차 화면 성능 점검에서 확인한다.
+
+[최종 공동 시험 원본](evidence/phase1-remote-load-burst-retry.json)
+
 ## 8. 배포·주소 상태
 
 - Production 배포와 기존 Production 링크는 변경하지 않았다.
 - 보호된 Preview의 별도 주소는 [google-korea-team-gemini.vercel.app](https://google-korea-team-gemini.vercel.app)이다.
-- 최종 기능 검토 Preview는 `a4a8606`, 배포 ID `dpl_9jvaU7ja7sPZW3BJdQtyQvhFEfJo`이며 READY다.
-- [최종 불변 Preview 주소](https://dino-nanobanana-ntvhvzhmq-henry-kils-projects.vercel.app)의 환경·프로젝트·스키마·합성 guard·방문 통계 설정을 확인했다.
-- 별도 주소는 이 최종 Preview에 연결됐다. 비로그인 HEAD 요청의 Vercel 인증 페이지 302 이동으로 접근 보호 유지를 확인했다.
-- 별도 주소는 기능 수정 검토용이며 성능 승인 또는 Production 공개가 아니다. 최신 버전에는 추가 burst만 실행했고 전체 단계 결과는 OLD2 기록과 구분한다.
+- 최종 기능 검토 Preview의 배포 코드 커밋은 `4fd36f4`, 배포 ID `dpl_2FdJVqEqL3Hw169mS1ADkjBj5m1w`이며 READY다. 이후 결과 문서 커밋과 구분한다. 실제 빌드 로그에서 Python 3.12를 확인했다.
+- [최종 불변 Preview 주소](https://dino-nanobanana-3uflg1xa6-henry-kils-projects.vercel.app)의 환경·프로젝트·스키마·합성 guard를 부하 도구의 사전 검사로 확인했다. 사용자는 이 버전에서 직접 플레이했다.
+- 별도 주소는 이 최종 Preview에 연결됐다. 공식 임시 공유 접근으로 공동 시험했으며 프로젝트 접근 보호는 변경하지 않았다.
+- 별도 주소는 1차 기능 검토용이며 Production 공개가 아니다. 최신 버전에는 추가 burst만 실행했고 전체 단계 결과는 OLD2 기록과 구분한다.
 - 사이트 메타데이터에는 `구글 코리아 팀 제미나이`를 반영했고 게임명 `공룡 점프`는 유지했다.
 - 검토용 변경은 [Draft PR #2](https://github.com/CODEhenryKIL/gemini-dino-jump/pull/2)에 유지한다.
 
@@ -279,7 +287,8 @@ Vercel의 연결 오류 분류와 같은 시간대 Supavisor handshake/connectin
 | 최초 부하 실패 | [phase1-remote-load-initial.json](evidence/phase1-remote-load-initial.json) |
 | 최종 Preview smoke | [phase1-final-preview-smoke.json](evidence/phase1-final-preview-smoke.json) |
 | OLD2 원격 전체 부하 | [phase1-remote-load-rerun.json](evidence/phase1-remote-load-rerun.json) |
-| 최신 추가 burst | [phase1-remote-load-burst-audit.json](evidence/phase1-remote-load-burst-audit.json) |
+| 최종 200명 burst | [phase1-remote-load-burst-retry.json](evidence/phase1-remote-load-burst-retry.json) |
+| a4a8606 실패 burst | [phase1-remote-load-burst-audit.json](evidence/phase1-remote-load-burst-audit.json) |
 | 비용 스냅샷 | [phase1-cost-snapshot.json](evidence/phase1-cost-snapshot.json) |
 | NEW3 burst 실패 | [phase1-remote-load-burst-new3.json](evidence/phase1-remote-load-burst-new3.json) |
 | 실제 브라우저 검증 | [phase1-browser-verification.md](evidence/phase1-browser-verification.md) |
@@ -291,12 +300,11 @@ Vercel의 연결 오류 분류와 같은 시간대 Supavisor handshake/connectin
 
 ## 12. 후속 검증 및 운영 오픈 조건
 
-성능 통과 판정에는 1~4번의 후속 확인이 필요하다. 5번은 3차 운영 오픈 전에 확정할 항목이며 1차 합성 테스트의 선행 조건은 아니다.
+1차 기준 테스트는 사용자 직접 확인에 따라 마무리한다. 아래 항목은 다음 단계의 개선·운영 오픈 조건이며 현재 추가 부하를 자동 실행하지 않는다.
 
-1. 확인된 Supavisor client connection 200 한도에 맞춰 서버리스 인스턴스별 연결 수·반납 정책을 개선한다. DB 서버 연결 수와 pooler client 연결 수는 별개로 측정한다.
-2. 같은 보호 대상과 기준으로 필요한 원격 부하를 재실행한다.
-3. 입장·게임 시작 목표와 게임 완료·추첨 목표를 모두 충족하고 serious stop이 발생하지 않는다.
-4. 결과 원본을 `docs/evidence`에 보존하고 Draft PR 보고서를 갱신한다.
-5. D03·D04·D05·D10·D12와 Notion·공식 링크의 Production 값을 확정한다.
+1. 2차 화면 변경 뒤 스테이지 전환 시 실제 기기 프레임 지연을 측정한다. 서버 API 지연과 별도로 판정한다.
+2. 일반 API p95 1초 제안 목표의 미달 원인을 확인한다. 최종 표본의 앱 로그는 대체로 HTTP 도구 측정치보다 짧았으나 전체 지연이 네트워크·플랫폼·부하 도구 중 어디서 발생하는지는 아직 확정하지 않았다.
+3. 2차 변경 후 동일한 데이터 무결성·오류·속도 기준으로 필요한 시험을 계획한다. 새 실행은 누적 한도와 사용자 시험 일정을 다시 확인한다.
+4. D03·D04·D05·D10·D12와 Notion·공식 링크의 Production 값을 확정한다.
 
-현재 결론은 **운영 기반과 기능 구현·검증 수행, 성능 인수 실패, Production 미변경**이다.
+현재 결론은 **사용자 확인에 따른 1차 테스트 마무리, 원래 속도 목표 미달과 스테이지 전환 끊김은 후속 개선, Production 미변경**이다.

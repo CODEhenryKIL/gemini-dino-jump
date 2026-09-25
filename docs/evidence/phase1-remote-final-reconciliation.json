@@ -3,12 +3,14 @@
   "environment": "preview",
   "schema": "dino_dev",
   "project_ref": "igfrnexknwtiljdqjrbp",
+  "deployment": "dpl_2FdJVqEqL3Hw169mS1ADkjBj5m1w",
+  "code_commit": "4fd36f4",
   "synthetic_only": true,
   "reconciliation": {
-    "participants": 5005,
-    "sessions": 2303,
-    "verified_finishes": 2212,
-    "draws": 2163,
+    "participants": 5010,
+    "sessions": 2682,
+    "verified_finishes": 2415,
+    "draws": 2365,
     "duplicate_draws": 0,
     "duplicate_rewards": 0,
     "invalid_ticket_balances": 0,
@@ -26,8 +28,21 @@
     "storage_objects": 47,
     "old_dino_participants": 5000
   },
+  "public_table_rows": {
+    "analysis_jobs": 2,
+    "answers": 26,
+    "audio_analyses": 22,
+    "cost_logs": 45,
+    "feedbacks": 22,
+    "profiles": 3,
+    "question_sets": 3,
+    "questions": 33,
+    "score_results": 1,
+    "test_sessions": 5,
+    "transcripts": 22
+  },
   "notes": [
-    "After the one user-approved additional burst on a4a8606; snapshot may include separate browser tests.",
+    "After final 200-VU burst on 4fd36f4; includes separate browser tests.",
     "One PAID claim is synthetic; no actual contact or prize delivery.",
     "No duplicate draw/reward/allocation or invalid ticket balance observed."
   ]

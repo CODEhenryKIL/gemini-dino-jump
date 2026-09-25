@@ -39,3 +39,14 @@
 - User explicitly reported: “화면과 게임이 정상으로 보였어.”
 - Load runner separately observed 17 HTTP 503 responses at game creation/start and stopped after 2.45 seconds of the burst.
 - A normal user observation does not override the load failure; see phase1-remote-load-burst-pool.json.
+
+## 최종 사용자 공동 확인 — 4fd36f4
+
+- 배포: `dpl_2FdJVqEqL3Hw169mS1ADkjBj5m1w`, `https://dino-nanobanana-3uflg1xa6-henry-kils-projects.vercel.app/`.
+- 시작 알림 뒤 200명 burst를 수행했고 200명 모두 게임·추첨 흐름 완료, 2,000호출 중 서버 오류·timeout·429는 0건이었다.
+- 사용자가 이 Preview를 직접 플레이하고 “게임 못할 정도는 아니고 스테이지 넘어갈 때마다 약간 멈춤있는데 200명 동시 접속이 흔한 건 아니니까 이정도면 괜찮을 듯”이라고 평가했다.
+- 이어서 실제 최종 브라우저 결과 화면에서 `기록 검증 완료`, 이번 판 250점, 최고 250점, 현재 2위, 게임권 0장, 잠정 TOP3 정보 요청과 복주머니 확인 버튼을 읽어 확인했다. 사용자 게임을 재실행하거나 결과를 변경하지 않았다.
+- 사용자 체감과 자동 시험 결과를 근거로 1차 테스트를 마무리한다. 원래 일반 API p95 1초 목표 미달은 그대로 기록한다.
+- 코드 확인상 `public/js/game/engine.js`의 스테이지 전환은 게임 루프 안에서 동기적으로 실행되며 의도된 pause는 없다. `public/js/views/game_view.js`의 스테이지 콜백은 배지/flash 표시를 변경하고 API 응답을 기다리지 않는다. 별도 체크포인트 요청은 5초 interval이다.
+- 따라서 사용자가 느낀 끊김을 서버 부하 때문이라고 확정하지 않는다. 실제 기기 FPS와 전환 지연 계측은 2차 후속 점검 항목이다.
+- 이전 참가자·관리자 전체 브라우저 E2E 기록과 최종 사용자 플레이 확인을 구분한다. 최종 후보의 관리자 E2E 전체를 다시 수행했다는 의미는 아니다.
