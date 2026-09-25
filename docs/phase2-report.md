@@ -2,7 +2,7 @@
 
 작성일: 2026-09-26 KST. 작업 브랜치: `codex/phase2-ux-game-conversion`.
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
-상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart Preview 적용 완료. 아래 복귀·수령 보완은 로컬 검증 완료, Preview 미반영. 2차 부하는 사용자 지시로 보류.**
+상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart 적용 완료. 아래 복귀·수령·메뉴·노출 보완을 Preview에 반영하고 기본 화면·노출 저장을 확인했다. 2차 부하는 사용자 지시로 보류.**
 
 ## 2026-09-26 화면·복귀 보완
 
@@ -12,7 +12,7 @@
 - TOP3 정보 제출 후에도 기존 게임 버전 출처를 보존한다. 과거 폼 제출이 늦게 끝나도 현재 화면을 이동시키거나 새 모달을 닫지 않는다.
 - 신규 수령 접수에 학교를 필수로 요구한다. 화면과 서버에서 빈칸을 거절하고 합성 정보 제한을 유지한다. 이미 접수된 요청의 재호출과 기존 데이터는 보존한다.
 - 검증: 전체 Node **84개**, 전체 Python **169개** 통과. 로컬 Chromium에서 게임권 0장인 홈의 시작 제한과 초대 현황 표시를 확인했다. 초대권 적립 후 갱신·늦은 응답·학교 누락 시 상태 보존은 자동 회귀로 확인했다.
-- 이번 보완에서 원격 DB 변경·새 Preview 배포·부하 테스트는 실행하지 않았다. 사용자 요청에 따라 화면·기능 개선을 우선한다.
+- 첫 로컬 검증 시점에는 배포하지 않았고, 아래 메뉴·노출 보완과 함께 Preview `dpl_2v23gK7H6WVpdt6hRLh7da2TfeFb`에 반영했다. 원격 DB 구조·기존 기록 변경과 부하 테스트는 실행하지 않았다.
 
 ## 2026-09-26 메뉴·노출 계측 보완
 
@@ -20,6 +20,8 @@
 - 숨김 탭에서 가시성 콜백을 놓친 뒤 복귀해도 아직 기록하지 않은 Gemini CTA·가이드 카드의 현재 교차율을 새로 측정한다. 숨김 중 대기하던 오래된 결과는 버린다.
 - 각 노출은 전경 50% 이상일 때 렌더당 한 번만 기록한다. 이전 화면의 콜백은 차단하고 listener·observer는 화면 이탈 때 제거한다. IntersectionObserver 미지원 환경에서는 노출을 추정하지 않으며 클릭만 계속 측정한다.
 - 전체 Node **88개** 통과. 실제 로컬 Chromium에서 Tab으로 랭킹 선택 → Enter로 이동 → 뒤로가기, 두 가이드 표시, 콘솔 오류·경고 없음 확인. 숨김→복귀 및 오래된 교차율 폐기는 자동 회귀로 확인했다.
+- 개선본 Preview: https://dino-nanobanana-jmov1jqyr-henry-kils-projects.vercel.app (`dpl_2v23gK7H6WVpdt6hRLh7da2TfeFb`, 코드 `40b21e4`). `database=ready`, `synthetic_only=true`, 게임 `2.0.0`을 확인했다.
+- 해당 Preview에서 신규 참가자 기본권 1장·홈·혜택·두 가이드 화면을 확인했다. 해당 배포의 원격 테스트 DB에 로딩 준비 3개 이벤트, `benefit_viewed`, `gemini_cta_viewed`, `content_viewed`의 `study_note`/`job_photo`가 각각 이벤트 1회·참가자 1명으로 저장됐다. 이는 화면→이벤트 저장 확인이며 관리자 집계 전체나 실제 가입 완료 검증은 아니다.
 
 ## 구현 범위
 
@@ -94,7 +96,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 기존 1차 배포는 전용 DB 연결 정보를 배포 단위로 전달하는 방식이었다. 같은 전용 설정을 새 Preview에만 전달하는 재배포가 자동 승인 검사에서 민감 정보 전송 승인을 요구하며 차단됐다. 이후 사용자가 기존 DB 비밀번호·쿠키 검증 비밀값의 동일 Vercel 프로젝트 Preview 적용을 명시적으로 승인했다.
 - 기존 Preview의 `/api/health`는 migration 후에도 `database=ready`로 정상. Vercel 보호 설정은 유지한다.
 - 승인 후 Preview `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71`에서 `database=ready`, `environment=preview`, `synthetic_only=true`, `/api/config`의 `game_version=2.0.0`을 확인했다.
-- Smile/Heart 적용 최신 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다.
+- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 화면 보완 Preview는 위 `40b21e4` 배포다.
 - `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71` 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. Smile/Heart Preview에서는 신규 참가자 기본권 1장 → 32점 서버 승인·1위 표시까지 별도로 확인했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
 
 ## 비밀 설정 노출 점검
@@ -106,7 +108,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 
 ## 다음 검증과 3차 인계
 
-1. 사용자 화면·기능 개선을 우선하고, 개선본 Preview에서 공유 URL·쿠키·원격 수령·집계를 추가 확인. 위 로컬 보완은 아직 배포되지 않았다.
+1. 사용자 화면·기능 개선을 우선하고, 개선본 Preview에서 공유 URL·쿠키·원격 당첨 수령·관리자 집계를 추가 확인. 게임·수령 전 흐름과 실기기 검증이 모두 끝난 상태는 아니다.
 2. [2차 부하 계획](phase2-load-plan.md)은 **2026-09-26 사용자 지시로 보류**한다. 사용자가 재개를 요청하기 전에는 참가자 준비·원격 부하를 진행하지 않는다. 기존 계획의 시간/요청 한도는 제안값이며 승인된 예산이 아니다. 1차 시험 예산은 그대로 보존한다.
 3. [로컬 브라우저 프레임·10회 엔진 정리 측정](phase2-browser-performance.md)을 완료했다. 빈 RAF도 약 30Hz인 IAB 환경에서 스테이지/부활 경계 지연 증가나 listener/RAF 잔류는 관측하지 않았다. 10회 완전 플레이, 전체 화면 애니메이션, 실기기·인앱 브라우저·네이티브 공유는 추가 검증 범위다. HTTP 테스트로 모바일 FPS 통과를 대신하지 않는다.
 4. 실제 경품/확률/재고/기간, 대학생 인증 방식, 개인정보 안내, 동점 최종 수상 규칙, Google 공식 혜택은 3차 확정.

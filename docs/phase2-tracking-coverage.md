@@ -64,6 +64,8 @@
 
 ## 현재 통합 확인이 필요한 부분
 
+2026-09-26 `40b21e4` Preview에서 실제 혜택 화면을 열고 두 가이드를 노출한 뒤, 해당 배포의 `benefit_viewed`, `gemini_cta_viewed`, `content_viewed(study_note/job_photo)`가 각각 1회·1명으로 원격 테스트 DB에 저장됨을 확인했다. 아래 관리자 집계·전체 흐름 검증과는 구분한다.
+
 - 화면 코드와 현재 클라이언트·서버 허용 목록에는 `content_viewed`, `content_clicked`, `scratch_reveal_requested`가 등록돼 있다. 최종 Preview 전에 실제 저장과 관리자 집계·라벨까지 세 이름과 차원이 이어지는지 E2E로 확인해야 한다.
 - `record_share`는 앱 parser와 서버 query allowlist까지 확인됐지만, 관찰·이벤트 서버 허용값과 관리자 목적별 집계를 전체 회귀로 확인해야 한다.
 - `content_guides`는 화면 소비 계약이 구현됐다. 서버 `/api/config` 제공값, HTTPS URL, 실제 공개 접근, 카드 클릭을 한 흐름으로 확인해야 한다.
