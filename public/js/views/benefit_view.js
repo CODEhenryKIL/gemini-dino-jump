@@ -17,8 +17,12 @@ async function copyText(value) {
 export const BenefitView = {
   observer: null,
   contentObserver: null,
+  visibilityHandler: null,
+  observationGeneration: 0,
   render(container, router) {
     this.cleanup();
+    const observationGeneration = this.observationGeneration;
+    const isActiveRender = () => this.observationGeneration === observationGeneration;
     container.innerHTML = `
       <section class="card compact-card">
         <span class="sticker-badge badge-blue">Gemini 학생 혜택</span>
@@ -60,27 +64,54 @@ export const BenefitView = {
     }
 
     const viewedGuides = new Set();
-    this.contentObserver = typeof IntersectionObserver === 'function' && guideCards.size ? new IntersectionObserver((entries) => {
-      if (document.hidden) return;
+    let contentObserver = null;
+    const handleGuideEntries = (entries) => {
+      if (!isActiveRender() || document.hidden) return;
       for (const entry of entries) {
         const content = guideCards.get(entry.target);
         if (!content || viewedGuides.has(content) || !entry.isIntersecting || entry.intersectionRatio < 0.5) continue;
         viewedGuides.add(content);
         analytics.track('content_viewed', { content, position: 'benefit_guides' });
-        this.contentObserver?.unobserve(entry.target);
+        contentObserver?.unobserve(entry.target);
       }
-    }, { threshold: [0.5] }) : null;
+    };
+    contentObserver = typeof IntersectionObserver === 'function' && guideCards.size
+      ? new IntersectionObserver(handleGuideEntries, { threshold: [0.5] })
+      : null;
+    this.contentObserver = contentObserver;
     if (this.contentObserver) for (const card of guideCards.keys()) this.contentObserver.observe(card);
 
     analytics.track('benefit_viewed');
     let viewed = false;
-    this.observer = typeof IntersectionObserver === 'function' && safeUrl ? new IntersectionObserver((entries) => {
-      if (!viewed && !document.hidden && entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.5)) {
-        viewed = true; analytics.track('gemini_cta_viewed', { position: 'benefit_main' }); this.observer?.disconnect();
+    let ctaObserver = null;
+    const handleCtaEntries = (entries) => {
+      if (!isActiveRender() || document.hidden || viewed) return;
+      if (entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.5)) {
+        viewed = true; analytics.track('gemini_cta_viewed', { position: 'benefit_main' }); ctaObserver?.disconnect();
       }
-    }, { threshold: [0.5] }) : null;
+    };
+    ctaObserver = typeof IntersectionObserver === 'function' && safeUrl
+      ? new IntersectionObserver(handleCtaEntries, { threshold: [0.5] })
+      : null;
+    this.observer = ctaObserver;
     if (this.observer) this.observer.observe(link);
-    else if (!document.hidden && safeUrl) analytics.track('gemini_cta_viewed', { position: 'benefit_main' });
+    if (contentObserver || ctaObserver) {
+      this.visibilityHandler = () => {
+        if (!isActiveRender() || document.hidden) return;
+        contentObserver?.takeRecords?.();
+        for (const [card, content] of guideCards) {
+          if (!contentObserver || viewedGuides.has(content)) continue;
+          contentObserver.unobserve(card);
+          contentObserver.observe(card);
+        }
+        ctaObserver?.takeRecords?.();
+        if (ctaObserver && !viewed) {
+          ctaObserver.unobserve(link);
+          ctaObserver.observe(link);
+        }
+      };
+      document.addEventListener?.('visibilitychange', this.visibilityHandler);
+    }
     link.onclick = safeUrl ? () => analytics.track('gemini_cta_clicked', { position: 'benefit_main' }) : (event) => event.preventDefault();
     const trackShare = (method, status) => analytics.track('share_attempted', { source: 'gemini', position: 'benefit_main', share_method: method, status });
     const showManualFallback = () => { const node = container.querySelector('#benefit-fallback'); if (node) ui.text(node, safeUrl ? `자동 복사가 지원되지 않아요. 이 주소를 길게 눌러 복사한 뒤 외부 브라우저에서 열어 주세요: ${safeUrl}` : '확인된 공식 링크를 준비 중입니다.'); };
@@ -104,6 +135,9 @@ export const BenefitView = {
     };
   },
   cleanup() { this.observer?.disconnect(); this.observer = null;
+    this.observationGeneration += 1;
+    if (this.visibilityHandler) document.removeEventListener?.('visibilitychange', this.visibilityHandler);
+    this.visibilityHandler = null;
     this.contentObserver?.disconnect(); this.contentObserver = null;
   },
 };

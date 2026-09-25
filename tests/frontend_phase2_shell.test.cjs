@@ -106,6 +106,34 @@ test('router writes public screen-only history and popstate renders without crea
   assert.equal(loaded.historyCalls.length, count);
 });
 
+test('navigation exposes the current page and preserves modified link clicks', async () => {
+  const loaded = loadRouter('https://example.test/');
+  const links = ['home', 'ranking', 'claims', 'invite', 'benefit'].map((view) => ({
+    dataset: { view }, attributes: {}, active: false,
+    classList: { toggle(_name, value) { links.find((link) => link.dataset.view === view).active = value; } },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    removeAttribute(name) { delete this.attributes[name]; },
+    addEventListener(_name, callback) { this.click = callback; },
+  }));
+  loaded.context.document.querySelectorAll = () => links;
+  loaded.router.initialized = true;
+  loaded.router.bindNavigation();
+  await loaded.router.navigate('home');
+  const historyCount = loaded.historyCalls.length;
+  let prevented = 0;
+  for (const modifier of ['metaKey', 'ctrlKey', 'shiftKey', 'altKey']) {
+    links[1].click({ [modifier]: true, preventDefault() { prevented += 1; } });
+  }
+  assert.equal(prevented, 0);
+  assert.equal(loaded.historyCalls.length, historyCount);
+  links[1].click({ button: 0, preventDefault() { prevented += 1; } });
+  assert.equal(prevented, 1);
+  assert.equal(loaded.router.currentView, 'ranking');
+  assert.deepEqual(links.filter((link) => link.attributes['aria-current'] === 'page').map((link) => link.dataset.view), ['ranking']);
+  loaded.windowListeners.popstate({ state: { view: 'home' } });
+  assert.deepEqual(links.filter((link) => link.attributes['aria-current'] === 'page').map((link) => link.dataset.view), ['home']);
+});
+
 test('initial loading_ready and splash dismissal wait for the actual initial view render', async () => {
   const loaded = loadRouter('https://example.test/?view=ranking');
   const events = [];

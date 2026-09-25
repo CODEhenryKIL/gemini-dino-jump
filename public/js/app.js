@@ -172,6 +172,7 @@ class AppRouter {
     this.navigationBound = true;
     document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => {
       item.addEventListener('click', (event) => {
+        if (event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
         if (this.initialized) this.navigate(item.dataset.view);
       });
@@ -235,7 +236,12 @@ class AppRouter {
     ui.hideModal();
     this.currentView = next;
     const renderToken = ++this.renderToken;
-    document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === next));
+    document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => {
+      const active = item.dataset.view === next;
+      item.classList.toggle('active', active);
+      if (active) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    });
     this.container.replaceChildren();
     analytics.enterScreen(next);
     let renderResult;

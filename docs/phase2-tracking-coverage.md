@@ -41,6 +41,8 @@
 - 화면: `benefit`
 - 차원: `content=study_note|job_photo` 등 설정 ID, `position=benefit_guides`
 - 시점: 해당 가이드 카드가 문서 전경에서 50% 이상 노출됐을 때. 카드별 화면 렌더당 한 번만 기록하고 화면 이탈 때 observer를 해제한다.
+- 숨김 탭에서 전경으로 돌아오면 아직 기록하지 않은 카드와 Gemini CTA의 교차 상태를 새로 측정한다. 화면 이탈 후 도착하는 observer 콜백은 버린다.
+- IntersectionObserver 미지원 브라우저에서는 카드·CTA 노출을 추정해서 기록하지 않는다. 화면 진입과 실제 링크 클릭은 계속 기록하므로 해당 환경의 노출 기반 클릭률은 미측정 범위로 해석한다.
 - 제한: 외부 Notion 본문을 실제로 읽었다는 증거로 사용하지 않는다. 관리자 보고에서는 `가이드 카드 노출`로 표시해야 한다.
 
 ### `content_clicked`
