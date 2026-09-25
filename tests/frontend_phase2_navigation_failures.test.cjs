@@ -37,6 +37,70 @@ function loadView(file, exportName, globals = {}) {
   return context.__view;
 }
 
+function claimsHarness(getClaims) {
+  const container = element();
+  container.replaceChildren = (...children) => { container.children = children; };
+  container.querySelector = (selector) => container.children.find((child) => child.className.split(' ').includes(selector.slice(1)));
+  const originalAppend = container.appendChild;
+  container.appendChild = (child) => {
+    child.remove = () => { container.children = container.children.filter((item) => item !== child); };
+    originalAppend.call(container, child);
+  };
+  const view = loadView('public/js/views/prize_view.js', 'PrizeView', {
+    api: { getClaims }, analytics: { track() {} }, ui: {},
+    document: { createElement: (tag) => element(tag) },
+  });
+  const router = { isCurrent: () => true };
+  const claim = (status) => ({ id: 'claim-1', claim_type: 'DRAW', prize_name: '테스트 경품', status, contact_submitted: true });
+  const text = (node = container) => [node.textContent, ...node.children.map((child) => text(child))].join(' ');
+  return { view, container, router, claim, text };
+}
+
+test('returning to the claims screen reads the current submitted status', async () => {
+  let status = 'INFORMATION_RECEIVED';
+  const h = claimsHarness(async () => ({ claims: [h.claim(status)] }));
+  await h.view.render(h.container, h.router, 7);
+  assert.match(h.text(), /정보 접수/);
+  status = 'PENDING_REVIEW';
+  await h.view.updateState(h.container, h.router, 7);
+  assert.match(h.text(), /확인 대기/);
+  assert.doesNotMatch(h.text(), /아직 지급 완료 상태는 아니에요/);
+  assert.equal(h.container.children.filter((node) => node.tag === 'article').length, 1);
+});
+
+test('a claims refresh failure preserves the cards and can be retried in place', async () => {
+  let fail = false;
+  const h = claimsHarness(async () => {
+    if (fail) throw new Error('일시 연결 실패');
+    return { claims: [h.claim('INFORMATION_RECEIVED')] };
+  });
+  await h.view.render(h.container, h.router, 7);
+  const savedCard = h.container.children.find((node) => node.tag === 'article');
+  fail = true;
+  await h.view.updateState(h.container, h.router, 7);
+  assert.ok(h.container.children.includes(savedCard));
+  assert.match(h.text(), /일시 연결 실패/);
+  await h.view.updateState(h.container, h.router, 7);
+  assert.equal(h.container.children.filter((node) => node.className.includes('claim-load-error')).length, 1);
+  fail = false;
+  const retry = h.container.querySelector('.claim-load-error').children.find((node) => node.tag === 'button');
+  await retry.onclick();
+  assert.doesNotMatch(h.text(), /일시 연결 실패/);
+  assert.equal(h.container.children.filter((node) => node.tag === 'article').length, 1);
+});
+
+test('an older claims response cannot overwrite a newer refresh in the same screen', async () => {
+  const first = deferred();
+  let calls = 0;
+  const h = claimsHarness(() => ++calls === 1 ? first.promise : Promise.resolve({ claims: [h.claim('PENDING_REVIEW')] }));
+  const opening = h.view.render(h.container, h.router, 7);
+  await h.view.updateState(h.container, h.router, 7);
+  first.resolve({ claims: [h.claim('AWAITING_INFORMATION')] });
+  await opening;
+  assert.match(h.text(), /확인 대기/);
+  assert.doesNotMatch(h.text(), /정보 입력 대기/);
+});
+
 for (const scenario of [
   { name: 'ranking', file: 'public/js/views/ranking_view.js', exportName: 'RankingView', method: 'getLeaderboard' },
   { name: 'draw', file: 'public/js/views/draw_view.js', exportName: 'DrawView', method: 'getDraw' },

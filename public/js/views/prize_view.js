@@ -15,11 +15,12 @@ const STATUS_HELP = {
 };
 
 export const PrizeView = {
-  async render(container, router, renderToken) {
-    container.innerHTML = '<section class="card empty-state"><p>수령 상태를 불러오는 중...</p></section>';
+  async render(container, router, renderToken, { keepContent = false } = {}) {
+    const request = this.loadRequest = Symbol('claims');
+    if (!keepContent) container.innerHTML = '<section class="card empty-state"><p>수령 상태를 불러오는 중...</p></section>';
     try {
       const { claims = [] } = await api.getClaims();
-      if (!router.isCurrent(renderToken)) return;
+      if (!router.isCurrent(renderToken) || this.loadRequest !== request) return;
       container.replaceChildren();
       const intro = document.createElement('section'); intro.className = 'card compact-card';
       const heading = document.createElement('h1'); heading.textContent = '내 수령함';
@@ -28,12 +29,24 @@ export const PrizeView = {
       if (!claims.length) return this.renderEmpty(container, router);
       for (const claim of claims) container.appendChild(this.claimCard(claim, router, renderToken));
     } catch (error) {
-      if (!router.isCurrent(renderToken)) return;
-      container.replaceChildren();
-      const card = document.createElement('section'); card.className = 'card empty-state';
+      if (!router.isCurrent(renderToken) || this.loadRequest !== request) return;
+      if (!keepContent) container.replaceChildren();
+      container.querySelector?.('.claim-load-error')?.remove();
+      const card = document.createElement('section'); card.className = 'card empty-state claim-load-error';
+      card.setAttribute('role', 'status');
       const p = document.createElement('p'); p.textContent = error.message || '수령함을 불러오지 못했습니다.';
-      card.appendChild(p); container.appendChild(card);
+      const retry = document.createElement('button'); retry.className = 'btn btn-secondary btn-sm'; retry.textContent = '수령 상태 다시 불러오기';
+      retry.onclick = () => {
+        if (!router.isCurrent(renderToken) || retry.disabled) return;
+        retry.disabled = true;
+        return this.render(container, router, renderToken, { keepContent: true });
+      };
+      card.append(p, retry); container.appendChild(card);
     }
+  },
+
+  updateState(container, router, renderToken) {
+    return this.render(container, router, renderToken, { keepContent: true });
   },
 
   renderEmpty(container, router) {
