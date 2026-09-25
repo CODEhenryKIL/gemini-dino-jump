@@ -168,6 +168,53 @@ test('overlapping resume refreshes share one server read', async () => {
   assert.equal(reads, 1);
 });
 
+test('a server refresh updates the visible view without navigation or replacing its controls', async () => {
+  const loaded = loadRouter('https://example.test/');
+  loaded.router.initialized = true;
+  loaded.router.currentView = 'home';
+  let updates = 0;
+  loaded.router.views.home = {
+    updateState(container, router) {
+      assert.equal(container, router.container);
+      assert.equal(router.state.tickets.invitation, 1);
+      updates += 1;
+    },
+    render() { assert.fail('refresh must not rebuild the screen'); },
+  };
+  loaded.context.api.getMe = async () => ({ tickets: { initial: 0, invitation: 1 } });
+  await loaded.router.refreshState({ quiet: true });
+  assert.equal(updates, 1);
+  assert.equal(loaded.historyCalls.length, 0);
+});
+
+test('a newly reached cooldown is announced once on a safe screen and never interrupts a game or form', async () => {
+  const loaded = loadRouter('https://example.test/');
+  const notices = [];
+  loaded.context.ui.showModal = (notice) => notices.push(notice);
+  loaded.context.api.acknowledgeCooldown = async () => ({});
+  loaded.router.state.tickets = { cooldown_until: new Date(Date.now() + 3600000).toISOString(), cooldown_notice_pending: true };
+  loaded.router.currentView = 'game';
+  loaded.router.showCooldownNotice();
+  assert.equal(notices.length, 0);
+  loaded.router.currentView = 'home';
+  const originalGet = loaded.context.document.getElementById;
+  loaded.context.document.getElementById = (id) => id === 'common-modal-overlay' ? {} : originalGet(id);
+  loaded.router.showCooldownNotice();
+  assert.equal(notices.length, 0);
+  loaded.context.document.getElementById = originalGet;
+  loaded.router.showCooldownNotice();
+  loaded.router.showCooldownNotice();
+  assert.equal(notices.length, 1);
+  await notices[0].onConfirm();
+  assert.equal(loaded.router.state.tickets.cooldown_notice_pending, false);
+  loaded.router.state.tickets = { cooldown_until: new Date(Date.now() + 7200000).toISOString(), cooldown_notice_pending: true };
+  loaded.router.showCooldownNotice();
+  assert.equal(notices.length, 2);
+  loaded.router.state.tickets = { cooldown_until: '2000-01-01T00:00:00Z', cooldown_notice_pending: true };
+  loaded.router.showCooldownNotice();
+  assert.equal(notices.length, 2);
+});
+
 test('loading milestones are independently deduplicated and remain attributed to loading', () => {
   let now = 0;
   const api = { createRequestId: (prefix) => `${prefix}_${++now}`, setTrackingContext() {}, postEvents: async () => ({}) };

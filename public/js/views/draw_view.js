@@ -24,9 +24,10 @@ export const DrawView = {
       if (!router.isCurrent(renderToken)) return;
       router.state.draw = state;
       if (state.status === 'LOCKED') return this.renderLocked(container, router);
-      if (state.status === 'DRAWN' && state.draw) return this.renderScratch(container, router, state.draw);
-      this.renderSelection(container, router);
+      if (state.status === 'DRAWN' && state.draw) return this.renderScratch(container, router, state.draw, renderToken);
+      this.renderSelection(container, router, renderToken);
     } catch (error) {
+      if (!router.isCurrent(renderToken)) return;
       this.renderError(container, router, error);
     }
   },
@@ -41,7 +42,7 @@ export const DrawView = {
     card.append(title, text, button); container.appendChild(card);
   },
 
-  renderSelection(container, router) {
+  renderSelection(container, router, renderToken = this.renderToken) {
     container.innerHTML = `
       <section class="card pouch-selection-container">
         <span class="sticker-badge badge-yellow">행사당 한 번</span>
@@ -65,13 +66,15 @@ export const DrawView = {
       };
     });
     open.onclick = async () => {
+      const requestToken = renderToken;
       open.disabled = true;
       open.textContent = '결과 확정 중...';
       try {
         const response = await api.drawPouch(this.selectedPouch);
         const draw = response.draw || response;
-        if (router.isCurrent(this.renderToken)) this.renderScratch(container, router, draw);
+        if (router.isCurrent(requestToken)) this.renderScratch(container, router, draw, requestToken);
       } catch (error) {
+        if (!router.isCurrent(requestToken)) return;
         open.disabled = false;
         open.textContent = '다시 열기';
         ui.showToast(error.message);
@@ -79,7 +82,7 @@ export const DrawView = {
     };
   },
 
-  renderScratch(container, router, draw) {
+  renderScratch(container, router, draw, renderToken = this.renderToken) {
     this.cleanup();
     container.innerHTML = `
       <section class="card scratch-stage-container">
@@ -114,7 +117,7 @@ export const DrawView = {
     after.textContent = draw.is_won ? '수령 정보 입력하기' : '혜택 안내 보기';
     after.onclick = () => router.navigate(draw.is_won ? 'claims' : 'benefit');
     const showResult = () => {
-      if (!router.isCurrent(this.renderToken)) return;
+      if (!router.isCurrent(renderToken)) return;
       resultContent.inert = false;
       resultContent.removeAttribute('inert');
       resultContent.setAttribute('aria-hidden', 'false');
@@ -131,7 +134,8 @@ export const DrawView = {
       router.announceStateChange();
     };
     const persistReveal = async () => {
-      if (!router.isCurrent(this.renderToken)) return;
+      const requestToken = renderToken;
+      if (!router.isCurrent(requestToken)) return;
       showResult();
       if (draw.scratch_completed) return;
       const storageKey = `${SCRATCH_KEY_PREFIX}${draw.draw_id}`;
@@ -142,13 +146,13 @@ export const DrawView = {
       status.textContent = '결과 확인 상태를 저장하는 중...';
       try {
         await api.completeScratch(draw.draw_id, eventId);
-        if (!router.isCurrent(this.renderToken)) return;
+        if (!router.isCurrent(requestToken)) return;
         draw.scratch_completed = true;
         storageRemove(storageKey);
         status.textContent = '결과 확인이 저장됐습니다.';
         analytics.track('scratch_completed', { result_type: draw.is_won ? 'won' : 'no_prize', prize_kind: prize.category || 'NONE' });
       } catch (error) {
-        if (!router.isCurrent(this.renderToken)) return;
+        if (!router.isCurrent(requestToken)) return;
         status.textContent = '결과는 그대로 유지됩니다. 저장 연결을 다시 시도해 주세요.';
         revealButton.hidden = false;
         revealButton.textContent = '저장 다시 시도';

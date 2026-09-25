@@ -223,7 +223,7 @@ test('a consumed ticket does not block access to an existing game or fault recov
   assert.match(home, /start\.disabled = !pendingSession && \(campaignStatus !== 'ACTIVE' \|\| available < 1\)/);
   assert.match(home, /진행 중 게임 복원/);
   assert.match(home, /장애 복구 상태 확인/);
-  assert.match(home, /if \(pendingSession\) \{ router\.navigate\('game'\); return; \}/);
+  assert.match(home, /if \(router\.state\.pendingGameSession\) \{ router\.navigate\('game'\); return; \}/);
 });
 
 test('fault recovery persists only non-PII evidence and reconciles rejected checkpoints', () => {
@@ -303,7 +303,7 @@ test('hidden views leave the accessibility tree and Gemini exposure requires vis
 test('a persistent TOP3 request remains actionable after result state is gone', () => {
   const ranking = read('public/js/views/ranking_view.js');
   assert.match(ranking, /router\.state\.top3Profile\?\.status === 'REQUESTED'/);
-  assert.match(ranking, /ResultView\.top3Modal\(router\)/);
+  assert.match(ranking, /ResultView\.top3Modal\(router, renderToken\)/);
   assert.match(ranking, /새로고침하거나 현재 순위가 내려가도/);
 });
 

@@ -31,13 +31,7 @@ export const InviteView = {
       setText('#invite-title', copy.title);
       setText('#invite-description', copy.description);
       setText('#invite-score', shareKind === 'prize_share' ? '복주머니 결과 공유' : `내 최고 기록 ${router.state.bestScore || 0}점`);
-      const totals = data.ticket_totals || {};
-      setText('#invite-balance', `${data.invitation_balance || 0}장`);
-      setText('#ticket-granted', `${totals.granted ?? data.rewarded_pairs ?? 0}장`);
-      setText('#ticket-used', `사용 ${totals.used || 0}장`);
-      setText('#ticket-refunded', `환급 ${totals.refunded || 0}장`);
-      setText('#valid-visits', `${data.valid_visits || 0}회`);
-      setText('#invite-cooldown', data.cooldown_until ? `${new Date(data.cooldown_until).toLocaleString('ko-KR')}까지 새 초대권 적립 대기 중이에요. 가진 초대권은 사용할 수 있고 대기 중 방문은 이월되지 않아요.` : '새 초대 보상으로 잔액이 3장이 되면 10시간 추가 적립 대기가 시작돼요.');
+      this.updateSummary(container, data);
       const buildInviteUrl = (shareId) => {
         const url = new URL(data.invite_url, window.location.origin);
         url.searchParams.set('link', shareKind);
@@ -71,11 +65,37 @@ export const InviteView = {
       container.querySelector('#btn-share-native').onclick = () => share('native');
       container.querySelector('#btn-copy-link').onclick = () => share('copy');
     } catch (error) {
+      if (!router.isCurrent(renderToken)) return;
       container.replaceChildren();
       const card = document.createElement('section'); card.className = 'card empty-state';
       const text = document.createElement('p'); text.textContent = error.message || '초대 현황을 불러오지 못했습니다.';
       const retry = document.createElement('button'); retry.className = 'btn btn-primary'; retry.textContent = '다시 불러오기'; retry.onclick = () => router.navigate('invite');
       card.append(text, retry); container.appendChild(card);
     }
+  },
+  async updateState(container, router, renderToken) {
+    if (!container.querySelector('#invite-balance')) return;
+    try {
+      const data = await api.getReferralInfo();
+      if (!router.isCurrent(renderToken)) return;
+      this.updateSummary(container, data);
+    } catch (_) {
+      if (router.isCurrent(renderToken)) ui.text(container.querySelector('#invite-cooldown'), '최신 초대 현황을 불러오지 못했어요. 다시 접속하면 재확인하며, 적립된 게임권은 그대로 보존돼요.');
+    }
+  },
+  updateSummary(container, data) {
+    const setText = (selector, value) => { const node = container.querySelector(selector); if (node) ui.text(node, value); };
+    const totals = data.ticket_totals || {};
+    setText('#invite-balance', `${data.invitation_balance || 0}장`);
+    setText('#ticket-granted', `${totals.granted ?? data.rewarded_pairs ?? 0}장`);
+    setText('#ticket-used', `사용 ${totals.used || 0}장`);
+    setText('#ticket-refunded', `환급 ${totals.refunded || 0}장`);
+    setText('#valid-visits', `${data.valid_visits || 0}회`);
+    const waiting = new Date(data.cooldown_until).getTime() > Date.now();
+    setText('#invite-cooldown', waiting
+      ? `${new Date(data.cooldown_until).toLocaleString('ko-KR')}까지 새 초대권 적립 대기 중이에요. 가진 초대권은 사용할 수 있고 대기 중 방문은 이월되지 않아요.`
+      : data.invitation_balance >= 3
+        ? '초대권 3장을 보유 중이에요. 사용해 빈자리가 생기면 친구의 새로운 유효 방문으로 다시 적립할 수 있어요.'
+        : '친구의 새로운 유효 방문으로 초대권을 받을 수 있어요. 잔액이 3장이 되면 10시간 추가 적립 대기가 시작돼요.');
   },
 };

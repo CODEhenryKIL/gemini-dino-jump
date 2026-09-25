@@ -461,8 +461,9 @@ def submit_claim(conn,cid,body,ctx):
     existing=_one(conn,"select claim_id from dino_dev.claim_contact where claim_id=%s",(cid,))
     if existing:return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
     name,contact,school,address=(str(body.get(k) or "").strip() for k in ("name","contact","school","address"))
-    if not name.startswith("TEST_") or contact!="01000000000" or (school and not school.startswith("TEST_")) or (address and not address.startswith("TEST_")): raise DomainError("SYNTHETIC_DATA_REQUIRED","개발 환경에서는 합성 정보만 입력할 수 있습니다.")
-    conn.execute("insert into dino_dev.claim_contact(claim_id,recipient_name,contact,school,address) values(%s,%s,%s,%s,%s)",(cid,name[:80],contact[:32],school[:120] or None,address[:300] or None))
+    if not school:raise DomainError("VALIDATION_ERROR","학교를 입력해 주세요.")
+    if not name.startswith("TEST_") or contact!="01000000000" or not school.startswith("TEST_") or (address and not address.startswith("TEST_")): raise DomainError("SYNTHETIC_DATA_REQUIRED","개발 환경에서는 합성 정보만 입력할 수 있습니다.")
+    conn.execute("insert into dino_dev.claim_contact(claim_id,recipient_name,contact,school,address) values(%s,%s,%s,%s,%s)",(cid,name[:80],contact[:32],school[:120],address[:300] or None))
     claim=_one(conn,"""update dino_dev.claim set
       status=case when status='AWAITING_INFORMATION' then 'INFORMATION_RECEIVED' else status end,
       contact_submitted_at=coalesce(contact_submitted_at,clock_timestamp()),updated_at=clock_timestamp()

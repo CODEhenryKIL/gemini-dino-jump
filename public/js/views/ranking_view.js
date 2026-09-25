@@ -22,7 +22,7 @@ export const RankingView = {
         const contactTitle = document.createElement('h2'); contactTitle.textContent = copy.title;
         const contactText = document.createElement('p'); contactText.textContent = `${copy.description} 새로고침하거나 현재 순위가 내려가도 접수 요청은 유지됩니다.`;
         const contactButton = document.createElement('button'); contactButton.className = 'btn btn-primary'; contactButton.textContent = '합성 테스트 정보 입력';
-        contactButton.onclick = () => ResultView.top3Modal(router);
+        contactButton.onclick = () => ResultView.top3Modal(router, renderToken);
         contact.append(contactTitle, contactText, contactButton); container.appendChild(contact);
       }
       const list = document.createElement('section'); list.className = 'card ranking-list';
@@ -36,6 +36,7 @@ export const RankingView = {
       }
       container.appendChild(list);
     } catch (error) {
+      if (!router.isCurrent(renderToken)) return;
       container.replaceChildren(); const card = document.createElement('section'); card.className = 'card empty-state'; card.textContent = error.message; container.appendChild(card);
     }
   },

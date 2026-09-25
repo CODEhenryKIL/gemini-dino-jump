@@ -2,7 +2,17 @@
 
 작성일: 2026-09-26 KST. 작업 브랜치: `codex/phase2-ux-game-conversion`.
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
-상태: **로컬 구현·회귀·독립 검토 완료. 원격 migration 적용 완료. 새 Preview 연결·원격 기본 사용 동선 검증 완료. 사용자 지정 Smile/Heart 적용·로컬 엔진 프레임 측정 완료. 2차 부하 미실행.**
+상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart Preview 적용 완료. 아래 복귀·수령 보완은 로컬 검증 완료, Preview 미반영. 2차 부하는 사용자 지시로 보류.**
+
+## 2026-09-26 화면·복귀 보완
+
+- 서버 상태를 갱신할 때 홈의 게임권 숫자·시작/복원 버튼과 초대 화면의 지급·사용·환급·방문 현황도 함께 갱신한다. 화면 전체를 다시 만들지 않아 공유 목적과 입력 중인 폼을 유지한다.
+- 만료된 `cooldown_until`을 현재 적립 대기로 표시하지 않는다. 새 쿨다운 안내는 게임·수령 입력을 방해하지 않는 화면에서 같은 종료시각에 한 번 노출한다.
+- 랭킹·초대·복주머니·수령함을 떠난 뒤 도착한 실패 응답이 새 화면을 덮지 않는다. 복주머니 화면 재진입과 긁기 저장도 요청 당시 토큰으로 검사한다.
+- TOP3 정보 제출 후에도 기존 게임 버전 출처를 보존한다. 과거 폼 제출이 늦게 끝나도 현재 화면을 이동시키거나 새 모달을 닫지 않는다.
+- 신규 수령 접수에 학교를 필수로 요구한다. 화면과 서버에서 빈칸을 거절하고 합성 정보 제한을 유지한다. 이미 접수된 요청의 재호출과 기존 데이터는 보존한다.
+- 검증: 전체 Node **84개**, 전체 Python **169개** 통과. 로컬 Chromium에서 게임권 0장인 홈의 시작 제한과 초대 현황 표시를 확인했다. 초대권 적립 후 갱신·늦은 응답·학교 누락 시 상태 보존은 자동 회귀로 확인했다.
+- 이번 보완에서 원격 DB 변경·새 Preview 배포·부하 테스트는 실행하지 않았다. 사용자 요청에 따라 화면·기능 개선을 우선한다.
 
 ## 구현 범위
 
@@ -22,8 +32,8 @@
 
 ### 자동 테스트
 
-- 최종 로컬 전체 Python 회귀: **168개 통과** (`python -m unittest discover -s tests -p 'test_*.py' -v`).
-- 전체 Node 화면·게임 테스트: **71개 통과** (`node --test tests/*.test.cjs`).
+- 최신 로컬 전체 Python 회귀: **169개 통과** (`python -m unittest discover -s tests -p 'test_*.py' -v`).
+- 전체 Node 화면·게임 테스트: **84개 통과** (`node --test tests/*.test.cjs`).
 - `git diff --check` 및 변경 Python/JavaScript 문법 검사 통과.
 - 새 게임 JS/Python 비교에서 동일 seed/입력으로 코인 점수·하트 획득·2회 부활·최종 충돌 결과 일치를 확인했다.
 - 로컬 migration 신규 DB 적용·반복 적용, 범위 밖 테이블 보존, 별도 점수 테이블 연결 검증을 포함한다.
@@ -78,7 +88,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 기존 Preview의 `/api/health`는 migration 후에도 `database=ready`로 정상. Vercel 보호 설정은 유지한다.
 - 승인 후 Preview `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71`에서 `database=ready`, `environment=preview`, `synthetic_only=true`, `/api/config`의 `game_version=2.0.0`을 확인했다.
 - Smile/Heart 적용 최신 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다.
-- 해당 Preview 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
+- `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71` 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. Smile/Heart Preview에서는 신규 참가자 기본권 1장 → 32점 서버 승인·1위 표시까지 별도로 확인했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
 
 ## 비밀 설정 노출 점검
 
@@ -89,8 +99,8 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 
 ## 다음 검증과 3차 인계
 
-1. Smile/Heart 적용 Preview를 재배포하고 공유 URL·쿠키·원격 수령·집계를 추가 확인.
-2. [2차 부하 계획](phase2-load-plan.md): 100 VU + 200 VU 한 번씩, 예약 390초, 최대 6,632회 예상 요청. 별도 승인 한도는 12분/10,000회이며 아직 승인·실행되지 않았다. 1차 시험 예산은 그대로 보존.
+1. 사용자 화면·기능 개선을 우선하고, 개선본 Preview에서 공유 URL·쿠키·원격 수령·집계를 추가 확인. 위 로컬 보완은 아직 배포되지 않았다.
+2. [2차 부하 계획](phase2-load-plan.md)은 **2026-09-26 사용자 지시로 보류**한다. 사용자가 재개를 요청하기 전에는 참가자 준비·원격 부하를 진행하지 않는다. 기존 계획의 시간/요청 한도는 제안값이며 승인된 예산이 아니다. 1차 시험 예산은 그대로 보존한다.
 3. [로컬 브라우저 프레임·10회 엔진 정리 측정](phase2-browser-performance.md)을 완료했다. 빈 RAF도 약 30Hz인 IAB 환경에서 스테이지/부활 경계 지연 증가나 listener/RAF 잔류는 관측하지 않았다. 10회 완전 플레이, 전체 화면 애니메이션, 실기기·인앱 브라우저·네이티브 공유는 추가 검증 범위다. HTTP 테스트로 모바일 FPS 통과를 대신하지 않는다.
 4. 실제 경품/확률/재고/기간, 대학생 인증 방식, 개인정보 안내, 동점 최종 수상 규칙, Google 공식 혜택은 3차 확정.
 5. 4.26 체험담·사진 예시는 실자료를 받아 확정한다. Notion 원문 CTA 수정·게시 여부와 경유 추적 승인도 별도로 확인한다.

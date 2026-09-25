@@ -28,6 +28,77 @@ function node() {
   };
 }
 
+test('home enables a newly earned ticket and uses the latest pending game after a passive refresh', () => {
+  const nodes = new Map();
+  const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
+  const routes = [];
+  const view = loadView('public/js/views/home.js', 'HomeView', {
+    ui: { showModal() {} }, analytics: { track() {} },
+    localStorage: { getItem: () => 'true' },
+  });
+  const router = { state: { tickets: { initial: 0, invitation: 0 }, bestScore: 32 }, navigate: (route) => routes.push(route) };
+  view.render(container, router);
+  const start = nodes.get('#btn-start-jump');
+  assert.equal(start.disabled, true);
+  router.state.tickets = { initial: 0, invitation: 1 };
+  view.updateState(container, router);
+  assert.equal(start.disabled, false);
+  assert.equal(start.textContent, '공룡 점프 시작');
+  assert.equal(nodes.get('#home-invite-ticket').textContent, '1장');
+  start.onclick();
+  assert.deepEqual(routes, ['game']);
+  router.state.tickets = { initial: 0, invitation: 0 };
+  router.state.pendingGameSession = { status: 'ACTIVE' };
+  view.updateState(container, router);
+  assert.equal(start.disabled, false);
+  assert.equal(start.textContent, '진행 중 게임 복원');
+  start.onclick();
+  assert.deepEqual(routes, ['game', 'game']);
+});
+
+test('home distinguishes expired cooldown from current waiting and explains an ended campaign accurately', () => {
+  const nodes = new Map();
+  const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
+  const view = loadView('public/js/views/home.js', 'HomeView');
+  const router = { state: { tickets: { initial: 0, invitation: 2, cooldown_until: '2000-01-01T00:00:00Z' } } };
+  view.render(container, router);
+  assert.doesNotMatch(nodes.get('#home-ticket-note').textContent, /적립 대기/);
+  router.config = { campaign: { status: 'ENDED' } };
+  view.updateState(container, router);
+  assert.match(nodes.get('#home-ticket-note').textContent, /종료/);
+  assert.doesNotMatch(nodes.get('#home-ticket-note').textContent, /다시 시작/);
+});
+
+test('prize claim preserves the form and rejects an empty school before sending the request', async () => {
+  const fields = new Map();
+  let modal;
+  let consent;
+  let submitted = 0;
+  const view = loadView('public/js/views/prize_view.js', 'PrizeView', {
+    document: { createElement(tag) { const item = node(); if (tag === 'input') consent = item; return item; } },
+    analytics: { track() {} },
+    api: { submitClaim: async () => { submitted += 1; } },
+    ui: {
+      formField(_label, _type, name, options) {
+        const input = { name, required: options.required, value: '' };
+        fields.set(name, input);
+        return { label: node(), input };
+      },
+      showModal(value) { modal = value; }, showToast() {},
+    },
+  });
+  view.claimModal({ id: 'claim-1', claim_type: 'DRAW' }, { announceStateChange() {}, navigate() {} });
+  consent.checked = true;
+  fields.get('school').value = '   ';
+  assert.equal(await modal.onConfirm(), false);
+  assert.equal(submitted, 0);
+  assert.equal(fields.get('name').value, 'TEST_사용자');
+  fields.get('school').value = 'TEST_학교';
+  fields.get('address').value = '';
+  await modal.onConfirm();
+  assert.equal(submitted, 1);
+});
+
 test('TOP3 gap copy handles server states without promising a prize', () => {
   const view = loadView('public/js/views/result_view.js', 'ResultView');
   assert.match(view.top3GapMessage({ rank: 2, top3_gap: { status: 'IN_TOP3', rank: 2, tied: false, participant_count: 8 } }), /현재 2위로 TOP3/);
@@ -53,9 +124,10 @@ test('record sharing emits a public URL with explicit context and authoritative 
   const nodes = new Map(selectors.map((selector) => [selector, node()]));
   const copied = [];
   const events = [];
+  let referral = { invite_url: '/invite/publiccode123', invitation_balance: 2, valid_visits: 7, ticket_totals: { granted: 5, used: 2, refunded: 1 } };
   const view = loadView('public/js/views/invite_view.js', 'InviteView', {
     api: {
-      getReferralInfo: async () => ({ invite_url: '/invite/publiccode123', invitation_balance: 2, valid_visits: 7, ticket_totals: { granted: 5, used: 2, refunded: 1 } }),
+      getReferralInfo: async () => referral,
       createRequestId: () => 'share_phase2_1234',
     },
     analytics: { track: (name, dimensions = {}) => events.push({ name, dimensions }) },
@@ -75,6 +147,18 @@ test('record sharing emits a public URL with explicit context and authoritative 
     { share_method: 'copy', share_id: 'share_phase2_1234', link_kind: 'record_share', status: 'attempted' },
     { share_method: 'copy', share_id: 'share_phase2_1234', link_kind: 'record_share', status: 'copied' },
   ]);
+  referral = { ...referral, invitation_balance: 3, valid_visits: 8, cooldown_until: '2000-01-01T00:00:00Z', ticket_totals: { granted: 6, used: 2, refunded: 1 } };
+  await view.updateState(container, { isCurrent: () => true }, 1);
+  assert.equal(nodes.get('#invite-balance').textContent, '3장');
+  assert.equal(nodes.get('#valid-visits').textContent, '8회');
+  assert.equal(nodes.get('#ticket-granted').textContent, '6장');
+  assert.doesNotMatch(nodes.get('#invite-cooldown').textContent, /적립 대기 중/);
+  await nodes.get('#btn-copy-link').onclick();
+  assert.equal(copied[1], copied[0], 'passive refresh preserves record_share context');
+  assert.equal(events.filter(({ name }) => name === 'invite_cta_viewed').length, 1);
+  referral = { ...referral, invitation_balance: 1 };
+  await view.updateState(container, { isCurrent: () => false }, 1);
+  assert.equal(nodes.get('#invite-balance').textContent, '3장', 'an older response must not change the current screen');
 });
 
 test('restored scratched draw reveals the same server result without another draw or completion request', async () => {

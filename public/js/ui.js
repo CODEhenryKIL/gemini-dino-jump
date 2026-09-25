@@ -50,7 +50,7 @@ export const ui = {
       confirm.disabled = true;
       try {
         const shouldClose = await onConfirm?.();
-        if (shouldClose !== false) this.hideModal();
+        if (shouldClose !== false && document.getElementById('common-modal-overlay') === overlay) this.hideModal();
       } finally {
         if (document.body.contains(confirm)) confirm.disabled = false;
       }
@@ -59,7 +59,7 @@ export const ui = {
     card.append(heading, body, actions);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
-    queueMicrotask(() => confirm.focus());
+    queueMicrotask(() => { if (document.body.contains(confirm)) confirm.focus(); });
   },
   hideModal() { document.getElementById('common-modal-overlay')?.remove(); },
   formField(labelText, type, name, { required = true, maxlength = 80, autocomplete = 'off' } = {}) {

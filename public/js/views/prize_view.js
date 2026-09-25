@@ -26,8 +26,9 @@ export const PrizeView = {
       const text = document.createElement('p'); text.textContent = '경품은 자동 발급되지 않습니다. 정보를 접수하면 관리자가 확인하고 직접 연락한 뒤 지급 상태를 변경합니다.';
       intro.append(heading, text); container.appendChild(intro);
       if (!claims.length) return this.renderEmpty(container, router);
-      for (const claim of claims) container.appendChild(this.claimCard(claim, router));
+      for (const claim of claims) container.appendChild(this.claimCard(claim, router, renderToken));
     } catch (error) {
+      if (!router.isCurrent(renderToken)) return;
       container.replaceChildren();
       const card = document.createElement('section'); card.className = 'card empty-state';
       const p = document.createElement('p'); p.textContent = error.message || '수령함을 불러오지 못했습니다.';
@@ -42,7 +43,7 @@ export const PrizeView = {
     card.append(title, button); container.appendChild(card);
   },
 
-  claimCard(claim, router) {
+  claimCard(claim, router, renderToken) {
     const card = document.createElement('article'); card.className = 'card claim-card';
     const header = document.createElement('div'); header.className = 'claim-card-header';
     const name = document.createElement('h2'); name.textContent = claim.prize_name || '경품';
@@ -54,7 +55,7 @@ export const PrizeView = {
     card.append(header, type, help);
     if (!claim.contact_submitted && !['PAID', 'INELIGIBLE'].includes(claim.status)) {
       const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = '합성 테스트 수령 정보 입력';
-      button.onclick = () => this.claimModal(claim, router); card.appendChild(button);
+      button.onclick = () => this.claimModal(claim, router, renderToken); card.appendChild(button);
     }
     if (claim.contact_submitted || ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID', 'ON_HOLD', 'NO_RESPONSE'].includes(claim.status)) {
       const benefit = document.createElement('a'); benefit.className = 'btn btn-secondary btn-sm'; benefit.href = '#benefit'; benefit.textContent = 'Gemini 혜택과 활용 가이드 보기'; benefit.onclick = (event) => { event?.preventDefault?.(); router.navigate?.('benefit'); }; card.appendChild(benefit);
@@ -63,14 +64,14 @@ export const PrizeView = {
     return card;
   },
 
-  claimModal(claim, router) {
+  claimModal(claim, router, renderToken = router.renderToken) {
     const claimType = claim.claim_type || claim.type || 'DRAW';
     analytics.track('claim_form_started', { claim_type: claimType });
     const form = document.createElement('form'); form.className = 'stack-form';
     const definitions = [
-      ['이름 (테스트 정보)', 'text', 'name', 30], ['연락처 (테스트 정보)', 'text', 'contact', 60], ['학교 (선택)', 'text', 'school', 60], ['주소 (필요한 경우)', 'text', 'address', 120],
+      ['이름 (테스트 정보)', 'text', 'name', 30], ['연락처 (테스트 정보)', 'text', 'contact', 60], ['학교 (테스트 정보)', 'text', 'school', 60], ['주소 (필요한 경우)', 'text', 'address', 120],
     ];
-    const fields = definitions.map(([label, type, name, maxlength]) => ui.formField(label, type, name, { required: name !== 'school' && name !== 'address', maxlength }));
+    const fields = definitions.map(([label, type, name, maxlength]) => ui.formField(label, type, name, { required: name !== 'address', maxlength }));
     fields[0].input.value = 'TEST_사용자';
     fields[1].input.value = '01000000000';
     fields[2].input.value = 'TEST_학교';
@@ -87,8 +88,13 @@ export const PrizeView = {
         try {
           await api.submitClaim(claim.id, Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])));
           analytics.track('claim_form_submitted', { claim_type: claimType });
-          router.announceStateChange(); router.navigate('claims');
-        } catch (error) { ui.showToast(error.message); return false; }
+          router.announceStateChange();
+          if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
+          router.navigate('claims');
+        } catch (error) {
+          if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
+          ui.showToast(error.message); return false;
+        }
       },
     });
   },

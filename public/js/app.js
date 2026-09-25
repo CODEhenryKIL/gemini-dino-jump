@@ -37,7 +37,7 @@ class AppRouter {
     };
     this.views = { home: HomeView, game: GameView, result: ResultView, draw: DrawView, claims: PrizeView, ranking: RankingView, invite: InviteView, benefit: BenefitView };
     this.channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('dino-state') : null;
-    this.channel?.addEventListener('message', () => this.refreshState({ quiet: true }));
+    this.channel?.addEventListener('message', () => this.refreshState({ quiet: true }).catch(() => {}));
   }
 
   async init() {
@@ -210,6 +210,10 @@ class AppRouter {
       this.state.top3Profile = me.top3_profile || this.state.top3Profile;
       this.state.pendingGameSession = me.pending_game_session || null;
       this.updateNav();
+      if (this.initialized) {
+        await this.views[this.currentView]?.updateState?.(this.container, this, this.renderToken);
+        this.showCooldownNotice();
+      }
       return me;
     } catch (error) {
       if (!quiet) ui.showToast(error.message);
@@ -241,7 +245,10 @@ class AppRouter {
       renderResult = Promise.reject(error);
     }
     const renderPromise = Promise.resolve(renderResult).then(
-      () => ({ ok: true, current: this.isCurrent(renderToken), error: null }),
+      () => {
+        if (this.initialized && this.isCurrent(renderToken)) this.showCooldownNotice();
+        return { ok: true, current: this.isCurrent(renderToken), error: null };
+      },
       (error) => {
         if (this.isCurrent(renderToken) && this.initialized) ui.showToast(error?.message || '화면을 불러오지 못했습니다.');
         return { ok: false, current: this.isCurrent(renderToken), error };
@@ -292,6 +299,10 @@ class AppRouter {
 
   showCooldownNotice() {
     const until = this.state.tickets.cooldown_until;
+    if (!this.state.tickets.cooldown_notice_pending || !(new Date(until).getTime() > Date.now())) return;
+    if (this.cooldownNoticeShownUntil === until || document.getElementById('common-modal-overlay')) return;
+    if (!['home', 'invite', 'result', 'ranking', 'benefit'].includes(this.currentView)) return;
+    this.cooldownNoticeShownUntil = until;
     ui.showModal({
       title: '초대권이 3장이 되었어요',
       content: `${new Date(until).toLocaleString('ko-KR')}까지 새 초대권 추가 적립이 쉽니다. 가진 게임권은 지금 사용할 수 있고, 대기 중 방문은 자동 이월되지 않습니다.`,
@@ -299,7 +310,7 @@ class AppRouter {
       onConfirm: async () => {
         try {
           await api.acknowledgeCooldown(until);
-          this.state.tickets.cooldown_notice_pending = false;
+          if (this.state.tickets.cooldown_until === until) this.state.tickets.cooldown_notice_pending = false;
         } catch (error) {
           ui.showToast(error.message);
           return false;

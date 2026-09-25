@@ -25,7 +25,7 @@ export const ResultView = {
     ui.text(container.querySelector('#result-nickname'), router.state.participant?.nickname || '익명 러너');
     container.querySelector('#btn-go-pouch').onclick = () => router.navigate('draw');
     container.querySelector('#btn-share-record').onclick = () => { router.shareContext = 'record_share'; router.navigate('invite'); };
-    container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router);
+    container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router, renderToken);
     const profile = router.state.top3Profile || result.top3Profile;
     if (profile?.required || profile?.status === 'REQUESTED') this.renderTop3Request(container.querySelector('#top3-request'), router, profile);
     if (result.top3_gap == null && typeof api !== 'undefined' && typeof api.getLeaderboard === 'function') {
@@ -63,7 +63,7 @@ export const ResultView = {
     return 'TOP3 기준을 계산하는 중이에요.';
   },
 
-  nicknameModal(router) {
+  nicknameModal(router, renderToken) {
     const field = ui.formField('닉네임', 'text', 'nickname', { maxlength: 12, autocomplete: 'nickname' });
     field.input.value = router.state.participant?.nickname || '';
     ui.showModal({
@@ -73,10 +73,14 @@ export const ResultView = {
         if (nickname.length < 2) { ui.showToast('닉네임은 2자 이상 입력해 주세요.'); return false; }
         try {
           const participant = await api.updateProfile({ nickname });
+          if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
           router.state.participant = participant.participant || participant;
           api.participant = router.state.participant;
           router.navigate('result');
-        } catch (error) { ui.showToast(error.message); return false; }
+        } catch (error) {
+          if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
+          ui.showToast(error.message); return false;
+        }
       },
     });
   },
@@ -90,7 +94,7 @@ export const ResultView = {
     const button = document.createElement('button'); button.className = 'btn btn-secondary btn-sm';
     button.textContent = profile.status === 'SUBMITTED' ? '정보 접수 완료' : '합성 테스트 정보 입력';
     button.disabled = profile.status === 'SUBMITTED';
-    button.onclick = () => this.top3Modal(router);
+    button.onclick = () => this.top3Modal(router, router.renderToken);
     card.append(title, text, button); target.appendChild(card);
   },
 
@@ -109,7 +113,7 @@ export const ResultView = {
     };
   },
 
-  top3Modal(router) {
+  top3Modal(router, renderToken = router.renderToken) {
     analytics.track('top3_profile_started');
     const form = document.createElement('form'); form.className = 'stack-form';
     const fields = [
@@ -131,11 +135,16 @@ export const ResultView = {
         if (!checkbox.checked || fields.some(({ input }) => !input.value.trim())) { ui.showToast('모든 항목과 테스트 정보 확인을 완료해 주세요.'); return false; }
         try {
           const submitted = await api.submitTop3Profile(Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])));
-          analytics.track('top3_profile_submitted');
-          router.state.top3Profile = { required: true, status: submitted.status || 'SUBMITTED' };
+          const previousProfile = router.state.top3Profile || {};
+          router.state.top3Profile = { ...previousProfile, required: true, status: submitted.status || 'SUBMITTED', submitted_at: submitted.submitted_at || previousProfile.submitted_at };
           if (router.state.lastResult) router.state.lastResult.top3Profile = router.state.top3Profile;
+          analytics.track('top3_profile_submitted');
+          if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
           router.navigate('result');
-        } catch (error) { ui.showToast(error.message); return false; }
+        } catch (error) {
+          if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
+          ui.showToast(error.message); return false;
+        }
       },
     });
   },
