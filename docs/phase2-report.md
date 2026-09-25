@@ -77,6 +77,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 기존 1차 배포는 전용 DB 연결 정보를 배포 단위로 전달하는 방식이었다. 같은 전용 설정을 새 Preview에만 전달하는 재배포가 자동 승인 검사에서 민감 정보 전송 승인을 요구하며 차단됐다. 이후 사용자가 기존 DB 비밀번호·쿠키 검증 비밀값의 동일 Vercel 프로젝트 Preview 적용을 명시적으로 승인했다.
 - 기존 Preview의 `/api/health`는 migration 후에도 `database=ready`로 정상. Vercel 보호 설정은 유지한다.
 - 승인 후 Preview `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71`에서 `database=ready`, `environment=preview`, `synthetic_only=true`, `/api/config`의 `game_version=2.0.0`을 확인했다.
+- Smile/Heart 적용 최신 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다.
 - 해당 Preview 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
 
 ## 비밀 설정 노출 점검
