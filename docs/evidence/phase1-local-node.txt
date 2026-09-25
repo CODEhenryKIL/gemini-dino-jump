@@ -1,31 +1,33 @@
-✔ home presents only Dino Jump and starts it after the guide (5.524542ms)
-✔ returning players start Dino Jump directly (0.882875ms)
-✔ Dino Jump runtime has no Gate Runner navigation or port dependency (2.337875ms)
-✔ participant API uses HttpOnly cookie transport and never browser token storage (7.622625ms)
-✔ analytics batch transport retries a lost request with the exact generated idempotency key (0.825833ms)
-✔ rebatching the same first event gets a fresh request key and relies on event IDs for deduplication (1.220708ms)
-✔ lost finish retries retain an exact key and a PII-free payload (0.851958ms)
-✔ invite qualification requires both active time and interaction and GET cannot reward (0.364875ms)
-✔ draw is participant-scoped, resumes from server, and scratch listeners are cleaned up (0.690083ms)
-✔ claim UI uses the server claim_type field for DRAW and RANKING records (1.364792ms)
-✔ admin uses real Supabase Auth and optimistic manual claim transitions (0.814833ms)
-✔ client event envelope is allowlisted and excludes private arbitrary payloads (0.824417ms)
-✔ blocked web storage cannot crash participant or game bootstrap (0.401083ms)
-✔ a consumed ticket does not block access to an existing game or fault recovery (0.509791ms)
-✔ fault recovery persists only non-PII evidence and reconciles rejected checkpoints (0.679875ms)
-✔ scratch completion keeps a stable retry key and does not claim completion after failure (0.296875ms)
-✔ share attribution uses an opaque approved parameter and records outcomes separately (0.436875ms)
-✔ admin isolates contact operations and renders metric definitions and full breakdowns (0.7715ms)
-✔ hidden views leave the accessibility tree and Gemini exposure requires visibility (0.485208ms)
-✔ a persistent TOP3 request remains actionable after result state is gone (0.22375ms)
-✔ public metadata uses the deployment site name while retaining Dino Jump (0.179458ms)
-✔ Vercel pageviews remove invite codes, query strings, fragments and extra payload (1.648167ms)
-✔ Vercel rejects private/unknown routes, offsite URLs and custom events (0.527541ms)
-ℹ tests 23
+✔ home presents only Dino Jump and starts it after the guide (3.040167ms)
+✔ returning players start Dino Jump directly (0.554833ms)
+✔ Dino Jump runtime has no Gate Runner navigation or port dependency (3.033458ms)
+✔ participant API uses HttpOnly cookie transport and never browser token storage (2.743542ms)
+✔ analytics batch transport retries a lost request with the exact generated idempotency key (0.658375ms)
+✔ rebatching the same first event gets a fresh request key and relies on event IDs for deduplication (0.825834ms)
+✔ lost finish retries retain an exact key and a PII-free payload (0.371666ms)
+✔ verified finish clears only its pending reservation and accepts authoritative ticket state (2.66075ms)
+✔ invite qualification requires both active time and interaction and GET cannot reward (0.463208ms)
+✔ draw is participant-scoped, resumes from server, and scratch listeners are cleaned up (0.800291ms)
+✔ claim UI uses the server claim_type field for DRAW and RANKING records (0.488458ms)
+✔ admin uses real Supabase Auth and optimistic manual claim transitions (1.269167ms)
+✔ client event envelope is allowlisted and excludes private arbitrary payloads (0.939292ms)
+✔ blocked web storage cannot crash participant or game bootstrap (0.328042ms)
+✔ a consumed ticket does not block access to an existing game or fault recovery (0.142916ms)
+✔ fault recovery persists only non-PII evidence and reconciles rejected checkpoints (0.243375ms)
+✔ scratch completion keeps a stable retry key and does not claim completion after failure (0.171167ms)
+✔ share attribution uses an opaque approved parameter and records outcomes separately (0.406084ms)
+✔ admin isolates contact operations and renders metric definitions and full breakdowns (0.681792ms)
+✔ hidden views leave the accessibility tree and Gemini exposure requires visibility (0.534125ms)
+✔ a persistent TOP3 request remains actionable after result state is gone (0.219ms)
+✔ submitted TOP3 state wins over a stale requested result when result screen rerenders (0.978334ms)
+✔ public metadata uses the deployment site name while retaining Dino Jump (0.29975ms)
+✔ Vercel pageviews remove invite codes, query strings, fragments and extra payload (1.358208ms)
+✔ Vercel rejects private/unknown routes, offsite URLs and custom events (0.182375ms)
+ℹ tests 25
 ℹ suites 0
-ℹ pass 23
+ℹ pass 25
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 83.523542
+ℹ duration_ms 77.831333

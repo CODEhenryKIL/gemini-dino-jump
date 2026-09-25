@@ -57,3 +57,11 @@ Vercel 보호 설정은 유지합니다. 자동 검증에는 승인된 임시 �
 - [Vercel Python 런타임](https://vercel.com/docs/functions/runtimes/python): 2026-09-25 확인, Python 3.12 지원.
 - [Supabase 연결 방식](https://supabase.com/docs/guides/database/connecting-to-postgres): 서버리스 트랜잭션 풀러와 TLS 설정 참고.
 - [Supabase 변경 기록](https://supabase.com/changelog): 2026-09-25 확인. 기존 `logs.all` 관리 API 제거에 주의하며 기존 데이터·Realtime 스키마를 변경하지 않음.
+
+## DB 연결 재사용과 503 진단
+
+- 서버 프로세스별 DB 연결은 최대 8개이며 Supabase transaction pooler를 사용한다. 요청마다 TLS 연결을 새로 만들지 않고, 성공 후 트랜잭션이 종료된 연결만 재사용한다.
+- 연결 수명 300초·유휴 60초를 넘기면 폐기한다. 5초 넘게 유휴 상태였던 연결은 업무 처리 전에 확인한다. 업무 처리 도중 오류가 나면 연결을 폐기하며 변경 요청을 자동 재실행하지 않는다.
+- statement/lock/idle transaction 제한은 `SET LOCAL`로 요청 트랜잭션에만 적용한다. 환경·스키마 버전·전용 역할 검사는 매 요청 수행한다.
+- 안전한 요청 로그의 `database_failure`는 연결 대기 초과일 때 `pool_wait`, 설정 오류는 `configuration`, PostgreSQL 오류는 SQLSTATE 또는 `connection`이다. 비밀번호·SQL 원문·연락처는 로그에 넣지 않는다.
+- 503이나 지연이 증가하면 Preview 요청 로그와 `pg_stat_activity`의 연결·잠금 대기를 함께 확인한다. 역할 연결 한도 또는 DB 규모를 자동 확대하지 않는다.

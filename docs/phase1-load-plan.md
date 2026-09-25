@@ -50,6 +50,31 @@ Remote runs require exactly 5,000 unique entries; the maximum is also 5,000. Raw
 
 The ledger locks before any run. It reserves the full time budget before preflight, permanently advances the participant cursor before a flow, admits each API call before network I/O, and records completion only after an HTTP response. A crash therefore consumes budget and participants conservatively. There is intentionally no reset command. Use a new ledger only for a genuinely new approved phase budget, preserving the old ledger as evidence.
 
+### Audited redeployment resume
+
+When a code fix creates a new immutable Vercel deployment, keep the original cohort manifest and cumulative ledger unchanged and use the explicit resume flags. The runner first validates the manifest against its original immutable URL and deployment ID. It then validates the new immutable `*.vercel.app` URL through `/api/health` and `/api/config`, requiring the new deployment ID and the same Supabase project, `dino_dev` schema, campaign, and participant identity digest. Only after those checks does it atomically move the existing participant cursor to the new cohort fingerprint.
+
+The ledger records both immutable URLs and deployment IDs, the project/schema/campaign proof, the participant identity digest, and the cursor at migration. The original fingerprint is retired so it cannot restart at participant zero. Admitted/completed calls, prior run records, and reserved seconds are retained; there is no budget reset or refund. Actual runtime remains a separate report field and never reduces the cumulative reserved duration.
+
+The current resume invocation is:
+
+```bash
+.venv/bin/python scripts/phase1_load.py \
+  --mode remote \
+  --profile full \
+  --base-url https://dino-nanobanana-1aacrhim0-henry-kils-projects.vercel.app \
+  --expected-deployment-id dpl_DtuPX3jMcdSm3juRS6wU7aZ6fEjw \
+  --resume-from-base-url https://dino-nanobanana-hvpbyc6w6-henry-kils-projects.vercel.app \
+  --resume-from-deployment-id dpl_3zhwHtPzAdSvx9mBY7JfPerpK1zN \
+  --expected-project-ref igfrnexknwtiljdqjrbp \
+  --cohort .local/phase1/remote-cohort.json \
+  --ledger .local/phase1/remote-load-budget.json \
+  --report .local/phase1/remote-load-report-rerun.json \
+  --deployment-auth-cookie-file .local/phase1/deployment-auth-cookie
+```
+
+The first attempt reserved 784 seconds, including the separate invitation probe. This full rerun reserves 780 seconds, bringing the immutable cumulative reservation to 1,564 of 1,800 seconds and leaving 236 seconds. The report records its measured runtime separately. An in-progress run is not evidence that the stages or performance targets passed; completion and reconciliation must be read from the final report and database checks.
+
 ## Fail-closed Preview checks
 
 Before load, `/api/health`, `/api/config`, the cohort, and command arguments must agree on:

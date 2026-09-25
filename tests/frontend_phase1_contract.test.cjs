@@ -28,6 +28,15 @@ function loadApi(fetchImpl) {
   return context.loadedApi;
 }
 
+function loadView(file, exportName, globals = {}) {
+  const source = read(file)
+    .replace(/^import .*;\n/gm, '')
+    .replace(`export const ${exportName}`, `const ${exportName}`);
+  const context = { console, ...globals };
+  vm.runInNewContext(`${source}\nglobalThis.loadedView = ${exportName};`, context);
+  return context.loadedView;
+}
+
 test('participant API uses HttpOnly cookie transport and never browser token storage', async () => {
   const calls = [];
   const api = loadApi(async (url, options) => {
@@ -92,6 +101,39 @@ test('lost finish retries retain an exact key and a PII-free payload', () => {
   assert.match(game, /정상 종료나 자발적 이탈은 환급 대상이 아닙니다/);
   assert.match(game, /같은 게임 이어하기/);
   assert.doesNotMatch(game, /pending\.status !== 'FAULT_REPORTED'\) await api\.reportSessionFault/);
+});
+
+test('verified finish clears only its pending reservation and accepts authoritative ticket state', () => {
+  const view = loadView('public/js/views/game_view.js', 'GameView');
+  const makeRouter = (ticketKind, invitationReserved = 1) => ({
+    state: {
+      pendingGameSession: { id: 'gs-1', ticket_kind: ticketKind },
+      tickets: { initial: 0, invitation: 2, invitation_reserved: invitationReserved, available_total: 2 },
+      bestScore: 0, rank: null, draw: { status: 'AVAILABLE' }, top3Profile: { status: 'NOT_REQUIRED' },
+    },
+    updateCount: 0,
+    updateNav() { this.updateCount += 1; },
+  });
+  const result = { session_id: 'gs-1', score: 32, best_score: 32, rank: 1, verification: 'VERIFIED' };
+
+  const invitation = makeRouter('INVITATION');
+  view.ticketKind = 'INITIAL'; // stale view state must not override the matching recovered pending session.
+  view.acceptResult(result, invitation);
+  assert.equal(invitation.state.pendingGameSession, null);
+  assert.equal(invitation.state.tickets.invitation_reserved, 0);
+  assert.equal(invitation.updateCount, 1);
+
+  const initial = makeRouter('INITIAL', 2);
+  view.ticketKind = 'INVITATION';
+  view.acceptResult(result, initial);
+  assert.equal(initial.state.pendingGameSession, null);
+  assert.equal(initial.state.tickets.invitation_reserved, 2);
+
+  const authoritative = makeRouter('INVITATION');
+  const serverTickets = { initial: 0, invitation: 1, invitation_reserved: 7, available_total: 1 };
+  view.acceptResult({ ...result, tickets: serverTickets }, authoritative);
+  assert.equal(authoritative.state.tickets, serverTickets);
+  assert.equal(authoritative.state.tickets.invitation_reserved, 7);
 });
 
 test('invite qualification requires both active time and interaction and GET cannot reward', () => {
@@ -268,6 +310,41 @@ test('a persistent TOP3 request remains actionable after result state is gone', 
   assert.match(ranking, /router\.state\.top3Profile\?\.status === 'REQUESTED'/);
   assert.match(ranking, /ResultView\.top3Modal\(router\)/);
   assert.match(ranking, /새로고침하거나 현재 순위가 내려가도/);
+});
+
+test('submitted TOP3 state wins over a stale requested result when result screen rerenders', () => {
+  const created = [];
+  const makeNode = (tag = 'div') => ({
+    tag, children: [], disabled: false, textContent: '',
+    append(...nodes) { this.children.push(...nodes); },
+    appendChild(node) { this.children.push(node); },
+  });
+  const nodes = new Map([
+    ['#result-score', makeNode()], ['#result-best', makeNode()], ['#result-rank', makeNode()],
+    ['#result-nickname', makeNode()], ['#btn-go-pouch', makeNode('button')],
+    ['#btn-share-record', makeNode('button')], ['#btn-edit-nick', makeNode('button')],
+    ['#top3-request', makeNode()],
+  ]);
+  const documentMock = {
+    createElement(tag) { const node = makeNode(tag); created.push(node); return node; },
+  };
+  const container = { innerHTML: '', querySelector(selector) { return nodes.get(selector); } };
+  const router = {
+    state: {
+      lastResult: { score: 32, bestScore: 32, rank: 1, top3Profile: { required: true, status: 'REQUESTED' } },
+      top3Profile: { required: true, status: 'SUBMITTED' }, participant: { nickname: '공룡1234' },
+    },
+    navigate() {},
+  };
+  const view = loadView('public/js/views/result_view.js', 'ResultView', {
+    document: documentMock,
+    ui: { text(node, value) { node.textContent = String(value); } },
+  });
+  view.render(container, router);
+  const button = created.find((node) => node.tag === 'button' && node.textContent === '정보 접수 완료');
+  assert.ok(button);
+  assert.equal(button.disabled, true);
+  assert.equal(created.some((node) => node.textContent === '합성 테스트 정보 입력'), false);
 });
 
 test('public metadata uses the deployment site name while retaining Dino Jump', () => {

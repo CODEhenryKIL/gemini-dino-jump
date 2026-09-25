@@ -14,6 +14,7 @@ function storageRemove(key) { try { sessionStorage.removeItem(key); } catch (_) 
 export const GameView = {
   engine: null,
   sessionId: null,
+  ticketKind: null,
   cleanupTasks: [],
   countdownTimer: null,
   completing: false,
@@ -122,6 +123,7 @@ export const GameView = {
     const session = await api.createSession();
     if (!router.isCurrent(renderToken)) return;
     this.sessionId = session.session_id;
+    this.ticketKind = session.ticket_kind || null;
     storageSet(`${CHECKPOINT_PREFIX}${this.sessionId}`, '0');
     await router.refreshState({ quiet: true });
     this.bindEngine(container, router, renderToken, session.seed);
@@ -244,6 +246,13 @@ export const GameView = {
   },
 
   acceptResult(result, router) {
+    const pendingSession = router.state.pendingGameSession;
+    const ticketKind = result.ticket_kind || pendingSession?.ticket_kind || this.ticketKind;
+    router.state.pendingGameSession = null;
+    if (result.tickets) router.state.tickets = result.tickets;
+    else if (ticketKind === 'INVITATION' && Number(router.state.tickets?.invitation_reserved || 0) > 0) {
+      router.state.tickets.invitation_reserved = Math.max(0, Number(router.state.tickets.invitation_reserved) - 1);
+    }
     router.state.bestScore = result.best_score || router.state.bestScore;
     router.state.rank = result.rank ?? router.state.rank;
     router.state.lastResult = {
@@ -257,6 +266,7 @@ export const GameView = {
     };
     router.state.draw = result.draw || router.state.draw;
     router.state.top3Profile = result.top3_profile || router.state.top3Profile;
+    router.updateNav?.();
   },
 
   renderFinishRetry(container, router, error) {
@@ -354,6 +364,7 @@ export const GameView = {
   resetRuntime() {
     this.cleanup();
     this.sessionId = null;
+    this.ticketKind = null;
     this.completing = false;
     this.normalEnd = false;
     this.currentStage = 'stage_1';

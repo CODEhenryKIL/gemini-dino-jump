@@ -23,7 +23,7 @@ export const ResultView = {
     container.querySelector('#btn-go-pouch').onclick = () => router.navigate('draw');
     container.querySelector('#btn-share-record').onclick = () => { router.shareContext = 'prize_share'; router.navigate('invite'); };
     container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router);
-    const profile = result.top3Profile || router.state.top3Profile;
+    const profile = router.state.top3Profile || result.top3Profile;
     if (profile?.required || profile?.status === 'REQUESTED') this.renderTop3Request(container.querySelector('#top3-request'), router, profile);
   },
 
@@ -78,9 +78,10 @@ export const ResultView = {
       onConfirm: async () => {
         if (!checkbox.checked || fields.some(({ input }) => !input.value.trim())) { ui.showToast('모든 항목과 테스트 정보 확인을 완료해 주세요.'); return false; }
         try {
-          await api.submitTop3Profile(Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])));
+          const submitted = await api.submitTop3Profile(Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])));
           analytics.track('top3_profile_submitted');
-          router.state.top3Profile = { required: true, status: 'SUBMITTED' };
+          router.state.top3Profile = { required: true, status: submitted.status || 'SUBMITTED' };
+          if (router.state.lastResult) router.state.lastResult.top3Profile = router.state.top3Profile;
           router.navigate('result');
         } catch (error) { ui.showToast(error.message); return false; }
       },
