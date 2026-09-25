@@ -1,212 +1,160 @@
-/**
- * S05 Lucky Pouch Selection & Scratch Card Reveal View (v1.1 Specification)
- */
-
 import { api } from '../api.js';
+import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
-import { audio } from '../game/audio.js';
 import { ScratchCard } from '../components/scratch_card.js';
 
+const SCRATCH_KEY_PREFIX = 'dino_scratch_';
+function storageGet(key) { try { return sessionStorage.getItem(key); } catch (_) { return null; } }
+function storageSet(key, value) { try { sessionStorage.setItem(key, value); } catch (_) {} }
+function storageRemove(key) { try { sessionStorage.removeItem(key); } catch (_) {} }
+
 export const DrawView = {
+  scratchCard: null,
   selectedPouch: null,
-  drawResult: null,
+  renderToken: 0,
+  resultViewed: false,
 
-  async render(container, router) {
-    const lastResult = router.state.lastResult || {};
-    const sessionId = lastResult.sessionId;
-
-    if (!sessionId) {
-      ui.showToast('완료된 게임 세션이 없습니다.');
-      router.navigate('home');
-      return;
+  async render(container, router, renderToken) {
+    this.cleanup();
+    this.renderToken = renderToken;
+    container.innerHTML = '<section class="card empty-state"><p>복주머니 상태를 확인하는 중...</p></section>';
+    analytics.track('draw_entered');
+    try {
+      const state = await api.getDraw();
+      if (!router.isCurrent(renderToken)) return;
+      router.state.draw = state;
+      if (state.status === 'LOCKED') return this.renderLocked(container, router);
+      if (state.status === 'DRAWN' && state.draw) return this.renderScratch(container, router, state.draw);
+      this.renderSelection(container, router);
+    } catch (error) {
+      this.renderError(container, router, error);
     }
+  },
 
+  renderLocked(container, router) {
+    container.replaceChildren();
+    const card = document.createElement('section');
+    card.className = 'card empty-state';
+    const title = document.createElement('h2'); title.textContent = '복주머니가 아직 잠겨 있어요';
+    const text = document.createElement('p'); text.textContent = '정상 검증된 게임을 한 번 완료하면 행사당 한 번 열 수 있어요.';
+    const button = document.createElement('button'); button.className = 'btn btn-primary'; button.textContent = '게임하러 가기'; button.onclick = () => router.navigate('home');
+    card.append(title, text, button); container.appendChild(card);
+  },
+
+  renderSelection(container, router) {
     container.innerHTML = `
-      <!-- Step 1: Pouch Selection Stage -->
-      <div id="pouch-select-stage" class="card pouch-selection-container" style="text-align: center; padding: 24px 16px;">
-        <span class="sticker-badge badge-yellow">STEP 1. 행운의 주머니 선택</span>
-        <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">어떤 주머니에 행운이 있을까요?</h2>
-        <p style="font-size: 13px; color: var(--text-sub);">
-          같은 확률의 복주머니 3개 중 마음에 드는 1개를 골라주세요.
-        </p>
-
-        <!-- 3 Pouches Grid -->
+      <section class="card pouch-selection-container">
+        <span class="sticker-badge badge-yellow">행사당 한 번</span>
+        <h2>복주머니 하나를 골라주세요</h2>
+        <p>선택 순간 서버가 하나의 결과를 확정합니다. 새로고침해도 결과는 바뀌지 않아요.</p>
         <div class="pouch-grid">
-          <div class="pouch-item wiggle" data-index="0">
-            <div class="pouch-icon">🧧</div>
-            <div class="pouch-label">1번 복주머니</div>
-          </div>
-          <div class="pouch-item wiggle" data-index="1">
-            <div class="pouch-icon">🧧</div>
-            <div class="pouch-label">2번 복주머니</div>
-          </div>
-          <div class="pouch-item wiggle" data-index="2">
-            <div class="pouch-icon">🧧</div>
-            <div class="pouch-label">3번 복주머니</div>
-          </div>
+          <button class="pouch-item wiggle" data-index="0"><span class="pouch-icon">🧧</span><span class="pouch-label">1번</span></button>
+          <button class="pouch-item wiggle" data-index="1"><span class="pouch-icon">🧧</span><span class="pouch-label">2번</span></button>
+          <button class="pouch-item wiggle" data-index="2"><span class="pouch-icon">🧧</span><span class="pouch-label">3번</span></button>
         </div>
-
-        <button id="btn-open-pouch" class="btn btn-primary" style="height: 52px; opacity: 0.5; pointer-events: none;">
-          <span>선택한 주머니 열기</span>
-        </button>
-      </div>
-
-      <!-- Step 2: Scratch Lottery Stage (Initially Hidden) -->
-      <div id="scratch-stage" class="card scratch-stage-container" style="display: none; text-align: center; padding: 24px 16px;">
-        <span class="sticker-badge badge-blue">STEP 2. 즉석 복권 긁기</span>
-        <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">복권을 긁어 행운을 확인하세요!</h2>
-        <p style="font-size: 13px; color: var(--text-sub);">
-          은색 코팅을 손가락이나 마우스로 문질러보세요.
-        </p>
-
-        <!-- The Scratch Card -->
-        <div class="scratch-ticket">
-          <div class="ticket-header">
-            <span>Team Gemini Lucky Ticket</span>
-            <span id="ticket-number-label">№ 2026</span>
-          </div>
-
-          <div class="ticket-scratch-area">
-            <!-- Underneath Result Content -->
-            <div id="scratch-underlay" class="ticket-result-underlay">
-              <img id="result-prize-img" src="/assets/icons/Smile-Light.png" alt="Prize">
-              <div id="result-prize-title" class="result-title">메가커피 아메리카노</div>
-              <div id="result-prize-sub" class="result-sub">축하합니다! 즉석 경품에 당첨되었습니다.</div>
-            </div>
-
-            <!-- Silver Canvas Coating on Top -->
-            <canvas id="scratch-canvas"></canvas>
-          </div>
-        </div>
-
-        <!-- Secondary Reveal Button & Hint -->
-        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%;">
-          <div class="scratch-hint-text">
-            <span>✨ 70% 이상 긁으면 전체 내용이 자동 공개됩니다</span>
-          </div>
-
-          <button id="btn-instant-reveal" class="btn btn-secondary btn-sm" style="max-width: 220px;">
-            <span>⚡ 한 번에 확인하기</span>
-          </button>
-        </div>
-
-        <!-- Next Action Button (After Revealed) -->
-        <div id="post-reveal-actions" style="width: 100%; margin-top: 12px; display: none;">
-          <button id="btn-claim-or-retry" class="btn btn-primary" style="height: 54px;">
-            <span>결과 확인 완료</span>
-          </button>
-        </div>
-      </div>
-    `;
-
-    const selectStage = container.querySelector('#pouch-select-stage');
-    const scratchStage = container.querySelector('#scratch-stage');
-    const openBtn = container.querySelector('#btn-open-pouch');
-    const pouchItems = container.querySelectorAll('.pouch-item');
-
-    // 1. Pouch selection handlers
-    pouchItems.forEach((item) => {
-      item.onclick = () => {
-        pouchItems.forEach(p => p.classList.remove('selected'));
-        item.classList.add('selected');
-        this.selectedPouch = parseInt(item.dataset.index, 10);
-
-        openBtn.style.opacity = '1';
-        openBtn.style.pointerEvents = 'auto';
+        <button id="btn-open-pouch" class="btn btn-primary" disabled>선택한 주머니 열기</button>
+      </section>`;
+    const open = container.querySelector('#btn-open-pouch');
+    const pouches = [...container.querySelectorAll('.pouch-item')];
+    pouches.forEach((pouch) => {
+      pouch.onclick = () => {
+        pouches.forEach((item) => item.classList.toggle('selected', item === pouch));
+        this.selectedPouch = Number(pouch.dataset.index);
+        open.disabled = false;
+        analytics.track('pouch_selected', { action: `pouch_${this.selectedPouch}` });
       };
     });
-
-    // 2. Confirm selection & Open Pouch
-    openBtn.onclick = async () => {
-      if (this.selectedPouch === null) return;
-
-      // Animate selection: fade out unselected
-      pouchItems.forEach((p, idx) => {
-        if (idx !== this.selectedPouch) {
-          p.classList.add('faded');
-        }
-      });
-      openBtn.textContent = '복주머니 여는 중...';
-      openBtn.style.pointerEvents = 'none';
-
+    open.onclick = async () => {
+      open.disabled = true;
+      open.textContent = '결과 확정 중...';
       try {
-        // Call backend atomic draw API
-        const drawRes = await api.drawPouch(sessionId, this.selectedPouch);
-        this.drawResult = drawRes;
-
-        // 1.2s pouch opening animation delay
-        setTimeout(() => {
-          selectStage.style.display = 'none';
-          scratchStage.style.display = 'flex';
-          this.initScratchTicket(container, router, drawRes);
-        }, 1200);
-
-      } catch (err) {
-        ui.showToast(err.message || '추첨 처리 중 오류가 발생했습니다.');
-        router.navigate('home');
+        const response = await api.drawPouch(this.selectedPouch);
+        const draw = response.draw || response;
+        if (router.isCurrent(this.renderToken)) this.renderScratch(container, router, draw);
+      } catch (error) {
+        open.disabled = false;
+        open.textContent = '다시 열기';
+        ui.showToast(error.message);
       }
     };
   },
 
-  initScratchTicket(container, router, drawRes) {
-    const underlayImg = container.querySelector('#result-prize-img');
-    const underlayTitle = container.querySelector('#result-prize-title');
-    const underlaySub = container.querySelector('#result-prize-sub');
-    const scratchCanvas = container.querySelector('#scratch-canvas');
-    const instantBtn = container.querySelector('#btn-instant-reveal');
-    const actionContainer = container.querySelector('#post-reveal-actions');
-    const actionBtn = container.querySelector('#btn-claim-or-retry');
-
-    // Populate underlay content based on draw result
-    if (drawRes.is_won) {
-      underlayImg.src = drawRes.prize.image_url || '/assets/icons/Heart-Dark.png';
-      underlayTitle.textContent = drawRes.prize.name;
-      underlayTitle.style.color = 'var(--primary)';
-      underlaySub.textContent = '🎉 축하해요! 즉석 경품에 당첨되었어요.';
-      actionBtn.innerHTML = '<span>🎁 경품 수령함 확인하기</span>';
-      actionBtn.classList.remove('btn-secondary');
-      actionBtn.classList.add('btn-primary');
-    } else {
-      underlayImg.src = '/assets/icons/Rocket-Dark.png';
-      underlayTitle.textContent = '제미나이 1년 무료 이용권';
-      underlayTitle.style.color = '#1967D2';
-      underlaySub.textContent = '100% 보장 혜택! Google Gemini 학생 플랜을 지금 무료로 확인하세요.';
-      actionBtn.innerHTML = '<span>🌐 제미나이 1년 무료 혜택 받기</span>';
-      actionBtn.classList.remove('btn-secondary');
-      actionBtn.classList.add('btn-primary');
+  renderScratch(container, router, draw) {
+    this.cleanup();
+    container.innerHTML = `
+      <section class="card scratch-stage-container">
+        <span class="sticker-badge badge-blue">결과 공개</span>
+        <h2>복권을 긁어 결과를 확인하세요</h2>
+        <div class="scratch-ticket">
+          <div class="ticket-header"><span>Team Gemini Lucky Ticket</span><span>행사당 1회</span></div>
+          <div class="ticket-scratch-area">
+            <div class="ticket-result-underlay"><img id="result-prize-img" src="/assets/icons/Smile-Light.png" alt=""><div id="result-prize-title" class="result-title"></div><div id="result-prize-sub" class="result-sub"></div></div>
+            <canvas id="scratch-canvas" aria-label="긁어서 결과 확인"></canvas>
+          </div>
+        </div>
+        <button id="btn-instant-reveal" class="btn btn-secondary btn-sm">한 번에 확인하기</button>
+        <p id="scratch-save-status" class="status-note" role="status"></p>
+        <div id="post-reveal-actions" hidden><button id="btn-after-draw" class="btn btn-primary"></button></div>
+      </section>`;
+    const prize = draw.prize || {};
+    const img = container.querySelector('#result-prize-img');
+    img.src = prize.image_url || (draw.is_won ? '/assets/icons/Heart-Dark.png' : '/assets/icons/Rocket-Dark.png');
+    img.alt = draw.is_won ? '당첨 경품' : '혜택 안내';
+    ui.text(container.querySelector('#result-prize-title'), draw.is_won ? prize.name : '이번 복주머니는 미당첨이에요');
+    ui.text(container.querySelector('#result-prize-sub'), draw.is_won ? '운영자가 정보를 확인하고 직접 연락해 지급합니다.' : '게임 기록과 초대 도전은 계속 이용할 수 있어요.');
+    const after = container.querySelector('#btn-after-draw');
+    after.textContent = draw.is_won ? '수령 정보 입력하기' : '혜택 안내 보기';
+    after.onclick = () => router.navigate(draw.is_won ? 'claims' : 'benefit');
+    const showResult = () => {
+      if (!router.isCurrent(this.renderToken)) return;
+      container.querySelector('#btn-instant-reveal').hidden = true;
+      container.querySelector('#post-reveal-actions').hidden = false;
+      if (!this.resultViewed) {
+        this.resultViewed = true;
+        analytics.track('draw_result_viewed', { result_type: draw.is_won ? 'won' : 'no_prize' });
+      }
+      router.announceStateChange();
+    };
+    const persistReveal = async () => {
+      if (!router.isCurrent(this.renderToken)) return;
+      showResult();
+      if (draw.scratch_completed) return;
+      const storageKey = `${SCRATCH_KEY_PREFIX}${draw.draw_id}`;
+      const eventId = storageGet(storageKey) || api.createRequestId('scratch');
+      storageSet(storageKey, eventId);
+      const status = container.querySelector('#scratch-save-status');
+      const revealButton = container.querySelector('#btn-instant-reveal');
+      status.textContent = '결과 확인 상태를 저장하는 중...';
+      try {
+        await api.completeScratch(draw.draw_id, eventId);
+        if (!router.isCurrent(this.renderToken)) return;
+        draw.scratch_completed = true;
+        storageRemove(storageKey);
+        status.textContent = '결과 확인이 저장됐습니다.';
+        analytics.track('scratch_completed', { result_type: draw.is_won ? 'won' : 'no_prize', prize_kind: prize.category || 'NONE' });
+      } catch (error) {
+        if (!router.isCurrent(this.renderToken)) return;
+        status.textContent = '결과는 그대로 유지됩니다. 저장 연결을 다시 시도해 주세요.';
+        revealButton.hidden = false;
+        revealButton.textContent = '저장 다시 시도';
+        revealButton.onclick = persistReveal;
+        ui.showToast(error.message || '결과 확인 상태를 저장하지 못했습니다.');
+      }
+    };
+    this.scratchCard = new ScratchCard(container.querySelector('#scratch-canvas'), { threshold: 0.7, onStart: () => analytics.track('scratch_started'), onReveal: persistReveal });
+    container.querySelector('#btn-instant-reveal').onclick = () => this.scratchCard.revealInstantly();
+    if (draw.scratch_completed || draw.revealed) {
+      this.scratchCard.revealInstantly();
+      showResult();
     }
+  },
 
-    // Initialize Scratch Card
-    const scratchCard = new ScratchCard(scratchCanvas, {
-      threshold: 0.70, // 70% 이상 긁어야 자동 공개
-      onReveal: async () => {
-        // Complete scratch on backend
-        if (drawRes.draw_id) {
-          api.completeScratch(drawRes.draw_id).catch(() => {});
-        }
-        instantBtn.style.display = 'none';
-        actionContainer.style.display = 'block';
-
-        if (drawRes.is_won) {
-          audio.playWin();
-          ui.showToast(`🎉 즉석 당첨: ${drawRes.prize.name}!`);
-        } else {
-          audio.playWin();
-          ui.showToast('✨ 100% 보장: 제미나이 1년 무료 혜택 당첨!');
-        }
-      }
-    });
-
-    instantBtn.onclick = () => {
-      scratchCard.revealInstantly();
-    };
-
-    actionBtn.onclick = () => {
-      if (drawRes.is_won) {
-        router.navigate('claims');
-      } else {
-        router.navigate('benefit');
-      }
-    };
-  }
+  renderError(container, router, error) {
+    container.replaceChildren();
+    const card = document.createElement('section'); card.className = 'card empty-state';
+    const p = document.createElement('p'); p.textContent = error.message || '복주머니 상태를 불러오지 못했습니다.';
+    const retry = document.createElement('button'); retry.className = 'btn btn-primary'; retry.textContent = '다시 시도'; retry.onclick = () => router.navigate('draw');
+    card.append(p, retry); container.appendChild(card);
+  },
+  cleanup() { this.scratchCard?.destroy?.(); this.scratchCard = null; this.selectedPouch = null; this.resultViewed = false; },
 };

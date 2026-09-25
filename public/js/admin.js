@@ -1,0 +1,357 @@
+import { api } from './api.js';
+import { ui } from './ui.js';
+
+const TOKEN_KEY = 'dino_admin_access_token';
+function sessionGet() { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (_) { return ''; } }
+function sessionSet(value) { try { sessionStorage.setItem(TOKEN_KEY, value); } catch (_) {} }
+function sessionClear() { try { sessionStorage.removeItem(TOKEN_KEY); } catch (_) {} }
+let accessToken = sessionGet();
+let campaignVersion = 0;
+let adminPermissions = new Set();
+
+async function adminRequest(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set('Authorization', `Bearer ${accessToken}`);
+  if (options.body) headers.set('Content-Type', 'application/json');
+  const mutation = options.method && options.method !== 'GET';
+  if (mutation) headers.set('Idempotency-Key', options.idempotencyKey || api.createRequestId('admin'));
+  const fetchOptions = { ...options, headers, credentials: 'same-origin' };
+  let response;
+  try { response = await fetch(path, fetchOptions); }
+  catch (error) { if (!mutation) throw error; response = await fetch(path, fetchOptions); }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || data.error || '관리자 요청에 실패했습니다.');
+  return data;
+}
+
+async function login() {
+  const message = document.querySelector('#admin-login-message');
+  message.textContent = '';
+  try {
+    const config = await api.getConfig();
+    const email = document.querySelector('#admin-email').value.trim();
+    const password = document.querySelector('#admin-password').value;
+    const response = await fetch(`${config.auth.supabase_url}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: config.auth.publishable_key },
+      body: JSON.stringify({ email, password }),
+    });
+    const auth = await response.json().catch(() => ({}));
+    if (!response.ok || !auth.access_token) throw new Error(auth.msg || auth.error_description || '로그인에 실패했습니다.');
+    accessToken = auth.access_token;
+    sessionSet(accessToken);
+    document.querySelector('#admin-password').value = '';
+    await showAdmin();
+  } catch (error) { message.textContent = error.message; }
+}
+
+async function showAdmin() {
+  const session = await adminRequest('/api/admin/session');
+  document.querySelector('#admin-login').hidden = true;
+  document.querySelector('#admin-app').hidden = false;
+  ui.text(document.querySelector('#admin-name'), session.admin.display_name || '관리자');
+  adminPermissions = new Set(session.admin.permissions || []);
+  ui.text(document.querySelector('#admin-permissions'), `권한: ${[...adminPermissions].join(', ')}`);
+  const tasks = [];
+  if (adminPermissions.has('analytics:read')) tasks.push(loadMetrics());
+  if (adminPermissions.has('claims:read')) {
+    document.querySelector('#claim-operations-section').hidden = false;
+    document.querySelector('#ranking-contact-section').hidden = false;
+    tasks.push(loadClaims(), loadRankingContacts());
+  }
+  if (adminPermissions.has('faults:read')) {
+    document.querySelector('#fault-review-section').hidden = false;
+    tasks.push(loadFaults());
+  }
+  document.querySelector('#btn-campaign-update').disabled = !adminPermissions.has('campaign:write');
+  await Promise.all(tasks);
+}
+
+async function loadMetrics() {
+  const params = new URLSearchParams(new FormData(document.querySelector('#analytics-filter')));
+  for (const [key, value] of [...params]) if (!value) params.delete(key);
+  if (params.has('from')) params.set('from', `${params.get('from')}T00:00:00+09:00`);
+  if (params.has('to')) params.set('to', `${nextCalendarDate(params.get('to'))}T00:00:00+09:00`);
+  const data = await adminRequest(`/api/admin/overview?${params}`);
+  campaignVersion = data.campaign?.version ?? campaignVersion;
+  if (data.campaign?.status) document.querySelector('#campaign-status').value = data.campaign.status;
+  ui.text(document.querySelector('#metrics-refreshed'), data.generated_at ? `갱신 ${new Date(data.generated_at).toLocaleString('ko-KR')}` : '갱신 시각 미제공');
+  ui.text(document.querySelector('#metrics-window'), formatObservationWindow(data));
+  const grid = document.querySelector('#metrics-grid');
+  grid.replaceChildren();
+  const metrics = Array.isArray(data.metrics) && data.metrics.length ? [...data.metrics] : legacyMetrics(data);
+  for (const metric of metrics) {
+    const card = document.createElement('article'); card.className = 'metric-card';
+    const title = document.createElement('strong'); title.textContent = metric.label || metric.name || metric.key || '지표';
+    const value = document.createElement('div'); value.className = 'metric-value';
+    value.textContent = metric.denominator === 0 || metric.value === null || (metric.rate === null && metric.value == null) ? '계산 대상 없음' : formatMetricValue(metric);
+    const windowSeconds = metric.observation_window_seconds ?? data.observation_window_seconds ?? data.observation_window?.seconds;
+    const detail = document.createElement('p');
+    detail.textContent = `분자 ${metric.numerator ?? '-'} / 분모 ${metric.denominator ?? '-'} · 고유 ${metric.unique_participants ?? '-'} · 이벤트 ${metric.event_count ?? '-'} · 관찰 ${windowSeconds == null ? '-' : `${windowSeconds}초`} · ${metric.estimated ? '추정값' : '원 집계'}`;
+    card.append(title, value, detail); grid.appendChild(card);
+  }
+  renderSourceFunnel(data.source_funnel || []);
+  renderScoreDistribution(data.score_distribution || []);
+  renderTicketLedger(data.ticket_ledger || []);
+  renderClaimSummary(data.claims || []);
+  renderOperationalBreakdowns(data);
+  ui.text(document.querySelector('#metrics-scope'), `${data.synthetic_only ? '합성 테스트 데이터만 표시' : '운영 데이터 포함'} · 필터 귀속 ${data.filter_attribution || '미제공'} · 환경 ${data.environment || '현재 환경'}`);
+  renderDefinitions(data.definitions || {});
+}
+
+function nextCalendarDate(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return next.toISOString().slice(0, 10);
+}
+
+function legacyMetrics(data) {
+  const metrics = [];
+  if (data.totals) {
+    metrics.push(
+      { label: '전체 이벤트', value: data.totals.events, event_count: data.totals.events, estimated: false },
+      { label: '연결된 고유 참가자', value: data.totals.participants, unique_participants: data.totals.participants, estimated: false },
+      { label: '미연결 초기 관측', value: data.totals.unlinked_observations, estimated: true },
+      { label: '관측 활성 시간(ms)', value: data.totals.active_ms, estimated: true },
+    );
+  }
+  for (const row of data.funnel || []) metrics.push({ label: row.event_name, value: row.events, numerator: row.events, unique_participants: row.participants, event_count: row.events, estimated: false });
+  if (data.gemini_ctr) metrics.push({ label: 'Gemini 노출 후 클릭률', rate: data.gemini_ctr.rate, numerator: data.gemini_ctr.numerator, denominator: data.gemini_ctr.denominator, unique_participants: data.gemini_ctr.denominator, estimated: false });
+  for (const row of data.loading?.buckets || []) metrics.push({ label: `로딩 마지막 관찰 ${row.bucket}`, value: row.observations, numerator: row.observations, event_count: row.events, estimated: true });
+  return metrics;
+}
+
+function formatMetricValue(metric) {
+  if (metric.rate != null) return `${(Number(metric.rate) * 100).toFixed(1)}%`;
+  if (metric.value != null) return String(metric.value);
+  return String(metric.numerator ?? 0);
+}
+
+function formatObservationWindow(data) {
+  const window = data.observation_window || {};
+  const start = window.from || window.start || data.period?.from || data.from;
+  const end = window.to || window.end || data.period?.to || data.to;
+  const seconds = data.observation_window_seconds ?? window.seconds;
+  const range = start || end ? `${start ? new Date(start).toLocaleString('ko-KR') : '미지정'} ~ ${end ? new Date(end).toLocaleString('ko-KR') : '현재'}` : '전체 기간 미제공';
+  return `관찰 구간 ${range}${seconds == null ? '' : ` · ${seconds}초`}`;
+}
+
+function renderTable(target, columns, rows, emptyText) {
+  target.replaceChildren();
+  if (!rows.length) {
+    const empty = document.createElement('p'); empty.className = 'status-note'; empty.textContent = emptyText; target.appendChild(empty); return;
+  }
+  const table = document.createElement('table'); table.className = 'admin-table';
+  const head = document.createElement('thead'); const headerRow = document.createElement('tr');
+  for (const column of columns) { const th = document.createElement('th'); th.textContent = column.label; headerRow.appendChild(th); }
+  head.appendChild(headerRow); table.appendChild(head);
+  const body = document.createElement('tbody');
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    for (const column of columns) {
+      const td = document.createElement('td'); const value = column.value(row);
+      td.textContent = value == null || value === '' ? '-' : String(value); tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+  table.appendChild(body); target.appendChild(table);
+}
+
+function renderSourceFunnel(rows) {
+  renderTable(document.querySelector('#source-funnel'), [
+    { label: '귀속', value: (row) => row.attribution === 'first' ? '첫 유입' : row.attribution === 'session' ? '이번 방문' : row.attribution },
+    { label: '링크 유형', value: (row) => row.link_kind },
+    { label: '채널', value: (row) => row.channel || row.channel_code },
+    { label: '진입', value: (row) => row.entries ?? row.observations },
+    { label: '참가자', value: (row) => row.participants ?? row.unique_participants },
+    { label: '신규', value: (row) => row.new_participants },
+    { label: '재방문', value: (row) => row.returning_participants },
+    { label: '게임 시작', value: (row) => row.game_starts },
+    { label: '게임 시작률', value: (row) => row.game_start_rate == null ? '계산 대상 없음' : `${(Number(row.game_start_rate) * 100).toFixed(1)}%` },
+    { label: 'Gemini 클릭', value: (row) => row.gemini_clicks },
+    { label: 'Gemini 클릭률', value: (row) => row.gemini_click_rate == null ? '계산 대상 없음' : `${(Number(row.gemini_click_rate) * 100).toFixed(1)}%` },
+  ], rows, '조회된 유입 경로 지표가 없습니다.');
+}
+
+function renderScoreDistribution(rows) {
+  renderTable(document.querySelector('#score-distribution'), [
+    { label: '점수 구간', value: (row) => row.score_from != null && row.score_to != null ? `${row.score_from}~${row.score_to}` : (row.bucket || row.range || row.score_bucket) },
+    { label: '기록 수', value: (row) => row.games ?? row.count ?? row.sessions ?? row.event_count },
+    { label: '고유 참가자', value: (row) => row.participants ?? row.unique_participants },
+  ], rows, '조회된 점수 분포가 없습니다.');
+}
+
+function renderTicketLedger(rows) {
+  renderTable(document.querySelector('#ticket-ledger'), [
+    { label: '원장 사유', value: (row) => row.source_type },
+    { label: '게임권 종류', value: (row) => row.ticket_kind },
+    { label: '건수', value: (row) => row.events },
+    { label: '고유 참가자', value: (row) => row.participants },
+  ], rows, '조회된 게임권 원장 집계가 없습니다.');
+}
+
+function renderClaimSummary(rows) {
+  renderTable(document.querySelector('#claim-summary'), [
+    { label: '수령 유형', value: (row) => row.claim_type },
+    { label: '상태', value: (row) => row.status },
+    { label: '건수', value: (row) => row.claims },
+    { label: '고유 참가자', value: (row) => row.participants },
+  ], rows, '조회된 수령 상태 집계가 없습니다.');
+}
+
+function objectRows(value) {
+  return Object.entries(value || {}).map(([key, count]) => ({ key, count }));
+}
+
+function renderOperationalBreakdowns(data) {
+  renderTable(document.querySelector('#loading-summary'), [
+    { label: '로딩 마지막 구간', value: (row) => row.bucket },
+    { label: '관측', value: (row) => row.observations },
+    { label: '이벤트', value: (row) => row.events },
+    { label: '준비 완료', value: (row) => row.ready },
+    { label: '진행 중', value: (row) => row.pending },
+    { label: '추정 이탈', value: (row) => row.estimated_exits },
+  ], data.loading?.buckets || [], '조회된 로딩 구간이 없습니다.');
+  renderTable(document.querySelector('#screen-summary'), [
+    { label: '화면', value: (row) => row.screen }, { label: '방문', value: (row) => row.visits },
+    { label: '활성 ms', value: (row) => row.active_ms }, { label: '진행 중', value: (row) => row.ongoing },
+    { label: '추정 이탈', value: (row) => row.estimated_exits },
+  ], data.screens || [], '조회된 화면 체류가 없습니다.');
+  renderTable(document.querySelector('#stage-summary'), [
+    { label: '단계', value: (row) => row.label || row.key }, { label: '진입', value: (row) => row.entered },
+    { label: '진행', value: (row) => row.progressed }, { label: '추정 이탈', value: (row) => row.estimated_exits },
+    { label: '진행 중', value: (row) => row.pending }, { label: '평균 관측 경과(초)', value: (row) => row.mean_observed_elapsed_seconds ?? row.mean_active_elapsed_seconds },
+  ], data.stages || [], '조회된 단계 지표가 없습니다.');
+  renderTable(document.querySelector('#game-summary'), [
+    { label: '게임 상태', value: (row) => row.key }, { label: '세션', value: (row) => row.count },
+  ], objectRows(data.game), '조회된 게임 상태가 없습니다.');
+  renderTable(document.querySelector('#result-dwell'), [
+    { label: '결과 유형', value: (row) => row.result_type }, { label: '화면', value: (row) => row.views ?? row.visits },
+    { label: '활성 ms', value: (row) => row.active_ms },
+  ], data.result_dwell || [], '조회된 결과 화면 체류가 없습니다.');
+  renderTable(document.querySelector('#invitation-summary'), [
+    { label: '초대 상태', value: (row) => row.status }, { label: '사유', value: (row) => row.reason },
+    { label: '방문', value: (row) => row.visits }, { label: '방문자', value: (row) => row.visitors },
+  ], data.invitation || [], '조회된 초대 판정이 없습니다.');
+  const gemini = objectRows(data.gemini_conversion).concat([
+    { key: '노출 후 클릭 분자', count: data.gemini_ctr?.numerator },
+    { key: '노출 분모', count: data.gemini_ctr?.denominator },
+    { key: 'CTR', count: data.gemini_ctr?.rate == null ? '계산 대상 없음' : `${(Number(data.gemini_ctr.rate) * 100).toFixed(1)}%` },
+  ]);
+  renderTable(document.querySelector('#gemini-summary'), [
+    { label: 'Gemini 항목', value: (row) => row.key }, { label: '값', value: (row) => row.count },
+  ], gemini, '조회된 Gemini 전환이 없습니다.');
+}
+
+function renderDefinitions(definitions) {
+  renderTable(document.querySelector('#metrics-definitions'), [
+    { label: '정의', value: (row) => row.key }, { label: '설명', value: (row) => row.value },
+  ], Object.entries(definitions).map(([key, value]) => ({ key, value })), '서버가 제공한 지표 정의가 없습니다.');
+}
+
+async function loadFaults() {
+  const data = await adminRequest('/api/admin/game-faults?status=PENDING');
+  const list = document.querySelector('#admin-faults'); list.replaceChildren();
+  if (!data.faults?.length) {
+    const empty = document.createElement('p'); empty.textContent = '심사 대기 중인 장애 신고가 없습니다.'; list.appendChild(empty); return;
+  }
+  for (const fault of data.faults) list.appendChild(faultEditor(fault));
+}
+
+function faultEditor(fault) {
+  const item = document.createElement('article'); item.className = 'admin-claim-row';
+  const info = document.createElement('div');
+  const title = document.createElement('strong'); title.textContent = `${fault.ticket_kind} 게임권 · ${fault.fault_reason}`;
+  const meta = document.createElement('p'); meta.textContent = `체크포인트 ${fault.last_checkpoint_tick ?? '-'} · 심사 버전 ${fault.fault_review_version}`;
+  info.append(title, meta);
+  const decision = document.createElement('select');
+  for (const value of ['APPROVE', 'DENY']) { const option = document.createElement('option'); option.value = value; option.textContent = value === 'APPROVE' ? '환급 승인' : '환급 거절'; decision.appendChild(option); }
+  const reason = document.createElement('input'); reason.placeholder = '심사 사유'; reason.maxLength = 160;
+  const save = document.createElement('button'); save.className = 'btn btn-primary btn-sm'; save.textContent = '심사 저장';
+  if (!adminPermissions.has('faults:write')) {
+    decision.disabled = true; reason.disabled = true; save.disabled = true; save.textContent = '읽기 전용';
+  }
+  save.onclick = async () => {
+    if (reason.value.trim().length < 3) { ui.showToast('심사 사유를 3자 이상 입력해 주세요.'); return; }
+    save.disabled = true;
+    try {
+      await adminRequest(`/api/admin/game-faults/${encodeURIComponent(fault.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ decision: decision.value, reason: reason.value.trim(), expected_version: fault.fault_review_version, event_id: api.createRequestId('evt') }),
+      });
+      ui.showToast('장애 심사 결과를 저장했습니다.');
+      await Promise.all([loadFaults(), ...(adminPermissions.has('analytics:read') ? [loadMetrics()] : [])]);
+    } catch (error) { ui.showToast(error.message); save.disabled = false; }
+  };
+  item.append(info, decision, reason, save); return item;
+}
+
+async function loadClaims() {
+  const data = await adminRequest('/api/admin/claims?limit=100');
+  const list = document.querySelector('#admin-claims'); list.replaceChildren();
+  if (!data.claims?.length) { const empty = document.createElement('p'); empty.textContent = '처리할 수령 건이 없습니다.'; list.appendChild(empty); return; }
+  for (const claim of data.claims) list.appendChild(claimEditor(claim));
+}
+
+async function loadRankingContacts() {
+  const data = await adminRequest('/api/admin/ranking-contacts');
+  const list = document.querySelector('#admin-ranking-contacts'); list.replaceChildren();
+  if (!data.ranking_contacts?.length) { const empty = document.createElement('p'); empty.textContent = '잠정 TOP3 연락 접수 건이 없습니다.'; list.appendChild(empty); return; }
+  for (const contact of data.ranking_contacts) {
+    const item = document.createElement('article'); item.className = 'claim-card';
+    const title = document.createElement('strong'); title.textContent = `접수 ${contact.ranking_status} · 수령 ${contact.claim_status || '미생성'}`;
+    const meta = document.createElement('p'); meta.textContent = `요청 ${contact.requested_at ? new Date(contact.requested_at).toLocaleString('ko-KR') : '-'} · 제출 ${contact.submitted_at ? new Date(contact.submitted_at).toLocaleString('ko-KR') : '-'}`;
+    const privateInfo = document.createElement('p'); privateInfo.className = 'private-contact';
+    privateInfo.textContent = `연락 정보: ${contact.recipient_name || '미접수'} · ${contact.contact || '-'} · ${contact.school || '-'}`;
+    item.append(title, meta, privateInfo); list.appendChild(item);
+  }
+}
+
+function claimEditor(claim) {
+  const item = document.createElement('article'); item.className = 'admin-claim-row';
+  const info = document.createElement('div');
+  const claimTitle = claim.claim_type === 'RANKING' ? '잠정 TOP3 연락 접수' : (claim.prize_name || '경품 수령 요청');
+  const title = document.createElement('strong'); title.textContent = `${claimTitle} · ${claim.status}`;
+  const meta = document.createElement('p'); meta.textContent = `담당 ${claim.assignee_display_name || '미지정'} · 버전 ${claim.version}`;
+  const privateInfo = document.createElement('p'); privateInfo.className = 'private-contact';
+  privateInfo.textContent = `연락 정보: ${claim.recipient_name || '미접수'} · ${claim.contact || '-'} · ${claim.school || '-'} · ${claim.address || '-'}`;
+  info.append(title, meta, privateInfo);
+  const state = document.createElement('select');
+  for (const status of ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID', 'ON_HOLD', 'INELIGIBLE', 'NO_RESPONSE']) { const option = document.createElement('option'); option.value = status; option.textContent = status; option.selected = claim.status === status; state.appendChild(option); }
+  const assignee = document.createElement('input'); assignee.placeholder = '담당자 user id'; assignee.value = claim.assignee_user_id || ''; assignee.maxLength = 80;
+  const reason = document.createElement('input'); reason.placeholder = '변경 사유'; reason.maxLength = 160;
+  const external = document.createElement('label'); const externalBox = document.createElement('input'); externalBox.type = 'checkbox'; const externalText = document.createElement('span'); externalText.textContent = '외부 전달 완료'; external.append(externalBox, externalText);
+  const save = document.createElement('button'); save.className = 'btn btn-primary btn-sm'; save.textContent = '상태 저장';
+  if (!adminPermissions.has('claims:write')) {
+    state.disabled = true; assignee.disabled = true; reason.disabled = true; externalBox.disabled = true; save.disabled = true; save.textContent = '읽기 전용';
+  }
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      await adminRequest(`/api/admin/claims/${encodeURIComponent(claim.id)}`, { method: 'PATCH', body: JSON.stringify({ status: state.value, assignee_user_id: assignee.value.trim() || null, reason: reason.value.trim(), external_delivery: externalBox.checked, expected_version: claim.version, event_id: api.createRequestId('evt') }) });
+      ui.showToast('수령 상태를 저장했습니다.');
+      await Promise.all([loadClaims(), ...(adminPermissions.has('analytics:read') ? [loadMetrics()] : [])]);
+    } catch (error) { ui.showToast(error.message); save.disabled = false; }
+  };
+  item.append(info, state, assignee, reason, external, save); return item;
+}
+
+document.querySelector('#btn-admin-login').onclick = login;
+document.querySelector('#admin-password').addEventListener('keydown', (event) => { if (event.key === 'Enter') login(); });
+document.querySelector('#btn-admin-logout').onclick = () => { accessToken = ''; sessionClear(); window.location.reload(); };
+document.querySelector('#analytics-filter').onsubmit = (event) => { event.preventDefault(); loadMetrics().catch((error) => ui.showToast(error.message)); };
+document.querySelector('#btn-refresh-claims').onclick = () => loadClaims().catch((error) => ui.showToast(error.message));
+document.querySelector('#btn-refresh-ranking-contacts').onclick = () => loadRankingContacts().catch((error) => ui.showToast(error.message));
+document.querySelector('#btn-refresh-faults').onclick = () => loadFaults().catch((error) => ui.showToast(error.message));
+document.querySelector('#btn-campaign-update').onclick = async () => {
+  try {
+    const status = document.querySelector('#campaign-status').value;
+    const reason = document.querySelector('#campaign-reason').value.trim();
+    if (!reason) return ui.showToast('변경 사유를 입력해 주세요.');
+    if (!campaignVersion) return ui.showToast('행사 버전을 불러온 뒤 다시 시도해 주세요.');
+    const data = await adminRequest('/api/admin/campaign', { method: 'PATCH', body: JSON.stringify({ status, reason, expected_version: campaignVersion, event_id: api.createRequestId('evt') }) });
+    campaignVersion = data.version; ui.showToast('행사 상태를 변경했습니다.'); await loadMetrics();
+  } catch (error) { ui.showToast(error.message); }
+};
+
+if (accessToken) showAdmin().catch(() => { accessToken = ''; sessionClear(); });

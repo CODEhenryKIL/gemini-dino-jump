@@ -1,0 +1,109 @@
+# Phase 1 Preview load and measurement plan
+
+This plan defines the only approved use of `scripts/phase1_load.py`. It prepares an auditable test; it does not authorize a remote run. Production, real prizes, real contact data, and a non-test Supabase schema are rejected by the runner.
+
+## Test shape
+
+The required `full` profile opens flows for exactly these stage windows:
+
+| Stage | Virtual users | Admission window | Purpose |
+| --- | ---: | ---: | --- |
+| 1 | 10 | 60 s | low-concurrency entry and end-to-end baseline |
+| 2 | 50 | 120 s | normal concurrent verified play |
+| 3 | 100 | 180 s | finish, draw, ranking, and tracking concentration |
+| 4 | 200 | 300 s | sustained peak target |
+| 5 | 200 | 30 s | simultaneous burst |
+
+The windows total 690 seconds. The durable time ledger reserves another 90 seconds for health checks and in-flight worker cleanup, so one full run reserves 780 of the cumulative 1,800-second cap. A participant is admitted only before its stage deadline; an admitted game may finish during the cleanup reserve.
+
+Each flow uses one fresh synthetic participant with exactly one initial ticket. It calls `/api/me`, creates and starts a session, derives a no-jump collision from the unchanged server physics simulator, waits the real collision duration, submits the exact score/ticks, opens the participant's one campaign draw, replays the same draw request to verify idempotency, completes scratch, reads ranking, and writes one allowlisted `page_view` event. Every twentieth winning flow may submit synthetic claim data twice with one idempotency key. Participants are never reused, so the one-draw rule and ticket limit are not bypassed.
+
+The burst stage starts 200 workers on one barrier. Their deterministic games naturally concentrate valid finish/draw requests a few seconds later. The ordinary stages retain the configured 45-second think time after both success and failure. This is 200 VU, not 200 RPS.
+
+## Private cohort contract
+
+The cohort is prepared outside the load runtime and is untracked with mode `0600`:
+
+```json
+{
+  "schema_version": 1,
+  "environment": "preview",
+  "project_ref": "igfrnexknwtiljdqjrbp",
+  "base_url": "https://exact-preview.vercel.app",
+  "deployment_id": "dpl_exact",
+  "campaign_id": "synthetic-campaign",
+  "preparation_api_calls": 0,
+  "created_at": "2026-09-25T00:00:00Z",
+  "participants": [
+    {
+      "cookie": "dj_session=<private raw token>",
+      "participant_id": "<opaque synthetic id>",
+      "referral_code": "<synthetic referral code>"
+    }
+  ]
+}
+```
+
+Remote runs require exactly 5,000 unique entries; the maximum is also 5,000. Raw cookies and participant IDs are never copied to stdout or reports. Reports contain only a SHA-256 cohort fingerprint, aggregate metrics, safe deployment identifiers, and normalized endpoint paths.
+
+`preparation_api_calls` is `0` when the cohort was inserted directly by the approved synthetic seed transaction. If normal HTTP APIs prepared it, record every preparation, retry, and smoke call there. The durable `0600` ledger charges that value once per cohort fingerprint, then applies all scripted runs to the same 30,000-call phase cap.
+
+The ledger locks before any run. It reserves the full time budget before preflight, permanently advances the participant cursor before a flow, admits each API call before network I/O, and records completion only after an HTTP response. A crash therefore consumes budget and participants conservatively. There is intentionally no reset command. Use a new ledger only for a genuinely new approved phase budget, preserving the old ledger as evidence.
+
+## Fail-closed Preview checks
+
+Before load, `/api/health`, `/api/config`, the cohort, and command arguments must agree on:
+
+- `environment=preview`, the exact Vercel deployment ID, and an exact `.vercel.app` origin;
+- Supabase project `igfrnexknwtiljdqjrbp` and private schema `dino_dev`;
+- `synthetic_only=true`, `test_seed=true`, database `ready`;
+- the active synthetic campaign and game version `1.2.0`.
+
+Any Production marker, public schema, other project/deployment, invalid prepared cookie, 5xx, prepared-cookie 401/403, inventory error, response redirect, or exhausted budget stops the run. Rate-limit responses are reported separately. Deliberate negative checks (unauthenticated `/api/me`, cross-owner recovery, idempotency conflict) are also reported separately from unexpected failures.
+
+If Vercel Deployment Protection is enabled, pass its sanctioned bypass token through a `0600` file and `--protection-token-file`. For an official temporary share URL session, store its single `name=value` authentication cookie in another `0600` file and use `--deployment-auth-cookie-file`. The runner combines that platform cookie with each participant's distinct `dj_session` cookie. It neither disables protection nor stores either secret in a report. IP allowlisting remains a platform setting and is not modified by this tool.
+
+## Request and cost envelope
+
+Run the network-free estimate first:
+
+```bash
+python3 scripts/phase1_load.py --dry-run --profile full
+```
+
+With the default 45-second think time, the current full envelope is:
+
+- 2,170 flow attempts and 2,172 fresh participants including security probes;
+- 21,935 calls for the scripted path;
+- 26,275 conservative admitted calls after retry headroom, under the hard 30,000 cap;
+- 15,417 mutating HTTP requests, 2,170 client tracking events, and 13,135 server domain-event attempts;
+- 53,004 as a deliberately broad database write-statement envelope.
+
+These are upper bounds for planning, not measured database rows or a monetary quote. The report records admitted and completed API calls separately. Supabase/Vercel usage and shared project health must be checked in their dashboards before and after the run.
+
+## Separate scenarios
+
+The normal profile already separates endpoint and business-phase metrics for entrance, start, genuine-play wait, finish, draw, duplicate replay, claim, ranking, and tracking.
+
+The security preflight uses a fresh participant to produce real server-time evidence: it starts a game, waits 1.05 seconds, records tick 60, reports a network fault, waits the 10.2-second reconciliation interval, and requires one `AUTO_APPROVED` refund. It then repeats the same evidence with that participant and requires the second fault to remain `PENDING` with `REVIEW_REQUIRED`, proving the 24-hour automatic-refund boundary instead of treating client claims as unlimited refund proof.
+
+Invitation qualification is optional and separate: `--invitation-probe` consumes two fresh participants, creates a server nonce, waits 3.05 active seconds, qualifies after an interaction, and verifies the inviter balance increased exactly once. It adds four seconds to the time reservation and four calls. It does not mix invitation latency into normal game metrics.
+
+Last-stock competition is also separate. Prepare exactly one synthetic item in the test campaign and expose `test_inventory_remaining: 1` through the safe Preview health response, then add `--require-last-stock` to a burst run. The runner refuses this scenario without that guard. It never edits inventory or seeds data itself. Afterward, compare inventory and draw aggregates to prove one reservation and zero overallocation. An inventory error is a safety stop, not a passing expected negative.
+
+## Execution gate and reporting
+
+Only after Preview deployment, migration/seed verification, 5,000-participant cohort creation, dashboard baseline capture, and explicit target review should an operator run the remote command. Example placeholders are intentionally non-runnable:
+
+```bash
+python3 scripts/phase1_load.py \
+  --mode remote \
+  --profile full \
+  --base-url https://exact-preview.vercel.app \
+  --expected-deployment-id dpl_exact \
+  --cohort /private/path/cohort.json \
+  --ledger /private/path/phase1-ledger.json \
+  --report /private/path/phase1-report.json
+```
+
+The report includes p50/p95/p99 by normalized endpoint and business phase, each stage's VU/window/actual cleanup time, RPS, timeouts, rate limits, expected negatives, unexpected failures, remaining cohort, target guards, and cumulative budgets. Success targets are general API p95 at or below 1 second, finish/draw p95 at or below 2 seconds, unexpected failure rate below 1%, and database reconciliation showing zero duplicate rewards and zero inventory overallocation. API results do not prove device FPS; 2차 UI changes require a new device performance pass.
