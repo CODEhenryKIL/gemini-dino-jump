@@ -183,9 +183,22 @@ export class DinoGameEngine {
 
     // Visual assets
     this.dinoImg = new Image();
-    this.dinoImg.src = '/assets/icons/Dino-Dark.png';
     this.dinoLoaded = false;
     this.dinoImg.onload = () => { this.dinoLoaded = true; };
+    this.dinoImg.onerror = () => { this.dinoLoaded = false; };
+    this.dinoImg.src = '/assets/icons/Dino-Dark.png';
+
+    this.smileImg = new Image();
+    this.smileLoaded = false;
+    this.smileImg.onload = () => { this.smileLoaded = true; };
+    this.smileImg.onerror = () => { this.smileLoaded = false; };
+    this.smileImg.src = '/assets/icons/Smile-Light.png';
+
+    this.heartImg = new Image();
+    this.heartLoaded = false;
+    this.heartImg.onload = () => { this.heartLoaded = true; };
+    this.heartImg.onerror = () => { this.heartLoaded = false; };
+    this.heartImg.src = '/assets/icons/Heart-Light.png';
 
     this.particles = [];
     this.groundOffset = 0;
@@ -1197,7 +1210,26 @@ export class DinoGameEngine {
 
   drawItem(ctx, item) {
     ctx.save();
-    if (item.kind === 'coin') {
+    const image = item.kind === 'coin' ? this.smileImg : this.heartImg;
+    const imageLoaded = item.kind === 'coin' ? this.smileLoaded : this.heartLoaded;
+    let imageDrawn = false;
+    if (imageLoaded) {
+      const sourceWidth = Number(image.naturalWidth || image.width);
+      const sourceHeight = Number(image.naturalHeight || image.height);
+      if (sourceWidth > 0 && sourceHeight > 0) {
+        const scale = Math.min(item.w / sourceWidth, item.h / sourceHeight);
+        const width = sourceWidth * scale;
+        const height = sourceHeight * scale;
+        try {
+          ctx.drawImage(image, item.x + (item.w - width) / 2, item.y + (item.h - height) / 2, width, height);
+          imageDrawn = true;
+        } catch (_) {
+          imageDrawn = false;
+        }
+      }
+    }
+
+    if (!imageDrawn && item.kind === 'coin') {
       ctx.fillStyle = '#FBBC04';
       ctx.strokeStyle = '#E37400';
       ctx.lineWidth = 3;
@@ -1210,7 +1242,7 @@ export class DinoGameEngine {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('G', item.x + item.w / 2, item.y + item.h / 2 + 1);
-    } else {
+    } else if (!imageDrawn) {
       ctx.fillStyle = '#EA4335';
       ctx.font = '30px sans-serif';
       ctx.textAlign = 'center';

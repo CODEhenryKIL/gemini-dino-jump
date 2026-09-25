@@ -158,3 +158,39 @@ test('engine starts and advances the real v2 simulation, then removes its resize
   engine.stop();
   assert.equal(listeners.size, 0);
 });
+
+test('item art stays inside the hitbox and falls back when an image is unavailable', () => {
+  const engineSource = fs.readFileSync(path.join(root, 'public/js/game/engine.js'), 'utf8')
+    .replace(/^import .*;\s*$/gm, '')
+    .replace('export class DinoGameEngine', 'class DinoGameEngine');
+  const runtime = {
+    audio: new Proxy({}, { get: () => () => {} }),
+    Image: class { set src(_value) {} },
+    window: {
+      matchMedia: () => ({ matches: false }),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    },
+  };
+  vm.runInNewContext(`${source}\n${engineSource}\nglobalThis.DinoGameEngine = DinoGameEngine;`, runtime);
+  const engine = new runtime.DinoGameEngine({ getContext: () => ({}) });
+  engine.smileImg.naturalWidth = 2000;
+  engine.smileImg.naturalHeight = 1000;
+  engine.smileLoaded = true;
+
+  const drawCalls = [];
+  const fallbackText = [];
+  const ctx = {
+    save() {}, restore() {}, beginPath() {}, arc() {}, fill() {}, stroke() {},
+    drawImage: (...args) => drawCalls.push(args),
+    fillText: (...args) => fallbackText.push(args),
+  };
+  const item = { kind: 'coin', x: 10, y: 20, w: 30, h: 30 };
+  engine.drawItem(ctx, item);
+  assert.deepEqual(drawCalls[0].slice(1), [10, 27.5, 30, 15]);
+  assert.equal(fallbackText.length, 0);
+
+  engine.smileLoaded = false;
+  engine.drawItem(ctx, item);
+  assert.equal(fallbackText.at(-1)[0], 'G');
+});

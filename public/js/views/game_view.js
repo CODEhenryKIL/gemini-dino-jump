@@ -52,7 +52,7 @@ export const GameView = {
           <div class="game-viewport-container">
             <canvas id="game-canvas"></canvas>
             <div class="game-hud">
-              <div class="hud-left"><span id="hud-stage-badge" class="stage-tag">STAGE 1</span><span class="hud-item hud-coin" aria-label="획득 코인"><span aria-hidden="true">●</span><strong id="hud-coin-count">0</strong></span><span class="hud-item hud-heart" aria-label="보유 부활권"><img src="/assets/icons/Heart-Light.png" alt=""><strong id="hud-heart-count">0</strong></span><span class="hud-item hud-revive" aria-label="이번 판 부활 횟수">↻ <strong id="hud-revive-count">0</strong></span></div>
+              <div class="hud-left"><span id="hud-stage-badge" class="stage-tag">STAGE 1</span><span class="hud-item hud-coin" aria-label="획득 코인"><img src="/assets/icons/Smile-Light.png" alt=""><strong id="hud-coin-count">0</strong></span><span class="hud-item hud-heart" aria-label="보유 부활권"><img src="/assets/icons/Heart-Light.png" alt=""><strong id="hud-heart-count">0</strong></span><span class="hud-item hud-revive" aria-label="이번 판 부활 횟수">↻ <strong id="hud-revive-count">0</strong></span></div>
               <div class="hud-right"><strong id="hud-current-score" class="current-score">0</strong><button id="btn-toggle-sound" class="sound-toggle-btn" aria-label="소리 켜기 또는 끄기">🔊</button></div>
             </div>
             <div id="stage-flash-badge"><div class="stage-name">STAGE 1</div><div class="stage-sub">가볍게 시작!</div></div>

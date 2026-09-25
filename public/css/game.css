@@ -82,7 +82,7 @@
   box-shadow: 0 2px 6px rgba(0,0,0,.08);
 }
 
-.hud-coin > span { color: #f9ab00; font-size: 18px; line-height: 0; }
+.hud-coin img,
 .hud-heart img { width: 16px; height: 16px; object-fit: contain; }
 .hud-revive { color: #1967d2; }
 

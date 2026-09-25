@@ -123,11 +123,18 @@ class AppRouter {
 
   async prepareAssets() {
     const images = [...document.querySelectorAll('#splash-screen img')];
-    const requiredAssets = ['/assets/icons/Dino-Dark.png', '/assets/icons/Heart-Light.png'];
+    const requiredAssets = ['/assets/icons/Dino-Dark.png'];
+    const optionalAssets = ['/assets/icons/Heart-Light.png', '/assets/icons/Smile-Light.png'];
     const preload = requiredAssets.map((src) => new Promise((resolve, reject) => {
       const image = new Image();
       image.onload = resolve;
       image.onerror = () => reject(new Error(`필수 게임 자산을 불러오지 못했습니다: ${src}`));
+      image.src = src;
+    }));
+    const optionalPreload = optionalAssets.map((src) => new Promise((resolve) => {
+      const image = new Image();
+      image.onload = resolve;
+      image.onerror = resolve;
       image.src = src;
     }));
     await Promise.all([
@@ -136,6 +143,7 @@ class AppRouter {
         image.addEventListener('error', resolve, { once: true });
       })),
       ...preload,
+      ...optionalPreload,
       document.fonts?.ready || Promise.resolve(),
     ]);
   }

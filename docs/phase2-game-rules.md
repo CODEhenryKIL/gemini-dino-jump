@@ -112,3 +112,12 @@ Public cards may use only an opted-in public nickname, the version-scoped score,
 ## Phase 3 boundaries
 
 The v2 mechanics and D14 reward behavior are adopted for this test implementation. Phase 3 still owns final campaign dates, real prizes/stock/odds/budget, tie and split-award policy, student/Gemini proof, deadlines and alternate-winner rules, personal-data retention/notice/consent, official content/benefit URLs, operator contacts, production enablement, and final public event approval.
+
+## User-supplied item artwork (2026-09-26)
+
+The user selected the Smile and Heart artwork in the [Drive Icons folder](https://drive.google.com/drive/folders/15nCZxtc-AFFk7nl4Q4bDtaNCv6VCqonz). The existing repository contains matching file names and byte sizes:
+
+- `Smile-Light.png`: 2,389,430 bytes, Drive file `1YKHNBKb5UXOC8J5wt4SlP4PbcufLrFl-`.
+- `Heart-Light.png`: 2,371,777 bytes, Drive file `1gsIYrZrqUvpM3IuqJPj8_9g6dQO13J1I`.
+
+Use Smile for the coin pickup and counter, and Heart for the revive pickup, counter, and effect. Original PNG files remain unchanged. Artwork is drawn within the existing item dimensions; scoring, hitboxes, spawn rules, replay verification, and game version stay unchanged. Loading failures retain a visible fallback.

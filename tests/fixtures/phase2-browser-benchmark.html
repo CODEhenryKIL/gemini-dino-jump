@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>공룡 점프 Phase 2 로컬 성능 벤치마크</title>
+  <style>
+    :root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #eef3fb; color: #172033; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 24px; }
+    main { width: min(1080px, 100%); margin: 0 auto; display: grid; gap: 16px; }
+    .card { background: white; border: 1px solid #d9e2f2; border-radius: 18px; padding: 18px; box-shadow: 0 8px 30px rgba(30, 68, 130, .08); }
+    h1, p { margin-top: 0; }
+    button { border: 0; border-radius: 12px; padding: 12px 18px; font: inherit; font-weight: 750; color: white; background: #1a73e8; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .55; }
+    progress { width: 100%; height: 14px; accent-color: #1a73e8; }
+    canvas { width: 100%; aspect-ratio: 16 / 10; display: block; border-radius: 14px; background: #e8f0fe; }
+    #status { margin: 12px 0 8px; font-weight: 650; }
+    pre { min-height: 180px; max-height: 520px; overflow: auto; margin: 0; padding: 14px; border-radius: 12px; background: #101828; color: #d7e6ff; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .note { color: #52647f; font-size: .92rem; }
+    #cleanup-host { position: fixed; left: -10000px; top: 0; width: 960px; height: 600px; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Phase 2 실제 엔진 브라우저 벤치마크</h1>
+      <p>Seed 4 봇을 실시간 RAF로 실행해 15·30·45·60초 구간과 코인·부활을 측정합니다. 원격 요청·DB·API는 사용하지 않습니다.</p>
+      <button id="run" type="button">벤치마크 시작</button>
+      <div id="status" role="status" aria-live="polite">대기 중</div>
+      <progress id="progress" max="60" value="0"></progress>
+      <p class="note">탭을 숨기면 브라우저가 RAF를 제한할 수 있습니다. 메모리 값은 브라우저가 <code>performance.memory</code>를 제공할 때만 기록하며 누수 판정에는 사용하지 않습니다.</p>
+    </section>
+    <section class="card"><canvas id="game" width="960" height="600" aria-label="실제 게임 엔진 출력"></canvas></section>
+    <section class="card"><h2>JSON 결과</h2><pre id="result">아직 실행하지 않았습니다.</pre></section>
+  </main>
+  <div id="cleanup-host" aria-hidden="true"></div>
+
+  <script type="module">
+    const ENGINE_MODULE_URL = __ENGINE_MODULE_URL__;
+    const BUILD_LABEL = __BENCHMARK_BUILD_LABEL__;
+    const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+    const allowedOrigin = (location.protocol === 'http:' || location.protocol === 'https:') && LOCAL_HOSTS.has(location.hostname);
+    const runButton = document.querySelector('#run');
+    const statusNode = document.querySelector('#status');
+    const progressNode = document.querySelector('#progress');
+    const resultNode = document.querySelector('#result');
+    const canvas = document.querySelector('#game');
+    const cleanupHost = document.querySelector('#cleanup-host');
+
+    const percentile = (values, ratio) => {
+      if (!values.length) return null;
+      const ordered = [...values].sort((a, b) => a - b);
+      return ordered[Math.min(ordered.length - 1, Math.ceil(ordered.length * ratio) - 1)];
+    };
+    const rounded = (value) => value == null ? null : Number(value.toFixed(3));
+    const stats = (values) => ({
+      count: values.length,
+      average_ms: values.length ? rounded(values.reduce((sum, value) => sum + value, 0) / values.length) : null,
+      p95_ms: rounded(percentile(values, .95)),
+      maximum_ms: values.length ? rounded(Math.max(...values)) : null,
+    });
+    const heapSample = () => {
+      const memory = performance.memory;
+      return memory ? {
+        used_js_heap_bytes: Number(memory.usedJSHeapSize),
+        total_js_heap_bytes: Number(memory.totalJSHeapSize),
+        heap_limit_bytes: Number(memory.jsHeapSizeLimit),
+      } : null;
+    };
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
+    async function measureEmptyRafCadence(durationMs = 2000) {
+      const intervals = [];
+      let firstTimestamp = null;
+      let previousTimestamp = null;
+      await new Promise((resolve) => {
+        const sample = (timestamp) => {
+          if (firstTimestamp == null) firstTimestamp = timestamp;
+          if (previousTimestamp != null) intervals.push(timestamp - previousTimestamp);
+          previousTimestamp = timestamp;
+          if (timestamp - firstTimestamp >= durationMs) resolve();
+          else requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      });
+      return {
+        requested_duration_ms: durationMs,
+        observed_duration_ms: rounded(previousTimestamp - firstTimestamp),
+        visibility_state: document.visibilityState,
+        frame_interval: stats(intervals),
+        frames_over_20ms: intervals.filter((value) => value > 20).length,
+        frames_over_50ms: intervals.filter((value) => value > 50).length,
+      };
+    }
+
+    function installLifecycleProbe() {
+      const original = {
+        add: window.addEventListener.bind(window),
+        remove: window.removeEventListener.bind(window),
+        raf: window.requestAnimationFrame.bind(window),
+        cancel: window.cancelAnimationFrame.bind(window),
+      };
+      const resizeListeners = new Set();
+      const activeRafs = new Map();
+      window.addEventListener = function(type, listener, options) {
+        if (type === 'resize') resizeListeners.add(listener);
+        return original.add(type, listener, options);
+      };
+      window.removeEventListener = function(type, listener, options) {
+        if (type === 'resize') resizeListeners.delete(listener);
+        return original.remove(type, listener, options);
+      };
+      window.requestAnimationFrame = function(callback) {
+        let id;
+        id = original.raf((timestamp) => {
+          activeRafs.delete(id);
+          callback(timestamp);
+        });
+        activeRafs.set(id, callback);
+        return id;
+      };
+      window.cancelAnimationFrame = function(id) {
+        activeRafs.delete(id);
+        return original.cancel(id);
+      };
+      return {
+        snapshot: () => ({ resize_listeners: resizeListeners.size, active_raf_callbacks: activeRafs.size }),
+        restore: () => {
+          window.addEventListener = original.add;
+          window.removeEventListener = original.remove;
+          window.requestAnimationFrame = original.raf;
+          window.cancelAnimationFrame = original.cancel;
+        },
+      };
+    }
+
+    function createBuckets() {
+      return Array.from({ length: 5 }, (_, index) => ({
+        stage: index + 1,
+        from_seconds: index * 15,
+        to_seconds: (index + 1) * 15,
+        frame_intervals: [],
+        frame_work: [],
+        updates: [],
+        renders: [],
+      }));
+    }
+
+    function publicBucket(bucket) {
+      return {
+        stage: bucket.stage,
+        from_seconds: bucket.from_seconds,
+        to_seconds: bucket.to_seconds,
+        frame_interval: stats(bucket.frame_intervals),
+        frame_work: stats(bucket.frame_work),
+        update: stats(bucket.updates),
+        render: stats(bucket.renders),
+        frames_over_20ms: bucket.frame_intervals.filter((value) => value > 20).length,
+        frames_over_50ms: bucket.frame_intervals.filter((value) => value > 50).length,
+      };
+    }
+
+    function instrumentEngine(engine, checkpoints) {
+      const buckets = createBuckets();
+      const timeline = { frame_intervals: [], frame_work: [], updates: [], renders: [] };
+      const bucketAt = (tick) => buckets[Math.min(4, Math.max(0, Math.floor(Number(tick || 0) / 900)))];
+      let previousFrameTimestamp = null;
+      let nextCheckpoint = 900;
+
+      const originalUpdate = engine.updateSimulationTick.bind(engine);
+      engine.updateSimulationTick = () => {
+        const bucket = bucketAt(engine.currentTick);
+        const tick = engine.currentTick;
+        const started = performance.now();
+        originalUpdate();
+        const elapsed = performance.now() - started;
+        bucket.updates.push(elapsed);
+        timeline.updates.push({ tick, value: elapsed });
+        while (engine.currentTick >= nextCheckpoint && nextCheckpoint <= 3600) {
+          const second = nextCheckpoint / 60;
+          checkpoints.push({
+            seconds: second,
+            wall_elapsed_ms: rounded(performance.now() - engine.__benchmarkStartedAt),
+            tick: engine.currentTick,
+            score: engine.score,
+            summary: engine.getSummary(),
+            completed_stage: publicBucket(buckets[(nextCheckpoint / 900) - 1]),
+            memory: heapSample(),
+          });
+          progressNode.value = second;
+          statusNode.textContent = `${second}초 구간 완료 · 코인 ${engine.getSummary().coins} · 부활 ${engine.getSummary().revives}`;
+          nextCheckpoint += 900;
+        }
+      };
+
+      const originalRender = engine.render.bind(engine);
+      engine.render = () => {
+        const bucket = bucketAt(engine.currentTick);
+        const tick = engine.currentTick;
+        const started = performance.now();
+        originalRender();
+        const elapsed = performance.now() - started;
+        bucket.renders.push(elapsed);
+        timeline.renders.push({ tick, value: elapsed });
+      };
+
+      const originalLoop = engine.gameLoop.bind(engine);
+      engine.gameLoop = (timestamp) => {
+        const bucket = bucketAt(engine.currentTick);
+        const tick = engine.currentTick;
+        if (previousFrameTimestamp != null) {
+          const interval = timestamp - previousFrameTimestamp;
+          bucket.frame_intervals.push(interval);
+          timeline.frame_intervals.push({ tick, value: interval });
+        }
+        previousFrameTimestamp = timestamp;
+        const started = performance.now();
+        originalLoop(timestamp);
+        const elapsed = performance.now() - started;
+        bucket.frame_work.push(elapsed);
+        timeline.frame_work.push({ tick, value: elapsed });
+      };
+      return { buckets, timeline };
+    }
+
+    function boundaryWindows(events, timeline) {
+      const metric = (samples, fromTick, toTick) => stats(samples
+        .filter((sample) => sample.tick >= fromTick && sample.tick <= toTick)
+        .map((sample) => sample.value));
+      return events.map((event) => {
+        const fromTick = Math.max(0, event.callback_tick - 30);
+        const toTick = event.callback_tick + 30;
+        return {
+          ...event,
+          from_tick: fromTick,
+          to_tick: toTick,
+          window_seconds: 1,
+          frame_interval: metric(timeline.frame_intervals, fromTick, toTick),
+          framework: metric(timeline.frame_work, fromTick, toTick),
+          update: metric(timeline.updates, fromTick, toTick),
+          render: metric(timeline.renders, fromTick, toTick),
+        };
+      });
+    }
+
+    function startRealtimeBot(engine) {
+      let rafId = null;
+      let pressedAtTick = null;
+      let sacrificeForRevive = false;
+      let previousRevives = 0;
+      const step = () => {
+        const simulation = engine.simulation;
+        if (!engine.isRunning || !simulation || simulation.ended) return;
+        if (simulation.heart === 1 && simulation.revives < 2) sacrificeForRevive = true;
+        if (simulation.revives > previousRevives) sacrificeForRevive = false;
+        previousRevives = simulation.revives;
+
+        if (pressedAtTick != null && simulation.currentTick - pressedAtTick >= 7) {
+          engine.jumpRelease();
+          pressedAtTick = null;
+        }
+        const nearbyHeart = simulation.items.some((item) => item.kind === 'heart' && item.x > 100 && item.x < 330);
+        const threat = simulation.obstacles
+          .filter((obstacle) => obstacle.type !== 'bird_high' && obstacle.x > 150 && obstacle.x < 300)
+          .sort((left, right) => left.x - right.x)[0];
+        if (simulation.isGrounded && pressedAtTick == null && !sacrificeForRevive && !nearbyHeart && threat) {
+          engine.jumpPress();
+          pressedAtTick = simulation.currentTick;
+        }
+        rafId = requestAnimationFrame(step);
+      };
+      rafId = requestAnimationFrame(step);
+      return () => {
+        if (rafId != null) cancelAnimationFrame(rafId);
+        engine.jumpRelease();
+      };
+    }
+
+    async function runCleanupCycles(DinoGameEngine, probe) {
+      const beforeAll = probe.snapshot();
+      const memoryBefore = heapSample();
+      const cycles = [];
+      for (let index = 1; index <= 10; index += 1) {
+        const element = document.createElement('canvas');
+        cleanupHost.appendChild(element);
+        const before = probe.snapshot();
+        const engine = new DinoGameEngine(element, { version: '2.0.0', reducedMotion: true });
+        let postStopResizeCalls = 0;
+        const originalResize = engine.resizeCanvas.bind(engine);
+        engine.resizeCanvas = () => { postStopResizeCalls += 1; originalResize(); };
+        engine.start(4);
+        await nextFrame();
+        await nextFrame();
+        engine.stop();
+        const tickAtStop = engine.currentTick;
+        const callsAtStop = postStopResizeCalls;
+        window.dispatchEvent(new Event('resize'));
+        await nextFrame();
+        await nextFrame();
+        const after = probe.snapshot();
+        cycles.push({
+          cycle: index,
+          resize_listener_delta: after.resize_listeners - before.resize_listeners,
+          active_raf_delta: after.active_raf_callbacks - before.active_raf_callbacks,
+          resize_called_after_stop: postStopResizeCalls !== callsAtStop,
+          tick_advanced_after_stop: engine.currentTick !== tickAtStop,
+        });
+        element.remove();
+      }
+      const afterAll = probe.snapshot();
+      return {
+        cycles,
+        before: beforeAll,
+        after: afterAll,
+        retained_resize_listeners: afterAll.resize_listeners - beforeAll.resize_listeners,
+        retained_raf_callbacks: afterAll.active_raf_callbacks - beforeAll.active_raf_callbacks,
+        all_cycles_clean: cycles.every((cycle) => cycle.resize_listener_delta === 0 && cycle.active_raf_delta === 0 && !cycle.resize_called_after_stop && !cycle.tick_advanced_after_stop),
+        memory_before: memoryBefore,
+        memory_after: heapSample(),
+        memory_leak_conclusion: null,
+        memory_note: 'Heap samples are observational only; this benchmark does not conclude whether a memory leak exists.',
+      };
+    }
+
+    async function runBenchmark() {
+      if (!allowedOrigin) throw new Error('이 벤치마크는 localhost, 127.0.0.1 또는 ::1에서만 실행할 수 있습니다.');
+      runButton.disabled = true;
+      progressNode.value = 0;
+      resultNode.textContent = '측정 중...';
+      statusNode.textContent = '실제 엔진을 불러오는 중';
+      const probe = installLifecycleProbe();
+      let engine = null;
+      let stopBot = () => {};
+      let timeoutId = null;
+      let visibilityHandler = null;
+      try {
+        statusNode.textContent = '게임 시작 전 빈 RAF cadence를 2초 동안 측정 중';
+        const emptyRafBaseline = await measureEmptyRafCadence();
+        const { DinoGameEngine } = await import(ENGINE_MODULE_URL);
+        const checkpoints = [];
+        const engineEvents = [];
+        const visibilityChanges = [];
+        let finishGame;
+        const gameFinished = new Promise((resolve) => { finishGame = resolve; });
+        const lifecycleBeforeMain = probe.snapshot();
+        engine = new DinoGameEngine(canvas, {
+          version: '2.0.0',
+          reducedMotion: false,
+          onStageChange: (stage) => engineEvents.push({
+            kind: 'stage_change',
+            stage: stage.stage,
+            callback_tick: Number(engine?.currentTick || 0),
+            wall_elapsed_ms: rounded(performance.now() - engine.__benchmarkStartedAt),
+          }),
+          onRevive: (event) => engineEvents.push({
+            kind: 'revive',
+            revive_count: Number(event.revive_count || 0),
+            callback_tick: Number(engine?.currentTick || 0),
+            invulnerable_until_tick: Number(event.invulnerable_until_tick || 0),
+            wall_elapsed_ms: rounded(performance.now() - engine.__benchmarkStartedAt),
+          }),
+          onGameOver: finishGame,
+        });
+        const measurement = instrumentEngine(engine, checkpoints);
+        engine.__benchmarkStartedAt = performance.now();
+        visibilityChanges.push({ state: document.visibilityState, wall_elapsed_ms: 0 });
+        visibilityHandler = () => visibilityChanges.push({
+          state: document.visibilityState,
+          wall_elapsed_ms: rounded(performance.now() - engine.__benchmarkStartedAt),
+          tick: Number(engine?.currentTick || 0),
+        });
+        document.addEventListener('visibilitychange', visibilityHandler);
+        const memoryAtStart = heapSample();
+        engine.start(4);
+        stopBot = startRealtimeBot(engine);
+        statusNode.textContent = 'Seed 4 실시간 봇 실행 중';
+        const timedOut = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('95초 안에 실시간 게임이 끝나지 않았습니다. 탭 가시성과 RAF 제한을 확인하세요.')), 95000);
+        });
+        const gameResult = await Promise.race([gameFinished, timedOut]);
+        clearTimeout(timeoutId);
+        stopBot();
+        engine.stop();
+        await nextFrame();
+        const lifecycleAfterMain = probe.snapshot();
+        statusNode.textContent = '10회 생성·중단 정리 상태 측정 중';
+        const cleanup = await runCleanupCycles(DinoGameEngine, probe);
+        const finalResult = {
+          benchmark: 'phase2-real-engine-raf-v1',
+          build_label: BUILD_LABEL,
+          engine_module: ENGINE_MODULE_URL,
+          origin: location.origin,
+          seed: 4,
+          realtime: true,
+          user_agent: navigator.userAgent,
+          visibility_state_at_finish: document.visibilityState,
+          memory_supported: Boolean(performance.memory),
+          memory_at_start: memoryAtStart,
+          memory_at_finish: heapSample(),
+          empty_raf_baseline: emptyRafBaseline,
+          visibility_changes: visibilityChanges,
+          game_result: gameResult,
+          checkpoints,
+          engine_events: engineEvents,
+          boundary_windows: boundaryWindows(engineEvents, measurement.timeline),
+          stage_measurements: measurement.buckets.map(publicBucket),
+          main_engine_cleanup: {
+            before: lifecycleBeforeMain,
+            after: lifecycleAfterMain,
+            retained_resize_listeners: lifecycleAfterMain.resize_listeners - lifecycleBeforeMain.resize_listeners,
+            retained_raf_callbacks: lifecycleAfterMain.active_raf_callbacks - lifecycleBeforeMain.active_raf_callbacks,
+          },
+          ten_cycle_cleanup: cleanup,
+          expectations: {
+            reached_60_seconds: Number(gameResult.ticks) >= 3600,
+            collected_coins: Number(gameResult.summary?.coins) > 0,
+            used_two_revives: Number(gameResult.summary?.revives) === 2,
+            captured_four_checkpoints: checkpoints.length === 4,
+            cleanup_cycles_clean: cleanup.all_cycles_clean,
+          },
+          limitations: [
+            'Browser scheduling, device load, display refresh rate and tab visibility affect timings.',
+            'performance.memory is non-standard and heap snapshots alone do not establish a memory leak.',
+            'This page measures client engine work only and performs no remote request, DB operation or API call.',
+          ],
+        };
+        progressNode.value = 60;
+        resultNode.textContent = JSON.stringify(finalResult, null, 2);
+        const passed = Object.values(finalResult.expectations).every(Boolean);
+        statusNode.textContent = passed ? '측정 완료 · 필수 기대값 통과' : '측정 완료 · JSON의 expectations 확인 필요';
+      } finally {
+        if (timeoutId != null) clearTimeout(timeoutId);
+        if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler);
+        stopBot();
+        engine?.stop();
+        probe.restore();
+        runButton.disabled = false;
+      }
+    }
+
+    if (!allowedOrigin) {
+      runButton.disabled = true;
+      statusNode.textContent = '로컬 주소에서만 실행할 수 있습니다.';
+      resultNode.textContent = JSON.stringify({ error: 'LOCAL_ORIGIN_REQUIRED', origin: location.origin }, null, 2);
+    } else {
+      runButton.addEventListener('click', () => runBenchmark().catch((error) => {
+        statusNode.textContent = `측정 실패: ${error.message}`;
+        resultNode.textContent = JSON.stringify({ error: error.message, stack: error.stack }, null, 2);
+        runButton.disabled = false;
+      }));
+    }
+  </script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 작성일: 2026-09-26 KST. 작업 브랜치: `codex/phase2-ux-game-conversion`.
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
-상태: **로컬 구현·회귀·독립 검토 완료. 원격 migration 적용 완료. 새 Preview의 전용 연결 설정 적용은 사용자 승인 완료, 재배포 검증 중. 2차 부하 미실행.**
+상태: **로컬 구현·회귀·독립 검토 완료. 원격 migration 적용 완료. 새 Preview 연결·원격 기본 사용 동선 검증 완료. 사용자 지정 Smile/Heart 적용·로컬 엔진 프레임 측정 완료. 2차 부하 미실행.**
 
 ## 구현 범위
 
@@ -12,6 +12,7 @@
 - 기록 공유·경품 공유·재도전 초대 구분, 읽기 전용 OG 카드, 동일 친구 보상 중복 방지.
 - 복주머니 결과 복원, 긁기 보조 버튼·키보드, 수령 정보·Gemini 동선.
 - 두 실제 Notion 가이드 연결 및 카드 노출/링크 클릭 구분.
+- 사용자 지정 Drive Smile/Heart 원본을 Canvas 코인·하트와 HUD에 연결. 이미지 실패 시 보조 표현 유지, 점수·충돌 규칙 불변.
 
 화면 명세: [phase2-screen-spec.md](phase2-screen-spec.md)
 콘텐츠 초안: [phase2-content-drafts.md](phase2-content-drafts.md)
@@ -21,8 +22,8 @@
 
 ### 자동 테스트
 
-- 최종 로컬 전체 Python 회귀: **165개 통과** (`python -m unittest discover -s tests -p 'test_*.py' -v`).
-- 전체 Node 화면·게임 테스트: **70개 통과** (`node --test tests/*.test.cjs`).
+- 최종 로컬 전체 Python 회귀: **168개 통과** (`python -m unittest discover -s tests -p 'test_*.py' -v`).
+- 전체 Node 화면·게임 테스트: **71개 통과** (`node --test tests/*.test.cjs`).
 - `git diff --check` 및 변경 Python/JavaScript 문법 검사 통과.
 - 새 게임 JS/Python 비교에서 동일 seed/입력으로 코인 점수·하트 획득·2회 부활·최종 충돌 결과 일치를 확인했다.
 - 로컬 migration 신규 DB 적용·반복 적용, 범위 밖 테이블 보존, 별도 점수 테이블 연결 검증을 포함한다.
@@ -63,7 +64,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 게임 안내의 코인·하트 누락, 작은 헤더 로고 → 수정.
 - 백엔드 및 이어하기·게임 독립 재검토 모두 승인. 검토 범위에서 미해결 중요 결함 없음.
 
-## 원격 적용과 현재 연결 장애
+## 원격 적용과 Preview 연결
 
 원격 DB 변경은 기존 `dino_dev` 테스트 영역에 추가 적용했다. 새 프로젝트나 새 DB 서버는 만들지 않았다.
 
@@ -75,17 +76,20 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 새 Preview `dpl_F2HptQ4TY9A77ArbMcF7ceppHe5D`는 Python 3.12 빌드가 완료됐지만, 프로젝트 공통 환경값만 상속해 구성 검사에서 503으로 실패한다. **사용 가능한 최종 Preview로 납품하지 않는다.**
 - 기존 1차 배포는 전용 DB 연결 정보를 배포 단위로 전달하는 방식이었다. 같은 전용 설정을 새 Preview에만 전달하는 재배포가 자동 승인 검사에서 민감 정보 전송 승인을 요구하며 차단됐다. 이후 사용자가 기존 DB 비밀번호·쿠키 검증 비밀값의 동일 Vercel 프로젝트 Preview 적용을 명시적으로 승인했다.
 - 기존 Preview의 `/api/health`는 migration 후에도 `database=ready`로 정상. Vercel 보호 설정은 유지한다.
+- 승인 후 Preview `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71`에서 `database=ready`, `environment=preview`, `synthetic_only=true`, `/api/config`의 `game_version=2.0.0`을 확인했다.
+- 해당 Preview 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
 
 ## 비밀 설정 노출 점검
 
 - 2026-09-26 현재 Git 추적 파일 170개의 내용을 기존 DB URL·DB 비밀번호·쿠키 비밀값과 대조했으며 일치 항목은 없었다. 로컬 비밀 입력 파일 두 개는 소유자만 읽고 쓸 수 있는 `0600` 권한이다.
 - 서버 공개 설정은 공개용 Supabase 키만 제공하고 DB 비밀번호와 쿠키 비밀값을 포함하지 않는다. 서버 요청 로그는 상태 코드·route·시간·오류 분류를 남기며 원본 접속 문자열을 출력하지 않는다.
+- 새 Preview `/api/config`와 `/js/api.js`에서 실제 비밀값이 없고, `/.local/phase1/preview-secrets.json`은 404로 차단됨을 확인했다.
 - 위 검사는 현재 작업 트리와 코드 경로에 한정한다. 계정 탈취나 과거 외부 유출 가능성 전체를 부정하는 보안 인증은 아니다.
 
 ## 다음 검증과 3차 인계
 
-1. 승인된 연결 설정으로 새 Preview를 기존 전용 설정으로 재배포하고 실제 API·공유 URL·쿠키·수령·집계를 확인.
+1. Smile/Heart 적용 Preview를 재배포하고 공유 URL·쿠키·원격 수령·집계를 추가 확인.
 2. [2차 부하 계획](phase2-load-plan.md): 100 VU + 200 VU 한 번씩, 예약 390초, 최대 6,632회 예상 요청. 별도 승인 한도는 12분/10,000회이며 아직 승인·실행되지 않았다. 1차 시험 예산은 그대로 보존.
-3. 스테이지 전환/부활의 실제 프레임 추적, 10회 반복 후 메모리, 실기기·인앱 브라우저·네이티브 공유는 미검증. HTTP 테스트나 결정론 테스트로 통과를 대신하지 않는다.
+3. [로컬 브라우저 프레임·10회 엔진 정리 측정](phase2-browser-performance.md)을 완료했다. 빈 RAF도 약 30Hz인 IAB 환경에서 스테이지/부활 경계 지연 증가나 listener/RAF 잔류는 관측하지 않았다. 10회 완전 플레이, 전체 화면 애니메이션, 실기기·인앱 브라우저·네이티브 공유는 추가 검증 범위다. HTTP 테스트로 모바일 FPS 통과를 대신하지 않는다.
 4. 실제 경품/확률/재고/기간, 대학생 인증 방식, 개인정보 안내, 동점 최종 수상 규칙, Google 공식 혜택은 3차 확정.
 5. 4.26 체험담·사진 예시는 실자료를 받아 확정한다. Notion 원문 CTA 수정·게시 여부와 경유 추적 승인도 별도로 확인한다.
