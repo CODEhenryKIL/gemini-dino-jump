@@ -4,7 +4,7 @@
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
 상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart 적용 완료. 아래 복귀·수령·메뉴·노출 보완을 Preview에 반영하고 기본 화면·노출 저장을 확인했다. 2차 부하는 사용자 지시로 보류.**
 
-최신 개선 Preview: https://dino-nanobanana-ku8g8g8t1-henry-kils-projects.vercel.app (`dpl_3BFKncqbc5C5nEDskUKLqod9hxDg`, 코드 `f50c5fd`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
+최신 개선 Preview: https://dino-nanobanana-2t3yrbcby-henry-kils-projects.vercel.app (`dpl_tk7r3eCYgnhmSSSA6bLnzUCVud7e`, 코드 `67a9476`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
 
 ## 2026-09-26 화면·복귀 보완
 
@@ -74,7 +74,7 @@
 - 관리자 API에서 접수 내용을 읽고 해당 테스트 건만 `PENDING_REVIEW`로 변경했다. 이전 버전으로 덮어쓰려는 요청은 409로 거절됐다. 참가자 조회에도 확인 대기 상태가 반영됐다. DB에서 연락정보 1건·접수 이벤트 1건·관리자 변경 이력 1건과 재고 `RESERVED`를 확인했다. 지급 완료와 실제 연락·전달은 처리하지 않았다.
 - 수령함에 앱 복귀·다른 탭 알림을 받는 `updateState`를 연결했다. 조회 실패 시 기존 카드를 유지하고 다시 불러오기 버튼을 제공하며, 같은 화면의 오래된 응답이 새 상태를 덮지 않게 했다. 입력 모달은 별도 DOM에 유지된다.
 - 전체 Node **108개** 통과. 실제 수령함 모듈을 합성 응답으로 실행한 로컬 Chromium에서 정보 접수 → 확인 대기 갱신 → 일시 실패 시 카드 유지 → 다시 불러오기 성공을 확인했다. 원격 확인은 API 흐름이며 원격 브라우저 당첨·수령 전체 E2E를 대신하지 않는다.
-- 수령함 복귀 보완은 아래 최신 배포 근거를 갱신하기 전까지 로컬 검증 상태다. 실기기·네이티브 공유·전체 앱 반복 플레이와 부하 보류 상태는 그대로다.
+- 수령함 복귀 보완을 `67a9476` Preview에 반영했다. health의 `database=ready`·`synthetic_only=true`와 배포된 수령함 모듈의 로컬 검증본 바이트 일치를 확인했다. 실기기·네이티브 공유·전체 앱 반복 플레이와 부하 보류 상태는 그대로다.
 
 ## 구현 범위
 
@@ -149,7 +149,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 기존 1차 배포는 전용 DB 연결 정보를 배포 단위로 전달하는 방식이었다. 같은 전용 설정을 새 Preview에만 전달하는 재배포가 자동 승인 검사에서 민감 정보 전송 승인을 요구하며 차단됐다. 이후 사용자가 기존 DB 비밀번호·쿠키 검증 비밀값의 동일 Vercel 프로젝트 Preview 적용을 명시적으로 승인했다.
 - 기존 Preview의 `/api/health`는 migration 후에도 `database=ready`로 정상. Vercel 보호 설정은 유지한다.
 - 승인 후 Preview `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71`에서 `database=ready`, `environment=preview`, `synthetic_only=true`, `/api/config`의 `game_version=2.0.0`을 확인했다.
-- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 개선 Preview는 위 `f50c5fd` 배포다.
+- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 개선 Preview는 위 `67a9476` 배포다.
 - `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71` 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. Smile/Heart Preview에서는 신규 참가자 기본권 1장 → 32점 서버 승인·1위 표시까지 별도로 확인했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
 
 ## 비밀 설정 노출 점검
