@@ -26,6 +26,7 @@
 - Node 전체 회귀: 39개 통과, 실패·건너뜀 없음. [결과](evidence/phase1-review-node.txt)
 - Python compileall, 변경 JavaScript 구문, Git diff whitespace 검사 통과.
 - 로컬 PostgreSQL 회귀이며 원격 부하 시험은 추가로 실행하지 않았다.
+- 추가 [PR #4](https://github.com/CODEhenryKIL/gemini-dino-jump/pull/4)의 Copilot 재리뷰는 요청 계정의 quota 한도로 실행되지 않았다. 이를 리뷰 통과로 표시하지 않는다. 별도 코드 검토와 위 로컬 검증은 완료했다.
 
 ## 반영 경계
 
