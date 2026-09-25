@@ -21,24 +21,22 @@ class RateLimitBucketTest(unittest.TestCase):
             self.handler._rate(object(),self.settings,path,participant)
         return limited.call_args.args[1]
 
-    def test_sixteen_shards_preserve_the_single_12000_request_ip_budget(self):
+    def test_every_participant_on_an_ip_uses_one_shared_12000_request_bucket(self):
         buckets=[self.buckets("/api/me",hex_digit+"0"*63)[0] for hex_digit in "0123456789abcdef"]
-        self.assertEqual(len({key for key,_limit in buckets}),16)
-        self.assertEqual(sum(limit for _key,limit in buckets),12000)
-        self.assertEqual({limit for _key,limit in buckets},{750})
+        self.assertEqual(set(buckets),{("ip:"+self.ip_hash,12000)})
 
-    def test_anonymous_and_admin_use_the_same_ip_shard_family(self):
+    def test_anonymous_and_admin_use_the_same_shared_ip_bucket(self):
         anonymous=self.buckets("/api/participants/anonymous")[0]
         admin=self.buckets("/api/admin/overview")[0]
         self.assertEqual(anonymous,admin)
-        self.assertEqual(anonymous,("ip:"+self.ip_hash+":"+self.ip_hash[0],750))
+        self.assertEqual(anonymous,("ip:"+self.ip_hash,12000))
 
-    def test_participant_shard_mapping_is_stable(self):
+    def test_participant_requests_keep_the_same_shared_ip_bucket(self):
         participant="f"+"1"*63
         first=self.buckets("/api/me",participant)[0]
         second=self.buckets("/api/me",participant)[0]
         self.assertEqual(first,second)
-        self.assertEqual(first,("ip:"+self.ip_hash+":f",750))
+        self.assertEqual(first,("ip:"+self.ip_hash,12000))
 
     def test_route_subjects_and_existing_limits_are_unchanged(self):
         participant="b"+"2"*63

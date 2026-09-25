@@ -68,11 +68,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
     def _rate(self,conn,settings,path,participant):
         ip=self._ip_subject(settings);limit=240 if path=="/api/participants/anonymous" else 90 if path.startswith("/api/admin/") else 30 if any(x in path for x in ("finish","draws","referrals","claims")) else 180
         subject=participant or ip
-        # Partition one shared-IP quota into 16 fixed buckets. Participant is a
-        # token hash, not a verified identity here; ownership checks remain in
-        # each operation. Anonymous and admin traffic use the IP hash shard.
-        shard=subject[0]
-        if not db.rate_limits(conn,[("ip:"+ip+":"+shard,750),("route:"+path+":"+subject,limit)]):raise DomainError("RATE_LIMITED","요청이 많습니다. 잠시 뒤 다시 시도해 주세요.",429,True)
+        if not db.rate_limits(conn,[("ip:"+ip,12000),("route:"+path+":"+subject,limit)]):raise DomainError("RATE_LIMITED","요청이 많습니다. 잠시 뒤 다시 시도해 주세요.",429,True)
     def _set_participant_cookie(self,token,settings):
         secure="; Secure" if settings.environment=="preview" else ""
         self.pending_cookie=f"dj_session={token}; Path=/; Max-Age={settings.participant_cookie_max_age}; HttpOnly; SameSite=Lax{secure}"
