@@ -4,6 +4,8 @@
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
 상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart 적용 완료. 아래 복귀·수령·메뉴·노출 보완을 Preview에 반영하고 기본 화면·노출 저장을 확인했다. 2차 부하는 사용자 지시로 보류.**
 
+최신 개선 Preview: https://dino-nanobanana-li83297uh-henry-kils-projects.vercel.app (`dpl_FM6ieKvkY8Q46hbYeAYbvy5sfe33`, 코드 `9d3a4b0`).
+
 ## 2026-09-26 화면·복귀 보완
 
 - 서버 상태를 갱신할 때 홈의 게임권 숫자·시작/복원 버튼과 초대 화면의 지급·사용·환급·방문 현황도 함께 갱신한다. 화면 전체를 다시 만들지 않아 공유 목적과 입력 중인 폼을 유지한다.
@@ -44,6 +46,7 @@
 - 검증: 전체 Node **89개**, 변경 관련 로컬 Python **13개** 통과. 초대 유형 테스트가 실제로 유형을 요청에 넣도록 보완하고, 유형별 지급·중복 차단·3장 쿨다운과 새 버튼의 상태 복원·계측을 확인했다. 아래 개선 배포 확인을 별도 기록한다.
 - `20926c5` Preview에서 정상 게임 → 기록 공유 → 초대 화면 복주머니 버튼 → 홈 복주머니 버튼 → 선택·미당첨 공개를 확인했다. 관리자 API에서 새 버튼 클릭 2회·고유 참가자 1명과 한글 지표 이름이 일치했다.
 - 이어서 같은 탭의 추첨 직후 홈에 `AVAILABLE` 표시가 남는 상태 갱신 누락을 발견했다. 추첨 성공 응답으로 현재 상태를 즉시 `DRAWN`으로 바꾸고, 요청 중 화면을 떠난 경우에는 현재 화면이 서버 상태만 새로 읽도록 수정했다. 오래된 요청이 긁기 화면을 덮지 않는 회귀를 유지했다. 추가 보완 후 전체 Node **91개** 통과.
+- 최종 `9d3a4b0` Preview에서 새 참가자의 정상 게임 32점 승인 → 3번 주머니 선택·서버 확정 → 결과를 긁기 전에 홈 이동을 확인했다. 새로고침 없이 `서버에 저장된 결과 확인 가능`·`내 복주머니 결과 보기`가 즉시 표시됐고, 버튼을 누르면 새 선택 화면 없이 같은 3번 주머니의 확정 결과 화면으로 복귀했다. health는 `database=ready`, `synthetic_only=true`이며 이번 확인은 단일 참가자 기능 검증이다.
 
 ## 구현 범위
 
@@ -118,7 +121,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 기존 1차 배포는 전용 DB 연결 정보를 배포 단위로 전달하는 방식이었다. 같은 전용 설정을 새 Preview에만 전달하는 재배포가 자동 승인 검사에서 민감 정보 전송 승인을 요구하며 차단됐다. 이후 사용자가 기존 DB 비밀번호·쿠키 검증 비밀값의 동일 Vercel 프로젝트 Preview 적용을 명시적으로 승인했다.
 - 기존 Preview의 `/api/health`는 migration 후에도 `database=ready`로 정상. Vercel 보호 설정은 유지한다.
 - 승인 후 Preview `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71`에서 `database=ready`, `environment=preview`, `synthetic_only=true`, `/api/config`의 `game_version=2.0.0`을 확인했다.
-- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 화면 보완 Preview는 위 `40b21e4` 배포다.
+- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 화면 보완 Preview는 위 `9d3a4b0` 배포다.
 - `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71` 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. Smile/Heart Preview에서는 신규 참가자 기본권 1장 → 32점 서버 승인·1위 표시까지 별도로 확인했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
 
 ## 비밀 설정 노출 점검
