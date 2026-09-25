@@ -1,0 +1,806 @@
+{
+  "actual_elapsed_seconds": 229.25,
+  "budget": {
+    "admitted_api_calls_cumulative": 2056,
+    "api_calls_remaining": 27944,
+    "completed_api_calls_cumulative": 2056,
+    "duration_reserved_seconds_cumulative": 784
+  },
+  "cohort_fingerprint": "6f7434ffae7d8027d137f12508a40b13e7450e6287d7024b6559028ce86b72c9",
+  "failure": null,
+  "invitation_probe": {
+    "active_ms": 3050,
+    "completed": true,
+    "granted": 1
+  },
+  "last_stock_guarded": false,
+  "metrics": {
+    "api_calls": 2056,
+    "endpoints": {
+      "GET /api/config": {
+        "count": 1,
+        "p50_ms": 150.51,
+        "p95_ms": 150.51,
+        "p99_ms": 150.51,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/draws/{id}": {
+        "count": 226,
+        "p50_ms": 714.58,
+        "p95_ms": 2798.78,
+        "p99_ms": 3044.79,
+        "statuses": {
+          "200": 223,
+          "503": 3
+        }
+      },
+      "GET /api/game-sessions/{id}": {
+        "count": 3,
+        "p50_ms": 170.5,
+        "p95_ms": 171.05,
+        "p99_ms": 171.05,
+        "statuses": {
+          "200": 2,
+          "404": 1
+        }
+      },
+      "GET /api/health": {
+        "count": 1,
+        "p50_ms": 186.82,
+        "p95_ms": 186.82,
+        "p99_ms": 186.82,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/leaderboard": {
+        "count": 150,
+        "p50_ms": 954.9,
+        "p95_ms": 2295.51,
+        "p99_ms": 2478.11,
+        "statuses": {
+          "200": 150
+        }
+      },
+      "GET /api/me": {
+        "count": 248,
+        "p50_ms": 447.39,
+        "p95_ms": 1003.1,
+        "p99_ms": 1236.72,
+        "statuses": {
+          "200": 247,
+          "401": 1
+        }
+      },
+      "GET /api/referrals/me": {
+        "count": 2,
+        "p50_ms": 157.02,
+        "p95_ms": 215.59,
+        "p99_ms": 215.59,
+        "statuses": {
+          "200": 2
+        }
+      },
+      "PATCH /api/draws/{id}/scratch-complete": {
+        "count": 157,
+        "p50_ms": 919.4,
+        "p95_ms": 2463.41,
+        "p99_ms": 2881.88,
+        "statuses": {
+          "200": 157
+        }
+      },
+      "POST /api/draws": {
+        "count": 368,
+        "p50_ms": 865.16,
+        "p95_ms": 2874.42,
+        "p99_ms": 3116.15,
+        "statuses": {
+          "201": 365,
+          "503": 3
+        }
+      },
+      "POST /api/events/batch": {
+        "count": 149,
+        "p50_ms": 790.05,
+        "p95_ms": 2374.8,
+        "p99_ms": 2561.12,
+        "statuses": {
+          "202": 149
+        }
+      },
+      "POST /api/game-sessions": {
+        "count": 248,
+        "p50_ms": 717.31,
+        "p95_ms": 1901.81,
+        "p99_ms": 2212.11,
+        "statuses": {
+          "201": 248
+        }
+      },
+      "POST /api/game-sessions/{id}/checkpoint": {
+        "count": 2,
+        "p50_ms": 239.29,
+        "p95_ms": 253.12,
+        "p99_ms": 253.12,
+        "statuses": {
+          "202": 2
+        }
+      },
+      "POST /api/game-sessions/{id}/fault": {
+        "count": 2,
+        "p50_ms": 184.93,
+        "p95_ms": 213.79,
+        "p99_ms": 213.79,
+        "statuses": {
+          "202": 2
+        }
+      },
+      "POST /api/game-sessions/{id}/finish": {
+        "count": 246,
+        "p50_ms": 776.01,
+        "p95_ms": 3039.87,
+        "p99_ms": 3145.62,
+        "statuses": {
+          "200": 238,
+          "503": 8
+        }
+      },
+      "POST /api/game-sessions/{id}/start": {
+        "count": 248,
+        "p50_ms": 782.01,
+        "p95_ms": 2417.35,
+        "p99_ms": 2751.29,
+        "statuses": {
+          "200": 248
+        }
+      },
+      "POST /api/observations": {
+        "count": 3,
+        "p50_ms": 153.44,
+        "p95_ms": 282.3,
+        "p99_ms": 282.3,
+        "statuses": {
+          "201": 2,
+          "409": 1
+        }
+      },
+      "POST /api/participants/anonymous": {
+        "count": 1,
+        "p50_ms": 165.6,
+        "p95_ms": 165.6,
+        "p99_ms": 165.6,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "POST /api/referrals/qualify": {
+        "count": 1,
+        "p50_ms": 256.61,
+        "p95_ms": 256.61,
+        "p99_ms": 256.61,
+        "statuses": {
+          "200": 1
+        }
+      }
+    },
+    "expected_negative_responses": 3,
+    "flows_completed": 149,
+    "phases": {
+      "draw": {
+        "count": 576,
+        "p50_ms": 821.26,
+        "p95_ms": 2725.07,
+        "p99_ms": 3050.45
+      },
+      "duplicate_retry": {
+        "count": 175,
+        "p50_ms": 903.66,
+        "p95_ms": 2898.33,
+        "p99_ms": 3147.83
+      },
+      "entrance": {
+        "count": 246,
+        "p50_ms": 453.78,
+        "p95_ms": 1003.1,
+        "p99_ms": 1236.72
+      },
+      "game_finish": {
+        "count": 246,
+        "p50_ms": 776.01,
+        "p95_ms": 3039.87,
+        "p99_ms": 3145.62
+      },
+      "game_start": {
+        "count": 492,
+        "p50_ms": 764.35,
+        "p95_ms": 2212.11,
+        "p99_ms": 2687.81
+      },
+      "invitation": {
+        "count": 4,
+        "p50_ms": 165.6,
+        "p95_ms": 256.61,
+        "p99_ms": 256.61
+      },
+      "preflight": {
+        "count": 2,
+        "p50_ms": 150.51,
+        "p95_ms": 186.82,
+        "p99_ms": 186.82
+      },
+      "ranking": {
+        "count": 150,
+        "p50_ms": 954.9,
+        "p95_ms": 2295.51,
+        "p99_ms": 2478.11
+      },
+      "security": {
+        "count": 16,
+        "p50_ms": 184.93,
+        "p95_ms": 282.3,
+        "p99_ms": 282.3
+      },
+      "tracking": {
+        "count": 149,
+        "p50_ms": 790.05,
+        "p95_ms": 2374.8,
+        "p99_ms": 2561.12
+      }
+    },
+    "rate_limited_429": 0,
+    "rps": 8.97,
+    "timeouts": 0,
+    "unexpected_failures": 14
+  },
+  "mode": "remote",
+  "participants_remaining": 4750,
+  "plan_envelope": {
+    "absolute_api_calls_ceiling": 26279,
+    "claim_flow_attempts_ceiling": 108,
+    "client_tracking_events_ceiling": 2170,
+    "cohort_participants_required_ceiling": 2174,
+    "database_write_statement_envelope": 53016,
+    "flow_attempts_ceiling": 2170,
+    "http_mutation_requests_ceiling": 15419,
+    "script_api_calls_ceiling": 21939,
+    "server_domain_event_attempts_ceiling": 13136,
+    "stages": [
+      {
+        "burst": false,
+        "flow_attempts_ceiling": 20,
+        "seconds": 60,
+        "virtual_users": 10
+      },
+      {
+        "burst": false,
+        "flow_attempts_ceiling": 150,
+        "seconds": 120,
+        "virtual_users": 50
+      },
+      {
+        "burst": false,
+        "flow_attempts_ceiling": 400,
+        "seconds": 180,
+        "virtual_users": 100
+      },
+      {
+        "burst": false,
+        "flow_attempts_ceiling": 1400,
+        "seconds": 300,
+        "virtual_users": 200
+      },
+      {
+        "burst": true,
+        "flow_attempts_ceiling": 200,
+        "seconds": 30,
+        "virtual_users": 200
+      }
+    ]
+  },
+  "planned_stage_seconds": 690,
+  "profile": "full",
+  "reserved_duration_seconds": 784,
+  "serious_stop": true,
+  "stages": [
+    {
+      "actual_seconds_including_cleanup": 60.01,
+      "admission_window_seconds": 60,
+      "burst": false,
+      "metrics": {
+        "api_calls": 200,
+        "endpoints": {
+          "GET /api/draws/{id}": {
+            "count": 20,
+            "p50_ms": 210.49,
+            "p95_ms": 440.3,
+            "p99_ms": 511.54,
+            "statuses": {
+              "200": 20
+            }
+          },
+          "GET /api/leaderboard": {
+            "count": 20,
+            "p50_ms": 279.75,
+            "p95_ms": 525.12,
+            "p99_ms": 549.33,
+            "statuses": {
+              "200": 20
+            }
+          },
+          "GET /api/me": {
+            "count": 20,
+            "p50_ms": 221.25,
+            "p95_ms": 890.43,
+            "p99_ms": 911.86,
+            "statuses": {
+              "200": 20
+            }
+          },
+          "PATCH /api/draws/{id}/scratch-complete": {
+            "count": 20,
+            "p50_ms": 236.62,
+            "p95_ms": 426.23,
+            "p99_ms": 434.66,
+            "statuses": {
+              "200": 20
+            }
+          },
+          "POST /api/draws": {
+            "count": 40,
+            "p50_ms": 277.25,
+            "p95_ms": 563.21,
+            "p99_ms": 596.23,
+            "statuses": {
+              "201": 40
+            }
+          },
+          "POST /api/events/batch": {
+            "count": 20,
+            "p50_ms": 214.93,
+            "p95_ms": 461.28,
+            "p99_ms": 470.34,
+            "statuses": {
+              "202": 20
+            }
+          },
+          "POST /api/game-sessions": {
+            "count": 20,
+            "p50_ms": 214.2,
+            "p95_ms": 371.09,
+            "p99_ms": 443.65,
+            "statuses": {
+              "201": 20
+            }
+          },
+          "POST /api/game-sessions/{id}/finish": {
+            "count": 20,
+            "p50_ms": 214.84,
+            "p95_ms": 359.2,
+            "p99_ms": 373.05,
+            "statuses": {
+              "200": 20
+            }
+          },
+          "POST /api/game-sessions/{id}/start": {
+            "count": 20,
+            "p50_ms": 229.64,
+            "p95_ms": 316.48,
+            "p99_ms": 342.07,
+            "statuses": {
+              "200": 20
+            }
+          }
+        },
+        "expected_negative_responses": 0,
+        "flows_completed": 20,
+        "phases": {
+          "draw": {
+            "count": 60,
+            "p50_ms": 252.29,
+            "p95_ms": 557.34,
+            "p99_ms": 596.23
+          },
+          "duplicate_retry": {
+            "count": 20,
+            "p50_ms": 228.4,
+            "p95_ms": 524.05,
+            "p99_ms": 533.27
+          },
+          "entrance": {
+            "count": 20,
+            "p50_ms": 221.25,
+            "p95_ms": 890.43,
+            "p99_ms": 911.86
+          },
+          "game_finish": {
+            "count": 20,
+            "p50_ms": 214.84,
+            "p95_ms": 359.2,
+            "p99_ms": 373.05
+          },
+          "game_start": {
+            "count": 40,
+            "p50_ms": 220.27,
+            "p95_ms": 368.37,
+            "p99_ms": 443.65
+          },
+          "ranking": {
+            "count": 20,
+            "p50_ms": 279.75,
+            "p95_ms": 525.12,
+            "p99_ms": 549.33
+          },
+          "tracking": {
+            "count": 20,
+            "p50_ms": 214.93,
+            "p95_ms": 461.28,
+            "p99_ms": 470.34
+          }
+        },
+        "rate_limited_429": 0,
+        "rps": 3.33,
+        "timeouts": 0,
+        "unexpected_failures": 0
+      },
+      "stopped_early": false,
+      "virtual_users": 10
+    },
+    {
+      "actual_seconds_including_cleanup": 126.6,
+      "admission_window_seconds": 120,
+      "burst": false,
+      "metrics": {
+        "api_calls": 1260,
+        "endpoints": {
+          "GET /api/draws/{id}": {
+            "count": 126,
+            "p50_ms": 712.57,
+            "p95_ms": 1910.73,
+            "p99_ms": 2095.93,
+            "statuses": {
+              "200": 126
+            }
+          },
+          "GET /api/leaderboard": {
+            "count": 126,
+            "p50_ms": 1147.45,
+            "p95_ms": 2345.66,
+            "p99_ms": 2478.11,
+            "statuses": {
+              "200": 126
+            }
+          },
+          "GET /api/me": {
+            "count": 126,
+            "p50_ms": 369.11,
+            "p95_ms": 1070.98,
+            "p99_ms": 1349.92,
+            "statuses": {
+              "200": 126
+            }
+          },
+          "PATCH /api/draws/{id}/scratch-complete": {
+            "count": 126,
+            "p50_ms": 1284.73,
+            "p95_ms": 2405.1,
+            "p99_ms": 2561.24,
+            "statuses": {
+              "200": 126
+            }
+          },
+          "POST /api/draws": {
+            "count": 252,
+            "p50_ms": 884.44,
+            "p95_ms": 2447.71,
+            "p99_ms": 2609.55,
+            "statuses": {
+              "201": 252
+            }
+          },
+          "POST /api/events/batch": {
+            "count": 126,
+            "p50_ms": 912.05,
+            "p95_ms": 2374.8,
+            "p99_ms": 2545.4,
+            "statuses": {
+              "202": 126
+            }
+          },
+          "POST /api/game-sessions": {
+            "count": 126,
+            "p50_ms": 615.63,
+            "p95_ms": 1707.42,
+            "p99_ms": 1865.7,
+            "statuses": {
+              "201": 126
+            }
+          },
+          "POST /api/game-sessions/{id}/finish": {
+            "count": 126,
+            "p50_ms": 676.49,
+            "p95_ms": 1783.35,
+            "p99_ms": 1905.15,
+            "statuses": {
+              "200": 126
+            }
+          },
+          "POST /api/game-sessions/{id}/start": {
+            "count": 126,
+            "p50_ms": 677.98,
+            "p95_ms": 1558.64,
+            "p99_ms": 1638.61,
+            "statuses": {
+              "200": 126
+            }
+          }
+        },
+        "expected_negative_responses": 0,
+        "flows_completed": 126,
+        "phases": {
+          "draw": {
+            "count": 378,
+            "p50_ms": 880.28,
+            "p95_ms": 2248.23,
+            "p99_ms": 2480.77
+          },
+          "duplicate_retry": {
+            "count": 126,
+            "p50_ms": 923.06,
+            "p95_ms": 2521.23,
+            "p99_ms": 2609.55
+          },
+          "entrance": {
+            "count": 126,
+            "p50_ms": 369.11,
+            "p95_ms": 1070.98,
+            "p99_ms": 1349.92
+          },
+          "game_finish": {
+            "count": 126,
+            "p50_ms": 676.49,
+            "p95_ms": 1783.35,
+            "p99_ms": 1905.15
+          },
+          "game_start": {
+            "count": 252,
+            "p50_ms": 643.25,
+            "p95_ms": 1597.81,
+            "p99_ms": 1811.97
+          },
+          "ranking": {
+            "count": 126,
+            "p50_ms": 1147.45,
+            "p95_ms": 2345.66,
+            "p99_ms": 2478.11
+          },
+          "tracking": {
+            "count": 126,
+            "p50_ms": 912.05,
+            "p95_ms": 2374.8,
+            "p99_ms": 2545.4
+          }
+        },
+        "rate_limited_429": 0,
+        "rps": 9.95,
+        "timeouts": 0,
+        "unexpected_failures": 0
+      },
+      "stopped_early": false,
+      "virtual_users": 50
+    },
+    {
+      "actual_seconds_including_cleanup": 12.73,
+      "admission_window_seconds": 180,
+      "burst": false,
+      "metrics": {
+        "api_calls": 574,
+        "endpoints": {
+          "GET /api/draws/{id}": {
+            "count": 80,
+            "p50_ms": 927.61,
+            "p95_ms": 3040.89,
+            "p99_ms": 3126.9,
+            "statuses": {
+              "200": 77,
+              "503": 3
+            }
+          },
+          "GET /api/leaderboard": {
+            "count": 4,
+            "p50_ms": 697.61,
+            "p95_ms": 1192.69,
+            "p99_ms": 1192.69,
+            "statuses": {
+              "200": 4
+            }
+          },
+          "GET /api/me": {
+            "count": 100,
+            "p50_ms": 518.95,
+            "p95_ms": 993.59,
+            "p99_ms": 1114.29,
+            "statuses": {
+              "200": 100
+            }
+          },
+          "PATCH /api/draws/{id}/scratch-complete": {
+            "count": 11,
+            "p50_ms": 708.4,
+            "p95_ms": 2890.59,
+            "p99_ms": 2890.59,
+            "statuses": {
+              "200": 11
+            }
+          },
+          "POST /api/draws": {
+            "count": 76,
+            "p50_ms": 1903.44,
+            "p95_ms": 3116.15,
+            "p99_ms": 3215.08,
+            "statuses": {
+              "201": 73,
+              "503": 3
+            }
+          },
+          "POST /api/events/batch": {
+            "count": 3,
+            "p50_ms": 2036.28,
+            "p95_ms": 3138.71,
+            "p99_ms": 3138.71,
+            "statuses": {
+              "202": 3
+            }
+          },
+          "POST /api/game-sessions": {
+            "count": 100,
+            "p50_ms": 894.59,
+            "p95_ms": 2062.99,
+            "p99_ms": 2230.1,
+            "statuses": {
+              "201": 100
+            }
+          },
+          "POST /api/game-sessions/{id}/finish": {
+            "count": 100,
+            "p50_ms": 1189.28,
+            "p95_ms": 3089.43,
+            "p99_ms": 3184.88,
+            "statuses": {
+              "200": 92,
+              "503": 8
+            }
+          },
+          "POST /api/game-sessions/{id}/start": {
+            "count": 100,
+            "p50_ms": 1079.65,
+            "p95_ms": 2673.65,
+            "p99_ms": 2795.39,
+            "statuses": {
+              "200": 100
+            }
+          }
+        },
+        "expected_negative_responses": 0,
+        "flows_completed": 3,
+        "phases": {
+          "draw": {
+            "count": 138,
+            "p50_ms": 1111.9,
+            "p95_ms": 3044.79,
+            "p99_ms": 3126.9
+          },
+          "duplicate_retry": {
+            "count": 29,
+            "p50_ms": 2262.82,
+            "p95_ms": 3147.83,
+            "p99_ms": 3150.89
+          },
+          "entrance": {
+            "count": 100,
+            "p50_ms": 518.95,
+            "p95_ms": 993.59,
+            "p99_ms": 1114.29
+          },
+          "game_finish": {
+            "count": 100,
+            "p50_ms": 1189.28,
+            "p95_ms": 3089.43,
+            "p99_ms": 3184.88
+          },
+          "game_start": {
+            "count": 200,
+            "p50_ms": 1044.88,
+            "p95_ms": 2495.29,
+            "p99_ms": 2751.29
+          },
+          "ranking": {
+            "count": 4,
+            "p50_ms": 697.61,
+            "p95_ms": 1192.69,
+            "p99_ms": 1192.69
+          },
+          "tracking": {
+            "count": 3,
+            "p50_ms": 2036.28,
+            "p95_ms": 3138.71,
+            "p99_ms": 3138.71
+          }
+        },
+        "rate_limited_429": 0,
+        "rps": 45.08,
+        "timeouts": 0,
+        "unexpected_failures": 14
+      },
+      "stopped_early": true,
+      "virtual_users": 100
+    }
+  ],
+  "target": {
+    "campaign_id": "gemini_dino_phase1_test",
+    "deployment": "dpl_3zhwHtPzAdSvx9mBY7JfPerpK1zN",
+    "environment": "preview",
+    "host": "dino-nanobanana-hvpbyc6w6-henry-kils-projects.vercel.app",
+    "project_ref": "igfrnexknwtiljdqjrbp",
+    "schema": "dino_dev",
+    "synthetic_only": true
+  },
+  "targets": {
+    "database_reconciliation_required": true,
+    "finish_draw_p95_at_most_2000ms": false,
+    "finish_draw_violations": [
+      {
+        "endpoint": "POST /api/game-sessions/{id}/finish",
+        "limit_ms": 2000,
+        "p95_ms": 3039.87
+      },
+      {
+        "endpoint": "GET /api/draws/{id}",
+        "limit_ms": 2000,
+        "p95_ms": 2798.78
+      },
+      {
+        "endpoint": "POST /api/draws",
+        "limit_ms": 2000,
+        "p95_ms": 2874.42
+      },
+      {
+        "endpoint": "PATCH /api/draws/{id}/scratch-complete",
+        "limit_ms": 2000,
+        "p95_ms": 2463.41
+      }
+    ],
+    "general_api_p95_at_most_1000ms": false,
+    "general_violations": [
+      {
+        "endpoint": "GET /api/me",
+        "limit_ms": 1000,
+        "p95_ms": 1003.1
+      },
+      {
+        "endpoint": "POST /api/game-sessions",
+        "limit_ms": 1000,
+        "p95_ms": 1901.81
+      },
+      {
+        "endpoint": "POST /api/game-sessions/{id}/start",
+        "limit_ms": 1000,
+        "p95_ms": 2417.35
+      },
+      {
+        "endpoint": "GET /api/leaderboard",
+        "limit_ms": 1000,
+        "p95_ms": 2295.51
+      },
+      {
+        "endpoint": "POST /api/events/batch",
+        "limit_ms": 1000,
+        "p95_ms": 2374.8
+      }
+    ],
+    "unexpected_failure_rate": 0.006809,
+    "unexpected_failure_rate_below_1_percent": true
+  }
+}

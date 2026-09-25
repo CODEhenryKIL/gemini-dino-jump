@@ -157,6 +157,16 @@ function renderTable(target, columns, rows, emptyText) {
   table.appendChild(body); target.appendChild(table);
 }
 
+function renderTableGroup(target, groups) {
+  target.replaceChildren();
+  for (const group of groups) {
+    const heading = document.createElement('h3'); heading.textContent = group.title;
+    const tableTarget = document.createElement('div'); tableTarget.className = 'admin-table-wrap';
+    target.append(heading, tableTarget);
+    renderTable(tableTarget, group.columns, group.rows || [], group.emptyText);
+  }
+}
+
 function renderSourceFunnel(rows) {
   renderTable(document.querySelector('#source-funnel'), [
     { label: '귀속', value: (row) => row.attribution === 'first' ? '첫 유입' : row.attribution === 'session' ? '이번 방문' : row.attribution },
@@ -221,26 +231,87 @@ function renderOperationalBreakdowns(data) {
     { label: '단계', value: (row) => row.label || row.key }, { label: '진입', value: (row) => row.entered },
     { label: '진행', value: (row) => row.progressed }, { label: '추정 이탈', value: (row) => row.estimated_exits },
     { label: '진행 중', value: (row) => row.pending }, { label: '평균 관측 경과(초)', value: (row) => row.mean_observed_elapsed_seconds ?? row.mean_active_elapsed_seconds },
+    { label: '평균 활성 체류(ms)', value: (row) => row.mean_observed_active_ms },
+    { label: '활성 체류 관측', value: (row) => row.active_dwell_observations },
+    { label: '활성 체류 알 수 없음', value: (row) => row.active_dwell_unknown },
   ], data.stages || [], '조회된 단계 지표가 없습니다.');
-  renderTable(document.querySelector('#game-summary'), [
-    { label: '게임 상태', value: (row) => row.key }, { label: '세션', value: (row) => row.count },
-  ], objectRows(data.game), '조회된 게임 상태가 없습니다.');
+  renderTableGroup(document.querySelector('#game-summary'), [
+    {
+      title: '게임 상태', rows: objectRows(data.game), emptyText: '조회된 게임 상태가 없습니다.',
+      columns: [{ label: '게임 상태', value: (row) => row.key }, { label: '세션', value: (row) => row.count }],
+    },
+    {
+      title: '마지막 관측 단계와 활성 시간', rows: data.game_progress?.by_last_stage || [], emptyText: '연결된 게임 진행 관측이 없습니다.',
+      columns: [
+        { label: '마지막 단계', value: (row) => row.last_stage || 'unknown' },
+        { label: '세션', value: (row) => row.sessions }, { label: '참가자', value: (row) => row.participants },
+        { label: '평균 마지막 활성 ms', value: (row) => row.mean_last_observed_active_ms },
+        { label: '최대 마지막 활성 ms', value: (row) => row.max_last_observed_active_ms },
+        { label: '활성 시간 알 수 없음', value: (row) => row.active_time_unknown },
+      ],
+    },
+    {
+      title: '참가자 미연결 게임 관측', rows: [{ count: data.game_progress?.unlinked_checkpoint_events }], emptyText: '미연결 게임 관측 정보가 없습니다.',
+      columns: [{ label: '미연결 체크포인트 이벤트', value: (row) => row.count }],
+    },
+  ]);
   renderTable(document.querySelector('#result-dwell'), [
     { label: '결과 유형', value: (row) => row.result_type }, { label: '화면', value: (row) => row.views ?? row.visits },
     { label: '활성 ms', value: (row) => row.active_ms },
   ], data.result_dwell || [], '조회된 결과 화면 체류가 없습니다.');
-  renderTable(document.querySelector('#invitation-summary'), [
-    { label: '초대 상태', value: (row) => row.status }, { label: '사유', value: (row) => row.reason },
-    { label: '방문', value: (row) => row.visits }, { label: '방문자', value: (row) => row.visitors },
-  ], data.invitation || [], '조회된 초대 판정이 없습니다.');
+  renderTableGroup(document.querySelector('#invitation-summary'), [
+    {
+      title: '초대 방문 판정', rows: data.invitation || [], emptyText: '조회된 초대 판정이 없습니다.',
+      columns: [
+        { label: '초대 상태', value: (row) => row.status }, { label: '사유', value: (row) => row.reason || 'unknown' },
+        { label: '방문', value: (row) => row.visits }, { label: '방문자', value: (row) => row.visitors },
+      ],
+    },
+    {
+      title: '공유 수단과 확인 가능한 상태', rows: data.sharing?.by_method_status || [], emptyText: '조회된 공유 시도가 없습니다.',
+      columns: [
+        { label: '공유 수단', value: (row) => row.share_method || 'unknown' }, { label: '확인 상태', value: (row) => row.status || 'unknown' },
+        { label: '이벤트', value: (row) => row.events }, { label: '연결 참가자', value: (row) => row.linked_participants },
+        { label: '미연결 이벤트', value: (row) => row.unlinked_events },
+      ],
+    },
+    {
+      title: '공유·초대 전환 요약', rows: [
+        { label: '공유 시도', value: data.sharing?.attempt_events }, { label: '복사 성공', value: data.sharing?.copy_success_events },
+        { label: '공유창 종료', value: data.sharing?.share_sheet_closed_events }, { label: '공유 취소', value: data.sharing?.cancelled_events },
+        { label: '공유 실패', value: data.sharing?.failed_events }, { label: '실제 전송 완료', value: data.sharing?.actual_delivery || 'unknown' },
+        { label: '공유 연결 참가자', value: data.sharing?.linked_participants }, { label: '공유 미연결 이벤트', value: data.sharing?.unlinked_events },
+        { label: '초대권 지급', value: data.invitation_performance?.grant_events }, { label: '지급 참가자', value: data.invitation_performance?.granted_participants },
+        { label: '초대권 사용', value: data.invitation_performance?.use_events }, { label: '사용 참가자', value: data.invitation_performance?.using_participants },
+        { label: '기간 내 사용/지급 비율', value: data.invitation_performance?.period_use_to_grant_ratio == null ? '계산 대상 없음' : `${(Number(data.invitation_performance.period_use_to_grant_ratio) * 100).toFixed(1)}%` },
+        { label: '비율 정의', value: data.invitation_performance?.ratio_definition || 'unknown' },
+        { label: '쿨다운 후 재획득', value: data.invitation_performance?.cooldown_reacquisition_events },
+        { label: '쿨다운 후 재획득 참가자', value: data.invitation_performance?.cooldown_reacquisition_participants },
+        { label: '쿨다운 후 재참여', value: data.invitation_performance?.cooldown_reparticipation_events },
+        { label: '쿨다운 후 재참여 참가자', value: data.invitation_performance?.cooldown_reparticipation_participants },
+      ], emptyText: '조회된 공유·초대 전환 요약이 없습니다.',
+      columns: [{ label: '항목', value: (row) => row.label }, { label: '값', value: (row) => row.value }],
+    },
+  ]);
   const gemini = objectRows(data.gemini_conversion).concat([
     { key: '노출 후 클릭 분자', count: data.gemini_ctr?.numerator },
     { key: '노출 분모', count: data.gemini_ctr?.denominator },
     { key: 'CTR', count: data.gemini_ctr?.rate == null ? '계산 대상 없음' : `${(Number(data.gemini_ctr.rate) * 100).toFixed(1)}%` },
   ]);
-  renderTable(document.querySelector('#gemini-summary'), [
-    { label: 'Gemini 항목', value: (row) => row.key }, { label: '값', value: (row) => row.count },
-  ], gemini, '조회된 Gemini 전환이 없습니다.');
+  renderTableGroup(document.querySelector('#gemini-summary'), [
+    {
+      title: 'Gemini 전환', rows: gemini, emptyText: '조회된 Gemini 전환이 없습니다.',
+      columns: [{ label: 'Gemini 항목', value: (row) => row.key }, { label: '값', value: (row) => row.count }],
+    },
+    {
+      title: '콘텐츠별 클릭·경유', rows: data.content || [], emptyText: '조회된 승인 콘텐츠 행동이 없습니다.',
+      columns: [
+        { label: '콘텐츠', value: (row) => row.content || 'unknown' }, { label: '클릭', value: (row) => row.click_events },
+        { label: '경유 요청', value: (row) => row.outbound_request_events }, { label: '연결 참가자', value: (row) => row.linked_participants },
+        { label: '미연결 이벤트', value: (row) => row.unlinked_events },
+      ],
+    },
+  ]);
 }
 
 function renderDefinitions(definitions) {
@@ -312,15 +383,20 @@ function claimEditor(claim) {
   const info = document.createElement('div');
   const claimTitle = claim.claim_type === 'RANKING' ? '잠정 TOP3 연락 접수' : (claim.prize_name || '경품 수령 요청');
   const title = document.createElement('strong'); title.textContent = `${claimTitle} · ${claim.status}`;
-  const meta = document.createElement('p'); meta.textContent = `담당 ${claim.assignee_display_name || '미지정'} · 버전 ${claim.version}`;
+  const meta = document.createElement('p'); meta.textContent = `담당 ${claim.assignee_display_name || claim.assignee_user_id || '미지정'} · 버전 ${claim.version}`;
   const privateInfo = document.createElement('p'); privateInfo.className = 'private-contact';
   privateInfo.textContent = `연락 정보: ${claim.recipient_name || '미접수'} · ${claim.contact || '-'} · ${claim.school || '-'} · ${claim.address || '-'}`;
   info.append(title, meta, privateInfo);
+  if (claim.claim_type === 'RANKING') {
+    const rankingRestriction = document.createElement('p'); rankingRestriction.className = 'status-note';
+    rankingRestriction.textContent = '잠정 TOP3는 최종 수상 확정 전이므로 지급 완료로 변경할 수 없습니다.';
+    info.appendChild(rankingRestriction);
+  }
   const state = document.createElement('select');
-  for (const status of ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID', 'ON_HOLD', 'INELIGIBLE', 'NO_RESPONSE']) { const option = document.createElement('option'); option.value = status; option.textContent = status; option.selected = claim.status === status; state.appendChild(option); }
+  for (const status of ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID', 'ON_HOLD', 'INELIGIBLE', 'NO_RESPONSE']) { const option = document.createElement('option'); option.value = status; option.textContent = status; option.selected = claim.status === status; option.disabled = claim.claim_type === 'RANKING' && status === 'PAID'; state.appendChild(option); }
   const assignee = document.createElement('input'); assignee.placeholder = '담당자 user id'; assignee.value = claim.assignee_user_id || ''; assignee.maxLength = 80;
   const reason = document.createElement('input'); reason.placeholder = '변경 사유'; reason.maxLength = 160;
-  const external = document.createElement('label'); const externalBox = document.createElement('input'); externalBox.type = 'checkbox'; const externalText = document.createElement('span'); externalText.textContent = '외부 전달 완료'; external.append(externalBox, externalText);
+  const external = document.createElement('label'); const externalBox = document.createElement('input'); externalBox.type = 'checkbox'; externalBox.checked = Boolean(claim.external_delivery); const externalText = document.createElement('span'); externalText.textContent = '외부 전달 완료'; external.append(externalBox, externalText);
   const save = document.createElement('button'); save.className = 'btn btn-primary btn-sm'; save.textContent = '상태 저장';
   if (!adminPermissions.has('claims:write')) {
     state.disabled = true; assignee.disabled = true; reason.disabled = true; externalBox.disabled = true; save.disabled = true; save.textContent = '읽기 전용';

@@ -92,7 +92,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             raw=str(body.get("visit_nonce") or "");ctx["visit_nonce_hash"]=auth.token_hash(raw,settings.token_pepper) if raw else ""
         return ctx
     def _api(self):
-        started=time.monotonic();route_template="/api/unknown";error_code=None;deployment="unknown"
+        started=time.monotonic();route_template="/api/unknown";error_code=None;deployment="unknown";database_failure=None
         try:
             settings=Settings.from_env();deployment=settings.deployment;self._origin(settings);parsed=urlparse(self.path)
             if len(self.path)>2048:raise DomainError("URL_TOO_LONG","요청 주소가 너무 깁니다.",414)
@@ -133,11 +133,13 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         except DomainError as error:error_code=error.code;self.fail(error)
         except auth.AuthenticationError:error_code="ADMIN_AUTH_REQUIRED";self.fail(DomainError(error_code,"관리자 로그인이 필요합니다.",401))
         except auth.AuthenticationUnavailable:error_code="AUTH_UNAVAILABLE";self.fail(DomainError(error_code,"관리자 인증 연결을 확인해 주세요.",503,True))
-        except (ConfigurationError,db.DatabaseBusy,psycopg.Error):error_code="SERVICE_UNAVAILABLE";self.fail(DomainError(error_code,"서비스 연결을 확인하고 있습니다.",503,True))
+        except (ConfigurationError,db.DatabaseBusy,psycopg.Error) as error:
+            database_failure="pool_wait" if isinstance(error,db.DatabaseBusy) else "configuration" if isinstance(error,ConfigurationError) else (error.sqlstate or "connection")
+            error_code="SERVICE_UNAVAILABLE";self.fail(DomainError(error_code,"서비스 연결을 확인하고 있습니다.",503,True))
         except (BrokenPipeError,ConnectionResetError):pass
         except Exception:error_code="INTERNAL_ERROR";self.fail(DomainError(error_code,"요청을 처리하지 못했습니다.",500,True))
         finally:
-            sys.stderr.write(json.dumps({"event":"api_request","status":self.response_status,"method":self.command,"route":route_template,"duration_ms":round((time.monotonic()-started)*1000),"request_id":self.request_id,"deployment":deployment,"error_code":error_code},separators=(",",":"))+"\n")
+            sys.stderr.write(json.dumps({"event":"api_request","status":self.response_status,"method":self.command,"route":route_template,"duration_ms":round((time.monotonic()-started)*1000),"request_id":self.request_id,"deployment":deployment,"error_code":error_code,"database_failure":database_failure},separators=(",",":"))+"\n")
     def _static(self):
         path=urlparse(self.path).path
         if path in LEGACY_PATHS:

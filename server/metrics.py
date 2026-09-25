@@ -172,17 +172,27 @@ def build_overview(conn, query, ctx):
       ('invite.share','초대 CTA 노출→공유 시도','invite_cta_viewed','share_attempted')
     ), normalized as (select *,regexp_replace(event_name,'^client_','') client_name from events where source='client'),
     entry_rows as (select d.*,e.person_id,e.screen_view_id,e.occurred_at,e.active_ms,
-      (select min(n.occurred_at) from normalized n where n.person_id=e.person_id and n.client_name=d.next_name
-        and n.occurred_at>=e.occurred_at and n.occurred_at<=e.occurred_at+make_interval(secs=>%s)) next_at
-      from stage_defs d join normalized e on e.client_name=d.entry_name where e.person_id is not null)
+      nx.occurred_at next_at,nx.active_ms next_active_ms
+      from stage_defs d join normalized e on e.client_name=d.entry_name
+      left join lateral (select n.occurred_at,n.active_ms from normalized n
+        where n.person_id=e.person_id and n.client_name=d.next_name
+          and (e.screen_view_id is null or n.screen_view_id=e.screen_view_id)
+          and n.occurred_at>=e.occurred_at and n.occurred_at<=e.occurred_at+make_interval(secs=>%s)
+        order by n.occurred_at limit 1) nx on true where e.person_id is not null)
     , people_stages as (select key,label,person_id,min(occurred_at) entered_at,
-      bool_or(next_at is not null) progressed,min(extract(epoch from next_at-occurred_at)) elapsed_seconds
+      bool_or(next_at is not null) progressed,min(extract(epoch from next_at-occurred_at)) elapsed_seconds,
+      bool_or(next_at is not null and screen_view_id is not null and active_ms is not null and next_active_ms is not null) active_observed,
+      min(greatest(0,next_active_ms-active_ms)) filter(where next_at is not null and screen_view_id is not null
+        and active_ms is not null and next_active_ms is not null) active_dwell_ms
       from entry_rows group by key,label,person_id)
     select key,label,count(*)::int entered,
       count(*) filter(where progressed)::int progressed,
       count(*) filter(where not progressed and entered_at<=%s-make_interval(secs=>%s))::int estimated_exits,
       count(*) filter(where not progressed and entered_at>%s-make_interval(secs=>%s))::int pending,
-      avg(elapsed_seconds)::float8 mean_observed_elapsed_seconds
+      avg(elapsed_seconds)::float8 mean_observed_elapsed_seconds,
+      avg(active_dwell_ms)::float8 mean_observed_active_ms,
+      count(*) filter(where progressed and active_observed)::int active_dwell_observations,
+      count(*) filter(where progressed and not active_observed)::int active_dwell_unknown
       from people_stages group by key,label order by key""", (window,end,window,end,window))
     result_dwell = rows("""select result_type,count(*)::int visits,coalesce(sum(active_ms),0)::bigint active_ms
       from (select coalesce(screen_view_id,visit_session_id,person_id) view_id,
@@ -194,6 +204,77 @@ def build_overview(conn, query, ctx):
     invitation = rows("""select v.status,coalesce(v.reason,'unknown') reason,count(*)::int visits,
       count(distinct v.visitor_id)::int visitors from dino_dev.invitation_visit v join people p on p.id=v.inviter_id
       where v.created_at>=%s and v.created_at<%s group by 1,2 order by 1,2""", (start,end))
+    sharing = rows("""select coalesce(dimensions->>'share_method','unknown') share_method,
+      coalesce(dimensions->>'status','unknown') status,count(*)::int events,
+      count(distinct person_id) filter(where person_id is not null)::int linked_participants,
+      count(*) filter(where person_id is null)::int unlinked_events
+      from events where source='client' and event_name='share_attempted'
+      group by 1,2 order by 1,2""")
+    sharing_totals = one("""select count(distinct person_id) filter(where person_id is not null)::int linked_participants,
+      count(*) filter(where person_id is null)::int unlinked_events
+      from events where source='client' and event_name='share_attempted'""")
+    sharing_summary = {
+      **sharing_totals,
+      'attempt_events': sum(r['events'] for r in sharing if r['status'] == 'attempted'),
+      'copy_success_events': sum(r['events'] for r in sharing if r['share_method'] == 'copy' and r['status'] == 'copied'),
+      'share_sheet_closed_events': sum(r['events'] for r in sharing if r['status'] == 'share_sheet_closed'),
+      'cancelled_events': sum(r['events'] for r in sharing if r['status'] == 'cancelled'),
+      'failed_events': sum(r['events'] for r in sharing if r['status'] == 'failed'),
+      'actual_delivery': 'unknown',
+    }
+    invitation_performance = one(""", grants as (
+      select l.* from dino_dev.ticket_ledger l join people p on p.id=l.participant_id
+      where l.ticket_kind='INVITATION' and l.source_type='INVITATION_GRANT'
+        and l.created_at>=%s and l.created_at<%s
+    ), uses as (
+      select l.* from dino_dev.ticket_ledger l join people p on p.id=l.participant_id
+      where l.ticket_kind='INVITATION' and l.source_type='PLAY_CONSUME'
+        and l.created_at>=%s and l.created_at<%s
+    ), reacquired as (
+      select g.* from grants g where exists (
+        select 1 from dino_dev.ticket_ledger prior where prior.participant_id=g.participant_id
+          and prior.ticket_kind='INVITATION' and prior.cooldown_until is not null
+          and prior.created_at<g.created_at and prior.cooldown_until<=g.created_at)
+    ) select (select count(*)::int from grants) grant_events,
+      (select count(distinct participant_id)::int from grants) granted_participants,
+      (select count(*)::int from uses) use_events,
+      (select count(distinct participant_id)::int from uses) using_participants,
+      (select count(*)::int from reacquired) cooldown_reacquisition_events,
+      (select count(distinct participant_id)::int from reacquired) cooldown_reacquisition_participants,
+      (select count(*)::int from reacquired r where exists(select 1 from uses u
+        where u.participant_id=r.participant_id and u.created_at>=r.created_at)) cooldown_reparticipation_events,
+      (select count(distinct r.participant_id)::int from reacquired r where exists(select 1 from uses u
+        where u.participant_id=r.participant_id and u.created_at>=r.created_at)) cooldown_reparticipation_participants""",
+      (start,end,start,end))
+    invitation_performance['period_use_to_grant_ratio'] = (
+      invitation_performance['use_events'] / invitation_performance['grant_events']
+      if invitation_performance['grant_events'] else None)
+    invitation_performance['ratio_definition'] = '조회 기간의 초대권 사용 이벤트 / 초대권 지급 이벤트. 개별 지급권의 소비 전환율은 식별 불가.'
+    game_progress_rows = rows("""select coalesce(last_stage,'unknown') last_stage,count(*)::int sessions,
+      count(distinct participant_id)::int participants,
+      avg(last_active_ms)::float8 mean_last_observed_active_ms,
+      max(last_active_ms)::int max_last_observed_active_ms,
+      count(*) filter(where last_active_ms is null)::int active_time_unknown
+      from (select g.id,g.participant_id,last_event.last_stage,last_event.last_active_ms
+        from dino_dev.game_session g join people p on p.id=g.participant_id
+        left join lateral (select coalesce(
+            (array_agg(e.dimensions->>'stage' order by e.occurred_at desc,e.id desc)
+              filter(where e.dimensions ? 'stage'))[1],'unknown') last_stage,
+          max(e.active_ms) last_active_ms from events e where e.game_session_id=g.id and e.source='client'
+          and regexp_replace(e.event_name,'^client_','') in ('game_checkpoint','game_completed','game_fault_reported')
+          ) last_event on true
+        where g.reserved_at>=%s and g.reserved_at<%s) observed
+      group by 1 order by 1""", (start,end))
+    unlinked_game_progress = one("""select count(*)::int checkpoint_events from events
+      where source='client' and regexp_replace(event_name,'^client_','')='game_checkpoint'
+        and game_session_id is null""")['checkpoint_events']
+    content = rows("""select coalesce(dimensions->>'content','unknown') content,
+      count(*) filter(where event_name='content_clicked')::int click_events,
+      count(*) filter(where event_name='notion_redirect_requested')::int outbound_request_events,
+      count(distinct person_id) filter(where person_id is not null)::int linked_participants,
+      count(*) filter(where person_id is null)::int unlinked_events
+      from events where source='client' and event_name in ('content_clicked','notion_redirect_requested')
+      group by 1 order by 1""")
     claim_conversion = one("""select count(*) filter(where c.claim_type='DRAW')::int eligible_winning_claims,
       count(*) filter(where c.claim_type='DRAW' and c.contact_submitted_at is not null)::int submitted_winning_claims
       from dino_dev.claim c join people p on p.id=c.participant_id where c.created_at>=%s and c.created_at<%s""", (start,end))
@@ -227,12 +308,20 @@ def build_overview(conn, query, ctx):
       generated_at=_iso(now), observation_window_seconds=window, totals=totals, funnel=funnel, metrics=metrics,
       loading={'buckets':loading,'estimated':True}, screens=screens, game=game, score_distribution=score_distribution,
       source_funnel=source_funnel, ticket_ledger=ledger, claims=claims, ranking=ranking,
-      stages=stages,result_dwell=result_dwell,invitation=invitation,claim_conversion=claim_conversion,
+      stages=stages,result_dwell=result_dwell,invitation=invitation,
+      sharing={'by_method_status':sharing, **sharing_summary}, invitation_performance=invitation_performance,
+      game_progress={'by_last_stage':game_progress_rows,'unlinked_checkpoint_events':unlinked_game_progress},
+      content=content,claim_conversion=claim_conversion,
       gemini_ctr={'numerator':ctr['clicked'],'denominator':ctr['exposed'],'rate':ctr['clicked']/ctr['exposed'] if ctr['exposed'] else None},
       gemini_conversion=conversion, definitions={
         'scope':'합성 테스트 데이터만 포함; 운영 통계로 사용 금지',
         'source_funnel':'최초 유입과 이번 방문을 별도 표시. 신규는 조회 기간 중 생성된 참가자, 재방문은 기간 이전 생성 참가자. 전환율 분모는 해당 행의 연결된 고유 참가자. 이번 방문의 서버 이벤트 연결이 없으면 0이며 인과를 추정하지 않음.',
         'loading':'준비 완료 전 마지막 관측 기반 추정. 관측창 진행 중은 이탈 제외. unknown은 활성 시간 미관측.',
         'active_ms':'누적 체크포인트 합산이 아닌 방문·화면별 최대값 합계',
+        'stage_active_dwell':'같은 화면 진입에서 후속 단계까지 관측된 누적 활성 시간 차이. 신호가 없으면 active_dwell_unknown이며 wall clock으로 대체하지 않음.',
+        'sharing':'클라이언트가 관측한 공유 수단 호출·복사 성공·취소·실패. 실제 전송·수신·도착 여부는 unknown.',
+        'invitation_performance':'지급·사용은 서버 티켓 원장. 쿨다운 후 재획득은 과거 cooldown_until 종료 뒤 발생한 새 지급이며, 재참여는 그 뒤의 초대권 소비.',
+        'game_progress':'서버 승인 게임별 마지막 연결된 클라이언트 체크포인트. 연결되지 않은 체크포인트와 활성 시간 미관측은 별도 unknown.',
+        'content':'콘텐츠별 클라이언트 클릭 및 승인된 Notion 이동 요청. linked_participants는 중복 제거, unlinked_events는 별도.',
         'gemini':'클릭은 도착·인증·가입 완료가 아님; 0분모는 계산 대상 없음',
       })

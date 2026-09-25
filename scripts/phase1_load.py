@@ -9,6 +9,7 @@ network-free and is the default verification path in CI.
 from __future__ import annotations
 
 import argparse
+import copy
 import concurrent.futures
 import datetime as dt
 import fcntl
@@ -194,7 +195,11 @@ class BudgetLedger:
         if path.exists() and path.is_symlink():
             raise SafetyError("Ledger must not be a symlink")
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        self.lock_path = path.with_name(path.name + ".lock")
+        if self.lock_path.exists() and self.lock_path.is_symlink():
+            raise SafetyError("Ledger lock must not be a symlink")
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        self.fd = os.open(self.lock_path, flags, 0o600)
         try:
             fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
@@ -202,14 +207,22 @@ class BudgetLedger:
             self.fd = None
             raise SafetyError("Another load run already owns this ledger") from error
         self.lock = threading.Lock()
-        os.chmod(path, 0o600)
+        os.chmod(self.lock_path, 0o600)
         if stat.S_IMODE(os.fstat(self.fd).st_mode) != 0o600:
-            raise SafetyError("Ledger permissions must be 0600")
+            raise SafetyError("Ledger lock permissions must be 0600")
         self.data = self._read()
+        if not path.exists():
+            self._write()
 
     def _read(self) -> dict[str, Any]:
-        os.lseek(self.fd, 0, os.SEEK_SET)
-        raw = os.read(self.fd, 1_000_000)
+        if not self.path.exists():
+            raw = b""
+        else:
+            if self.path.is_symlink() or stat.S_IMODE(self.path.stat().st_mode) != 0o600:
+                raise SafetyError("Ledger must be a private regular file")
+            raw = self.path.read_bytes()
+            if len(raw) > 1_000_000:
+                raise SafetyError("Ledger is unexpectedly large")
         if not raw:
             return {
                 "version": 2,
@@ -230,12 +243,113 @@ class BudgetLedger:
             raise SafetyError("Ledger completion count exceeds admissions")
         return data
 
+    def _replace_data(self, data: dict[str, Any]) -> None:
+        payload = json.dumps(data, separators=(",", ":"), sort_keys=True).encode()
+        temporary = self.path.with_name(
+            f".{self.path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        )
+        temp_fd = None
+        try:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            temp_fd = os.open(temporary, flags, 0o600)
+            written = 0
+            while written < len(payload):
+                written += os.write(temp_fd, payload[written:])
+            os.fsync(temp_fd)
+            os.close(temp_fd)
+            temp_fd = None
+            os.replace(temporary, self.path)
+            os.chmod(self.path, 0o600)
+            directory_fd = os.open(self.path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if temp_fd is not None:
+                os.close(temp_fd)
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
     def _write(self) -> None:
-        payload = json.dumps(self.data, separators=(",", ":"), sort_keys=True).encode()
-        os.lseek(self.fd, 0, os.SEEK_SET)
-        os.ftruncate(self.fd, 0)
-        os.write(self.fd, payload)
-        os.fsync(self.fd)
+        self._replace_data(self.data)
+
+    def redeployment_state(
+        self,
+        old_fingerprint: str,
+        new_fingerprint: str,
+        proof: dict[str, Any],
+    ) -> str:
+        migrations = self.data.get("redeployment_migrations", [])
+        matching = [
+            item
+            for item in migrations
+            if item.get("old_fingerprint") == old_fingerprint
+            and item.get("new_fingerprint") == new_fingerprint
+        ]
+        if matching:
+            if len(matching) != 1 or any(
+                matching[0].get(key) != proof.get(key)
+                for key in (
+                    "old_deployment_id",
+                    "new_deployment_id",
+                    "old_base_url",
+                    "new_base_url",
+                    "project_ref",
+                    "schema",
+                    "campaign_id",
+                    "participant_identity_sha256",
+                )
+            ):
+                raise SafetyError("Redeployment migration audit proof changed")
+            if old_fingerprint in self.data.get("cohorts", {}) or new_fingerprint not in self.data.get("cohorts", {}):
+                raise SafetyError("Redeployment migration ledger state is inconsistent")
+            return "completed"
+        cohorts = self.data.get("cohorts", {})
+        if old_fingerprint not in cohorts:
+            raise SafetyError("Original cohort cursor is missing from the ledger")
+        if new_fingerprint in cohorts:
+            raise SafetyError("New deployment cohort cursor already exists without an audit record")
+        return "pending"
+
+    def migrate_redeployment(
+        self,
+        old_fingerprint: str,
+        new_fingerprint: str,
+        proof: dict[str, Any],
+    ) -> None:
+        with self.lock:
+            if (
+                proof.get("old_cohort_fingerprint") != old_fingerprint
+                or proof.get("new_cohort_fingerprint") != new_fingerprint
+            ):
+                raise SafetyError("Redeployment cohort identity proof does not match")
+            state = self.redeployment_state(old_fingerprint, new_fingerprint, proof)
+            if state == "completed":
+                return
+            candidate = copy.deepcopy(self.data)
+            cursor = candidate["cohorts"].pop(old_fingerprint)
+            candidate["cohorts"][new_fingerprint] = cursor
+            external = candidate.setdefault("external_cohort_calls", {})
+            if old_fingerprint in external:
+                if new_fingerprint in external:
+                    raise SafetyError("Redeployment preparation accounting already exists")
+                external[new_fingerprint] = external.pop(old_fingerprint)
+            audit = dict(proof)
+            audit.update(
+                {
+                    "old_fingerprint": old_fingerprint,
+                    "new_fingerprint": new_fingerprint,
+                    "cursor_at_migration": int(cursor.get("next_index", 0)),
+                    "cohort_total": int(cursor.get("total", 0)),
+                    "migrated_at": int(time.time()),
+                }
+            )
+            candidate.setdefault("redeployment_migrations", []).append(audit)
+            self._replace_data(candidate)
+            self.data = candidate
 
     def reserve_run(
         self,
@@ -274,6 +388,11 @@ class BudgetLedger:
 
     def claim_participant(self, fingerprint: str, total: int, campaign_id: str) -> int:
         with self.lock:
+            if any(
+                item.get("old_fingerprint") == fingerprint
+                for item in self.data.get("redeployment_migrations", [])
+            ):
+                raise SafetyError("Original deployment cohort cursor is retired")
             cohorts = self.data.setdefault("cohorts", {})
             state = cohorts.setdefault(
                 fingerprint,
@@ -293,6 +412,11 @@ class BudgetLedger:
         if type(api_calls) is not int or api_calls < 0:
             raise SafetyError("Cohort preparation_api_calls must be a non-negative integer")
         with self.lock:
+            if any(
+                item.get("old_fingerprint") == fingerprint
+                for item in self.data.get("redeployment_migrations", [])
+            ):
+                raise SafetyError("Original deployment cohort cursor is retired")
             charged = self.data.setdefault("external_cohort_calls", {})
             existing = charged.get(fingerprint)
             if existing is not None:
@@ -307,6 +431,11 @@ class BudgetLedger:
             self._write()
 
     def participants_remaining(self, fingerprint: str, total: int) -> int:
+        if any(
+            item.get("old_fingerprint") == fingerprint
+            for item in self.data.get("redeployment_migrations", [])
+        ):
+            return 0
         state = self.data.get("cohorts", {}).get(fingerprint, {})
         return max(0, total - int(state.get("next_index", 0)))
 
@@ -475,6 +604,75 @@ def cohort_fingerprint(cohort: dict[str, Any]) -> str:
             digest.update(str(participant.get(key, "")).encode())
             digest.update(b"\0")
     return digest.hexdigest()
+
+
+def participant_identity_fingerprint(cohort: dict[str, Any]) -> str:
+    digest = hashlib.sha256()
+    for participant in cohort["participants"]:
+        for key in ("cookie", "participant_id", "referral_code"):
+            digest.update(str(participant.get(key, "")).encode())
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def retarget_cohort_for_redeployment(
+    cohort: dict[str, Any],
+    old_deployment_id: str,
+    new_deployment_id: str,
+    old_base_url: str,
+    new_base_url: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    deployment_pattern = re.compile(r"^[A-Za-z0-9._-]{3,128}$")
+    if (
+        not deployment_pattern.fullmatch(old_deployment_id or "")
+        or not deployment_pattern.fullmatch(new_deployment_id or "")
+        or old_deployment_id == new_deployment_id
+    ):
+        raise SafetyError("Redeployment resume requires distinct explicit deployment IDs")
+    if cohort.get("environment") != "preview" or cohort.get("deployment_id") != old_deployment_id:
+        raise SafetyError("Cohort does not belong to the explicit original deployment")
+    old_base_url = validate_target(old_base_url, "remote")
+    new_base_url = validate_target(new_base_url, "remote")
+    if old_base_url == new_base_url or cohort.get("base_url") != old_base_url:
+        raise SafetyError("Redeployment resume requires distinct exact old and new Vercel origins")
+    identity = participant_identity_fingerprint(cohort)
+    retargeted = copy.deepcopy(cohort)
+    retargeted["deployment_id"] = new_deployment_id
+    retargeted["base_url"] = new_base_url
+    if participant_identity_fingerprint(retargeted) != identity:
+        raise SafetyError("Redeployment retarget changed participant identities")
+    proof = {
+        "old_deployment_id": old_deployment_id,
+        "new_deployment_id": new_deployment_id,
+        "old_base_url": old_base_url,
+        "new_base_url": new_base_url,
+        "project_ref": cohort.get("project_ref"),
+        "schema": EXPECTED_SCHEMA,
+        "campaign_id": cohort.get("campaign_id"),
+        "participant_identity_sha256": identity,
+        "old_cohort_fingerprint": cohort_fingerprint(cohort),
+        "new_cohort_fingerprint": cohort_fingerprint(retargeted),
+    }
+    return retargeted, proof
+
+
+def verify_redeployment_target(
+    proof: dict[str, Any],
+    health: dict[str, Any],
+    config: dict[str, Any],
+    base_url: str,
+) -> None:
+    campaign = config.get("campaign") if isinstance(config, dict) else None
+    expected = {
+        "new_deployment_id": health.get("deployment"),
+        "new_base_url": validate_target(base_url, "remote"),
+        "project_ref": health.get("project_ref"),
+        "schema": health.get("schema"),
+        "campaign_id": campaign.get("id") if isinstance(campaign, dict) else None,
+    }
+    for key, actual in expected.items():
+        if proof.get(key) != actual:
+            raise SafetyError(f"Redeployment proof mismatch: {key}")
 
 
 class HttpClient:
@@ -1238,6 +1436,8 @@ def parse_args(argv=None):
     parser.add_argument("--report", type=Path)
     parser.add_argument("--expected-project-ref", default=EXPECTED_PROJECT_REF)
     parser.add_argument("--expected-deployment-id")
+    parser.add_argument("--resume-from-deployment-id")
+    parser.add_argument("--resume-from-base-url")
     parser.add_argument("--protection-token-file", type=Path)
     parser.add_argument("--deployment-auth-cookie-file", type=Path)
     parser.add_argument("--timeout", type=float, default=10.0)
@@ -1250,8 +1450,15 @@ def parse_args(argv=None):
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    resume_requested = bool(
+        args.resume_from_deployment_id or args.resume_from_base_url
+    )
+    if bool(args.resume_from_deployment_id) != bool(args.resume_from_base_url):
+        raise SafetyError("Redeployment resume requires both original deployment ID and URL")
     if args.mode == "remote" and not args.expected_deployment_id and not args.dry_run:
         raise SafetyError("Remote runs require --expected-deployment-id")
+    if resume_requested and (args.mode != "remote" or args.dry_run):
+        raise SafetyError("Redeployment resume is only available for an actual remote run")
     if args.dry_run:
         cohort_size = MAX_COHORT_SIZE
         if args.cohort:
@@ -1261,7 +1468,7 @@ def main(argv=None) -> int:
                 args.mode,
                 base_url,
                 args.expected_project_ref,
-                args.expected_deployment_id,
+                args.resume_from_deployment_id or args.expected_deployment_id,
             )
             cohort_size = len(cohort["participants"])
         report = dry_run(args.profile, cohort_size, args.think_time, args.invitation_probe)
@@ -1271,13 +1478,28 @@ def main(argv=None) -> int:
     if not all((args.base_url, args.cohort, args.ledger, args.report)):
         raise SafetyError("Actual runs require explicit base URL, cohort, ledger, and report paths")
     base_url = validate_target(args.base_url, args.mode)
+    cohort_base_url = (
+        validate_target(args.resume_from_base_url, "remote")
+        if resume_requested
+        else base_url
+    )
     cohort = load_cohort(
         args.cohort,
         args.mode,
-        base_url,
+        cohort_base_url,
         args.expected_project_ref,
-        args.expected_deployment_id,
+        args.resume_from_deployment_id or args.expected_deployment_id,
     )
+    original_cohort = cohort
+    redeployment_proof = None
+    if resume_requested:
+        cohort, redeployment_proof = retarget_cohort_for_redeployment(
+            original_cohort,
+            args.resume_from_deployment_id,
+            args.expected_deployment_id,
+            cohort_base_url,
+            base_url,
+        )
     protection_token = None
     if args.protection_token_file:
         protection_token = read_private_text(args.protection_token_file, "Protection token file")
@@ -1292,15 +1514,29 @@ def main(argv=None) -> int:
             raise SafetyError("Invalid Vercel deployment authentication cookie")
 
     fingerprint = cohort_fingerprint(cohort)
+    original_fingerprint = cohort_fingerprint(original_cohort)
     estimate = estimate_profile(args.profile, args.think_time, args.invitation_probe)
     reserved = reserved_duration(args.profile, args.invitation_probe)
     stop = threading.Event()
     metrics = Metrics()
     with BudgetLedger(args.ledger) as ledger:
-        ledger.register_cohort_preparation(fingerprint, cohort.get("preparation_api_calls", 0))
+        active_fingerprint = fingerprint
+        migration_state = None
+        if redeployment_proof:
+            migration_state = ledger.redeployment_state(
+                original_fingerprint, fingerprint, redeployment_proof
+            )
+            active_fingerprint = (
+                fingerprint if migration_state == "completed" else original_fingerprint
+            )
+        ledger.register_cohort_preparation(
+            active_fingerprint, cohort.get("preparation_api_calls", 0)
+        )
         if estimate["absolute_api_calls_ceiling"] > ledger.remaining_calls:
             raise BudgetExceeded("Conservative call envelope exceeds the cumulative remaining budget")
-        remaining_participants = ledger.participants_remaining(fingerprint, len(cohort["participants"]))
+        remaining_participants = ledger.participants_remaining(
+            active_fingerprint, len(cohort["participants"])
+        )
         if estimate["cohort_participants_required_ceiling"] > remaining_participants:
             raise BudgetExceeded("Fresh participant cohort is too small for this run")
         ledger.reserve_run(reserved, args.profile, fingerprint, args.expected_deployment_id)
@@ -1328,9 +1564,20 @@ def main(argv=None) -> int:
                 cohort["campaign_id"],
                 args.require_last_stock,
             )
-            security_probe(client, cohort, ledger, fingerprint)
+            if redeployment_proof:
+                verify_redeployment_target(
+                    redeployment_proof, health, config, base_url
+                )
+                ledger.migrate_redeployment(
+                    original_fingerprint, fingerprint, redeployment_proof
+                )
+                active_fingerprint = fingerprint
+                migration_state = "completed"
+            security_probe(client, cohort, ledger, active_fingerprint)
             if args.invitation_probe:
-                invitation_report = invitation_probe(client, cohort, ledger, fingerprint)
+                invitation_report = invitation_probe(
+                    client, cohort, ledger, active_fingerprint
+                )
             sequence = [0]
             sequence_lock = threading.Lock()
             for virtual_users, seconds, burst in PROFILES[args.profile]:
@@ -1341,7 +1588,7 @@ def main(argv=None) -> int:
                         client,
                         cohort,
                         ledger,
-                        fingerprint,
+                        active_fingerprint,
                         virtual_users,
                         seconds,
                         burst,
@@ -1373,6 +1620,18 @@ def main(argv=None) -> int:
             "actual_elapsed_seconds": round(elapsed, 2),
             "plan_envelope": estimate,
             "invitation_probe": invitation_report,
+            "redeployment_resume": {
+                "old_deployment_id": redeployment_proof["old_deployment_id"],
+                "new_deployment_id": redeployment_proof["new_deployment_id"],
+                "old_base_url": redeployment_proof["old_base_url"],
+                "new_base_url": redeployment_proof["new_base_url"],
+                "participant_identity_sha256": redeployment_proof[
+                    "participant_identity_sha256"
+                ],
+                "migration_state": migration_state,
+            }
+            if redeployment_proof
+            else None,
             "last_stock_guarded": args.require_last_stock,
             "stages": stage_reports,
             "metrics": metric_report,
@@ -1383,7 +1642,9 @@ def main(argv=None) -> int:
                 "duration_reserved_seconds_cumulative": ledger.data["duration_reserved_seconds"],
                 "api_calls_remaining": ledger.remaining_calls,
             },
-            "participants_remaining": ledger.participants_remaining(fingerprint, len(cohort["participants"])),
+            "participants_remaining": ledger.participants_remaining(
+                active_fingerprint, len(cohort["participants"])
+            ),
             "serious_stop": stop.is_set(),
             "failure": failure,
         }

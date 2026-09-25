@@ -1,4 +1,5 @@
 import contextlib
+import datetime as dt
 import http.client
 import json
 import os
@@ -314,6 +315,50 @@ class BackendSecurityRegressionTest(unittest.TestCase):
             return
         self.assertNotEqual(attacker["participant"]["id"], victim["id"])
         self.assertNotEqual(attacker_cookie, victim_cookie)
+
+    def test_analytics_dimensions_reject_pii_and_preserve_frontend_catalogue(self):
+        _participant, cookie = self.participant()
+        now = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        valid = [
+            ("loading_checkpoint", "loading", {"checkpoint": 3, "bucket": "3s+"}),
+            ("game_checkpoint", "game", {"checkpoint": 36000, "stage": "stage_6"}),
+            ("share_attempted", "invite", {"share_method": "copy", "status": "copied", "share_id": "share_safe_123456"}),
+            ("pouch_selected", "draw", {"action": "pouch_2"}),
+            ("content_clicked", "content", {"content": "study"}),
+            ("gemini_cta_viewed", "benefit", {"position": "benefit_main"}),
+            ("screen_left", "home", {"reason": "navigation"}),
+            ("page_view", "home", {"source": "phase1_load", "channel": "school_01", "campaign_code": "gemini_2026"}),
+        ]
+        rejected = [
+            ("content_clicked", "content", {"content": "01012345678"}),
+            ("share_attempted", "invite", {"share_method": "copy", "status": "person_name"}),
+            ("game_checkpoint", "game", {"checkpoint": 36001, "stage": "stage_7"}),
+            ("page_view", "home", {"source": "person_name", "channel": "01012345678"}),
+            ("content_clicked", "content", {"content": ["study"]}),
+            ("share_attempted", "invite", {"status": {"value": "copied"}}),
+        ]
+        events = []
+        for index, (name, screen, dimensions) in enumerate(valid + rejected):
+            events.append({
+                "event_id": f"evt_dimension_{index:02d}_{secrets.token_hex(6)}",
+                "name": name,
+                "screen": screen,
+                "occurred_at": now,
+                "dimensions": dimensions,
+            })
+        status, result, _ = self.request(
+            "POST", "/api/events/batch", {"events": events}, cookie=cookie,
+            headers={"Idempotency-Key": self.idem("analytics-dimensions")},
+        )
+        self.assertEqual(status, 202, result)
+        self.assertEqual(result, {"accepted": len(valid), "duplicates": 0, "rejected": len(rejected)})
+        with psycopg.connect(DSN, row_factory=dict_row) as conn:
+            stored = conn.execute("select dimensions from dino_dev.analytics_event where source='client'").fetchall()
+        encoded = json.dumps([row["dimensions"] for row in stored], ensure_ascii=False)
+        self.assertNotIn("01012345678", encoded)
+        self.assertNotIn("person_name", encoded)
+        self.assertIn("stage_6", encoded)
+        self.assertIn("study", encoded)
 
 
 if __name__ == "__main__":

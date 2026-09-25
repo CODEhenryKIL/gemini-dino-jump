@@ -232,9 +232,26 @@ test('admin isolates contact operations and renders metric definitions and full 
   assert.match(admin, /new_participants/);
   assert.match(admin, /returning_participants/);
   assert.match(admin, /claim\.claim_type === 'RANKING' \? '잠정 TOP3 연락 접수'/);
+  assert.match(admin, /claim\.assignee_display_name \|\| claim\.assignee_user_id \|\| '미지정'/);
+  assert.match(admin, /externalBox\.checked = Boolean\(claim\.external_delivery\)/);
+  assert.match(admin, /option\.disabled = claim\.claim_type === 'RANKING' && status === 'PAID'/);
+  assert.match(admin, /최종 수상 확정 전이므로 지급 완료로 변경할 수 없습니다/);
   assert.match(admin, /row\.ready/);
   assert.match(admin, /row\.pending/);
   assert.match(admin, /row\.estimated_exits/);
+  assert.match(admin, /data\.sharing\?\.by_method_status/);
+  assert.match(admin, /data\.sharing\?\.actual_delivery \|\| 'unknown'/);
+  assert.match(admin, /data\.sharing\?\.linked_participants/);
+  assert.match(admin, /data\.sharing\?\.unlinked_events/);
+  assert.match(admin, /data\.invitation_performance\?\.period_use_to_grant_ratio/);
+  assert.match(admin, /data\.invitation_performance\?\.ratio_definition \|\| 'unknown'/);
+  assert.match(admin, /data\.game_progress\?\.by_last_stage/);
+  assert.match(admin, /row\.mean_last_observed_active_ms/);
+  assert.match(admin, /row\.active_time_unknown/);
+  assert.match(admin, /row\.mean_observed_active_ms/);
+  assert.match(admin, /row\.active_dwell_unknown/);
+  assert.match(admin, /data\.content \|\| \[\]/);
+  assert.match(admin, /row\.unlinked_events/);
 });
 
 test('hidden views leave the accessibility tree and Gemini exposure requires visibility', () => {

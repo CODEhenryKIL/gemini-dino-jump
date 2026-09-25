@@ -45,5 +45,9 @@ The landing parser accepts only the named attribution query values used by this 
 - Gemini CTR: unique participant set `V` with `gemini_cta_viewed` and set `C` that clicked after exposure during the observation window; rate is `|V∩C| / |V|`. When `|V|=0`, the rate is null and the UI displays “계산 대상 없음.”
 - Direct and approved routed Gemini clicks are unioned by participant and campaign before CTR; guide clicks alone are not conversion.
 - Every dashboard metric displays numerator, denominator, unique participant count, event count, observation window, refresh time and whether it is an original count or estimate.
+- Sharing reports the selected method and the last client-observable status. `actual_delivery` remains `unknown`; closing a native share sheet does not prove delivery to a recipient.
+- Invitation performance reports server ticket grants and later invitation-ticket use inside the selected period. Its use/grant ratio is a same-period operational ratio, not a per-person causal conversion rate. Cooldown reacquisition and later participation remain separate counts.
+- Game progress groups owned sessions by the last observed stage and active screen time. Missing active checkpoints are shown as unknown and are not replaced with wall-clock duration. Unlinked checkpoint events remain a separate count.
+- Content rows separate approved guide clicks from outbound redirect requests and show linked participants and unlinked events separately. No external page view or dwell is inferred.
 
 Synthetic and Preview data carry `is_synthetic=true` or the environment dimension and are excluded from later Production reporting by default.

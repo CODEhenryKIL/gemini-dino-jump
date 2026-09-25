@@ -42,10 +42,17 @@ class MetricsTest(unittest.TestCase):
           (oid,oid,self.prefix,secrets.token_hex(16),'hash',pid,self.base))
         return oid
 
-    def event(self, name, pid=None, minute=0, dimensions=None, observation=None, active=None, screen='benefit', environment='local', source='client'):
-        self.conn.execute('''insert into dino_dev.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,visit_session_id,active_ms,dimensions,environment,deployment,event_version,source,occurred_at,received_at)
-          values(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,'test','1',%s,%s,%s)''',
-          (self.prefix+secrets.token_hex(8),self.campaign,pid,observation,name,screen,pid or observation,active,json.dumps(dimensions or {}),environment,source,self.base+dt.timedelta(minutes=minute),self.base+dt.timedelta(minutes=minute)))
+    def event(self, name, pid=None, minute=0, dimensions=None, observation=None, active=None, screen='benefit', environment='local', source='client', screen_view=None, game_session=None):
+        self.conn.execute('''insert into dino_dev.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,screen_view_id,visit_session_id,game_session_id,active_ms,dimensions,environment,deployment,event_version,source,occurred_at,received_at)
+          values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,'test','1',%s,%s,%s)''',
+          (self.prefix+secrets.token_hex(8),self.campaign,pid,observation,name,screen,screen_view,pid or observation,game_session,active,json.dumps(dimensions or {}),environment,source,self.base+dt.timedelta(minutes=minute),self.base+dt.timedelta(minutes=minute)))
+
+    def game_session(self, pid, suffix='game'):
+        session_id = self.prefix + suffix
+        self.conn.execute('''insert into dino_dev.game_session(id,participant_id,campaign_id,idempotency_key,seed,version,status,ticket_kind,ticket_refund_status,reserved_at,expires_at,environment)
+          values(%s,%s,%s,%s,1,'dino-v1','ACTIVE','INITIAL','PENDING',%s,%s,'local')''',
+          (session_id,pid,self.campaign,self.prefix+suffix,self.base,self.base+dt.timedelta(hours=1)))
+        return session_id
 
     def report(self):
         self.conn.execute('set local role dino_dev_app')
@@ -103,6 +110,7 @@ class MetricsTest(unittest.TestCase):
         self.event('draw_entered',p,2,screen='draw')
         data=self.report();stage=next(x for x in data['stages'] if x['key']=='draw.select')
         self.assertEqual((stage['entered'],stage['progressed'],stage['estimated_exits']),(1,1,0))
+        self.assertEqual((stage['mean_observed_active_ms'],stage['active_dwell_unknown']),(None,1))
 
     def test_open_observation_window_is_not_abandonment(self):
         p=self.person('pending')
@@ -139,6 +147,62 @@ class MetricsTest(unittest.TestCase):
             self.assertEqual((row['new_participants'],row['returning_participants'],row['participants']),(1,1,2))
             self.assertEqual(row['gemini_click_rate'],1)
             self.assertEqual(row['game_start_rate'],0)
+
+    def test_sharing_and_content_report_observed_actions_without_delivery_inference(self):
+        linked = self.person('sharing')
+        unlinked_observation = self.observation()
+        self.event('share_attempted',linked,1,{'share_method':'native','status':'attempted'})
+        self.event('share_attempted',linked,2,{'share_method':'native','status':'share_sheet_closed'})
+        self.event('share_attempted',linked,3,{'share_method':'copy','status':'copied'})
+        self.event('share_attempted',linked,4,{'share_method':'native','status':'cancelled'})
+        self.event('content_clicked',linked,5,{'content':'study'})
+        self.event('content_clicked',linked,6,{'content':'study'})
+        self.event('notion_redirect_requested',linked,7,{'content':'study'})
+        self.event('content_clicked',None,8,{'content':'photo'},observation=unlinked_observation)
+        data = self.report()
+        self.assertEqual(data['sharing']['actual_delivery'],'unknown')
+        self.assertEqual((data['sharing']['attempt_events'],data['sharing']['copy_success_events'],
+                          data['sharing']['share_sheet_closed_events'],data['sharing']['cancelled_events']),
+                         (1,1,1,1))
+        self.assertEqual((data['sharing']['linked_participants'],data['sharing']['unlinked_events']), (1,0))
+        study = next(row for row in data['content'] if row['content']=='study')
+        photo = next(row for row in data['content'] if row['content']=='photo')
+        self.assertEqual((study['click_events'],study['outbound_request_events'],study['linked_participants']), (2,1,1))
+        self.assertEqual((photo['linked_participants'],photo['unlinked_events']), (0,1))
+
+    def test_invitation_ledger_reports_period_ratio_and_post_cooldown_reparticipation(self):
+        participant = self.person('inviteledger')
+        rows = [
+          ('INVITATION_GRANT','old',1,self.base-dt.timedelta(hours=13),self.base-dt.timedelta(hours=2)),
+          ('PLAY_CONSUME','oldplay',0,self.base-dt.timedelta(hours=12,minutes=30),None),
+          ('INVITATION_GRANT','new',1,self.base+dt.timedelta(minutes=10),self.base+dt.timedelta(hours=10,minutes=10)),
+          ('PLAY_CONSUME','newplay',0,self.base+dt.timedelta(minutes=20),None),
+        ]
+        for source,source_id,balance,created,cooldown in rows:
+            self.conn.execute('''insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until,created_at)
+              values(%s,'INVITATION',%s,%s,%s,%s,%s,%s)''',
+              (participant,1 if source=='INVITATION_GRANT' else -1,source,self.prefix+source_id,balance,cooldown,created))
+        result = self.report()['invitation_performance']
+        self.assertEqual((result['grant_events'],result['use_events'],result['period_use_to_grant_ratio']), (1,1,1))
+        self.assertEqual((result['cooldown_reacquisition_events'],result['cooldown_reacquisition_participants']), (1,1))
+        self.assertEqual((result['cooldown_reparticipation_events'],result['cooldown_reparticipation_participants']), (1,1))
+
+    def test_game_last_checkpoint_and_stage_active_dwell_keep_unknown_explicit(self):
+        observed,unknown = self.person('observed'),self.person('unknown')
+        game = self.game_session(observed,'observedgame')
+        self.game_session(unknown,'unknowngame')
+        view = self.prefix+'drawview'
+        self.event('game_checkpoint',observed,1,{'stage':'RUNNING'},active=1000,screen='game',game_session=game)
+        self.event('game_checkpoint',observed,2,{'stage':'FAST'},active=4200,screen='game',game_session=game)
+        self.event('draw_entered',observed,3,active=500,screen='draw',screen_view=view)
+        self.event('pouch_selected',observed,4,active=1700,screen='draw',screen_view=view)
+        data = self.report()
+        fast = next(row for row in data['game_progress']['by_last_stage'] if row['last_stage']=='FAST')
+        missing = next(row for row in data['game_progress']['by_last_stage'] if row['last_stage']=='unknown')
+        self.assertEqual((fast['sessions'],fast['mean_last_observed_active_ms'],fast['active_time_unknown']), (1,4200,0))
+        self.assertEqual((missing['sessions'],missing['active_time_unknown']), (1,1))
+        stage = next(row for row in data['stages'] if row['key']=='draw.select')
+        self.assertEqual((stage['mean_observed_active_ms'],stage['active_dwell_observations'],stage['active_dwell_unknown']), (1200,1,0))
 
 
 if __name__=='__main__':unittest.main()

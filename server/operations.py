@@ -388,8 +388,32 @@ SCREENS={"loading","home","game","result","draw","claim","claims","invite","bene
 DIMENSIONS={"previous_screen","source","link_kind","channel","campaign_code","content","position","action","status","reason","stage","bucket","result_type","prize_kind","share_method","share_id","checkpoint","is_new","is_synthetic","connected","observed","score","rank","game_version","draw_status","claim_type"}
 SERVER_EVENT_NAMES={"game_start_approved","game_fault_reported","game_completed","invite_visit_qualified","scratch_completed","claim_form_submitted","top3_profile_submitted"}
 BOOLEAN_DIMENSIONS={"is_new","is_synthetic","connected","observed"};INTEGER_DIMENSIONS={"score","rank","checkpoint"};OPAQUE_DIMENSIONS={"share_id"}
-ENUM_DIMENSIONS={"link_kind":{"initial","retry_invite","prize_share","direct","unknown"},"share_method":{"kakao","copy","native","unknown"},"result_type":{"won","no_prize","unknown"},"claim_type":{"DRAW","RANKING"},"draw_status":{"LOCKED","AVAILABLE","DRAWN"}}
-SAFE_DIMENSION_VALUE=re.compile(r"[A-Za-z0-9가-힣_.:-]{1,64}")
+INTEGER_DIMENSION_RANGES={"score":(0,6000),"rank":(0,100000),"checkpoint":(0,36000)}
+ENUM_DIMENSIONS={
+  "previous_screen":SCREENS|{"unknown"},
+  "source":{"home","phase1_load","unknown"},
+  "link_kind":{"initial","retry_invite","prize_share","direct","unknown"},
+  "content":{"study","photo","other","unknown"},
+  "position":{"benefit_main","unknown"},
+  "action":{"pouch_0","pouch_1","pouch_2"},
+  "status":{"attempted","share_sheet_closed","cancelled","failed","copied","VERIFIED",
+    "INVALID_CODE","SELF_INVITE","PENDING","COOLDOWN","BALANCE_FULL","REWARDED","ALREADY_REWARDED","NOT_QUALIFIED","REJECTED",
+    "INVALID_NONCE","CAMPAIGN_UNAVAILABLE","RATE_LIMITED","RESERVED","ACTIVE","FAULT_REPORTED","FINISHED","ABORTED","EXPIRED"},
+  "reason":{"navigation","pagehide","INVITE_CODE_NOT_FOUND","SELF_INVITE_NOT_ALLOWED","INVITER_COOLDOWN_AT_ISSUE",
+    "INVITER_BALANCE_FULL_AT_ISSUE","QUALIFIED","PAIR_ALREADY_REWARDED","ACTIVE_TIME_OR_INTERACTION_REQUIRED",
+    "INVITER_COOLDOWN","INVITER_BALANCE_FULL","INVALID_NONCE","NOT_ELIGIBLE","QUALIFICATION_REJECTED",
+    "NETWORK_ERROR","CLIENT_ERROR","SERVER_ERROR","CAMPAIGN_UNAVAILABLE","RATE_LIMITED"},
+  "stage":{"stage_1","stage_2","stage_3","stage_4","stage_5","stage_6"},
+  "bucket":{"0-1s","1-2s","2-3s","3s+","unknown"},
+  "result_type":{"won","no_prize","unknown"},
+  "prize_kind":{"COUPON","DIGITAL","SHIPPING","NO_PRIZE","NONE"},
+  "share_method":{"kakao","copy","native","unknown"},
+  "claim_type":{"DRAW","RANKING"},
+  "draw_status":{"LOCKED","AVAILABLE","DRAWN"},
+}
+CODE_DIMENSIONS={"channel","campaign_code"}
+CODE_DIMENSION_VALUE=re.compile(r"(?:unknown|[A-Za-z][A-Za-z0-9_-]{0,31})")
+GAME_VERSION_VALUE=re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 def events_batch(conn,body,ctx):
     p=None
     if ctx.get("participant_token_hash"):p=_participant(conn,ctx)
@@ -403,10 +427,14 @@ def events_batch(conn,body,ctx):
         valid_dims=True
         for key,value in dims.items():
             if key in BOOLEAN_DIMENSIONS:valid_dims=valid_dims and isinstance(value,bool)
-            elif key in INTEGER_DIMENSIONS:valid_dims=valid_dims and isinstance(value,int) and not isinstance(value,bool) and 0<=value<=100000
+            elif key in INTEGER_DIMENSIONS:
+                low,high=INTEGER_DIMENSION_RANGES[key]
+                valid_dims=valid_dims and isinstance(value,int) and not isinstance(value,bool) and low<=value<=high
             elif key in OPAQUE_DIMENSIONS:valid_dims=valid_dims and isinstance(value,str) and bool(re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",value))
-            elif key in ENUM_DIMENSIONS:valid_dims=valid_dims and value in ENUM_DIMENSIONS[key]
-            else:valid_dims=valid_dims and isinstance(value,str) and bool(SAFE_DIMENSION_VALUE.fullmatch(value))
+            elif key in ENUM_DIMENSIONS:valid_dims=valid_dims and isinstance(value,str) and value in ENUM_DIMENSIONS[key]
+            elif key in CODE_DIMENSIONS:valid_dims=valid_dims and isinstance(value,str) and bool(CODE_DIMENSION_VALUE.fullmatch(value))
+            elif key=="game_version":valid_dims=valid_dims and isinstance(value,str) and bool(GAME_VERSION_VALUE.fullmatch(value))
+            else:valid_dims=False
         if not valid_dims:rejected+=1;continue
         if dims.get("source")=="phase1_load" and ctx["environment"]=="production":rejected+=1;continue
         try:occurred=dt.datetime.fromisoformat(str(event.get("occurred_at") or "").replace("Z","+00:00")); active=int(event.get("active_ms")) if event.get("active_ms") is not None else None

@@ -9,6 +9,8 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
+OLD_REMOTE_URL = "https://old-preview.vercel.app"
+NEW_REMOTE_URL = "https://new-preview.vercel.app"
 SPEC = importlib.util.spec_from_file_location("phase1_load", ROOT / "scripts" / "phase1_load.py")
 load = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(load)
@@ -238,6 +240,241 @@ class LoadGuardTests(unittest.TestCase):
         self.assertEqual(load.cohort_fingerprint(first), load.cohort_fingerprint(second))
         second["participants"][0]["cookie"] += "x"
         self.assertNotEqual(load.cohort_fingerprint(first), load.cohort_fingerprint(second))
+
+    def test_redeployment_retarget_requires_explicit_ids_and_preserves_identities(self):
+        original = cohort_data(
+            2,
+            "preview",
+            base_url=OLD_REMOTE_URL,
+            deployment_id="dpl_old_123",
+        )
+        original_bytes = json.dumps(original, sort_keys=True)
+        migrated, proof = load.retarget_cohort_for_redeployment(
+            original, "dpl_old_123", "dpl_new_456", OLD_REMOTE_URL, NEW_REMOTE_URL
+        )
+        self.assertEqual(json.dumps(original, sort_keys=True), original_bytes)
+        self.assertEqual(original["deployment_id"], "dpl_old_123")
+        self.assertEqual(migrated["deployment_id"], "dpl_new_456")
+        self.assertEqual(migrated["participants"], original["participants"])
+        self.assertEqual(
+            proof["participant_identity_sha256"],
+            load.participant_identity_fingerprint(original),
+        )
+        with self.assertRaises(load.SafetyError):
+            load.retarget_cohort_for_redeployment(
+                original, "dpl_wrong", "dpl_new_456", OLD_REMOTE_URL, NEW_REMOTE_URL
+            )
+        with self.assertRaises(load.SafetyError):
+            load.retarget_cohort_for_redeployment(
+                original, "dpl_old_123", "dpl_old_123", OLD_REMOTE_URL, NEW_REMOTE_URL
+            )
+        with self.assertRaises(load.SafetyError):
+            load.retarget_cohort_for_redeployment(
+                original,
+                "dpl_old_123",
+                "dpl_new_456",
+                OLD_REMOTE_URL,
+                "https://example.com",
+            )
+
+    def test_redeployment_cursor_migration_is_audited_idempotent_and_keeps_spend(self):
+        original = cohort_data(
+            5, "preview", base_url=OLD_REMOTE_URL, deployment_id="dpl_old_123"
+        )
+        migrated, proof = load.retarget_cohort_for_redeployment(
+            original, "dpl_old_123", "dpl_new_456", OLD_REMOTE_URL, NEW_REMOTE_URL
+        )
+        old_fingerprint = load.cohort_fingerprint(original)
+        new_fingerprint = load.cohort_fingerprint(migrated)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.json"
+            with load.BudgetLedger(path) as ledger:
+                ledger.register_cohort_preparation(old_fingerprint, 7)
+                self.assertEqual(
+                    ledger.claim_participant(old_fingerprint, 5, "phase1-test"), 0
+                )
+                ledger.reserve_run(100, "10", old_fingerprint, "dpl_old_123")
+                before_budget = {
+                    key: ledger.data[key]
+                    for key in (
+                        "admitted_api_calls",
+                        "completed_api_calls",
+                        "duration_reserved_seconds",
+                    )
+                }
+                ledger.migrate_redeployment(old_fingerprint, new_fingerprint, proof)
+                ledger.migrate_redeployment(old_fingerprint, new_fingerprint, proof)
+                self.assertEqual(
+                    ledger.participants_remaining(new_fingerprint, 5), 4
+                )
+                self.assertNotIn(old_fingerprint, ledger.data["cohorts"])
+                self.assertEqual(
+                    ledger.data["external_cohort_calls"].get(new_fingerprint), 7
+                )
+                self.assertEqual(
+                    {
+                        key: ledger.data[key]
+                        for key in (
+                            "admitted_api_calls",
+                            "completed_api_calls",
+                            "duration_reserved_seconds",
+                        )
+                    },
+                    before_budget,
+                )
+                audits = ledger.data["redeployment_migrations"]
+                self.assertEqual(len(audits), 1)
+                self.assertEqual(audits[0]["cursor_at_migration"], 1)
+                self.assertNotIn(original["participants"][0]["cookie"], path.read_text())
+                self.assertEqual(ledger.participants_remaining(old_fingerprint, 5), 0)
+                with self.assertRaises(load.SafetyError):
+                    ledger.claim_participant(old_fingerprint, 5, "phase1-test")
+                with self.assertRaises(load.SafetyError):
+                    ledger.migrate_redeployment(
+                        old_fingerprint, new_fingerprint + "tampered", proof
+                    )
+
+    def test_failed_redeployment_cursor_write_leaves_original_ledger_intact(self):
+        original = cohort_data(
+            2, "preview", base_url=OLD_REMOTE_URL, deployment_id="dpl_old_123"
+        )
+        migrated, proof = load.retarget_cohort_for_redeployment(
+            original, "dpl_old_123", "dpl_new_456", OLD_REMOTE_URL, NEW_REMOTE_URL
+        )
+        old_fingerprint = load.cohort_fingerprint(original)
+        new_fingerprint = load.cohort_fingerprint(migrated)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.json"
+            with load.BudgetLedger(path) as ledger:
+                ledger.claim_participant(old_fingerprint, 2, "phase1-test")
+                original_file = path.read_bytes()
+                original_data = json.loads(json.dumps(ledger.data))
+                with mock.patch.object(
+                    ledger, "_replace_data", side_effect=OSError("disk full")
+                ):
+                    with self.assertRaises(OSError):
+                        ledger.migrate_redeployment(
+                            old_fingerprint, new_fingerprint, proof
+                        )
+                self.assertEqual(path.read_bytes(), original_file)
+                self.assertEqual(ledger.data, original_data)
+                self.assertIn(old_fingerprint, ledger.data["cohorts"])
+                self.assertNotIn(new_fingerprint, ledger.data["cohorts"])
+
+    def test_redeployment_target_proof_rejects_project_schema_campaign_or_deployment_change(self):
+        original = cohort_data(
+            2, "preview", base_url=OLD_REMOTE_URL, deployment_id="dpl_old_123"
+        )
+        _migrated, proof = load.retarget_cohort_for_redeployment(
+            original, "dpl_old_123", "dpl_new_456", OLD_REMOTE_URL, NEW_REMOTE_URL
+        )
+        health = preview_health(deployment="dpl_new_456")
+        config = preview_config()
+        load.verify_redeployment_target(proof, health, config, NEW_REMOTE_URL)
+        for bad_health, bad_config in (
+            (preview_health(deployment="dpl_other"), config),
+            (preview_health(deployment="dpl_new_456", project_ref="wrong"), config),
+            (preview_health(deployment="dpl_new_456", schema="public"), config),
+            (health, preview_config("other-campaign")),
+        ):
+            with self.assertRaises(load.SafetyError):
+                load.verify_redeployment_target(
+                    proof, bad_health, bad_config, NEW_REMOTE_URL
+                )
+
+    def test_remote_redeployment_resume_moves_existing_cursor_after_new_preflight(self):
+        remote_url = NEW_REMOTE_URL
+        original = cohort_data(
+            5_000,
+            "preview",
+            base_url=OLD_REMOTE_URL,
+            deployment_id="dpl_old_123",
+        )
+        migrated, _proof = load.retarget_cohort_for_redeployment(
+            original, "dpl_old_123", "dpl_new_456", OLD_REMOTE_URL, remote_url
+        )
+        old_fingerprint = load.cohort_fingerprint(original)
+        new_fingerprint = load.cohort_fingerprint(migrated)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cohort_path = root / "cohort.json"
+            ledger_path = root / "ledger.json"
+            report_path = root / "report.json"
+            cohort_path.write_text(json.dumps(original), encoding="utf-8")
+            cohort_path.chmod(0o600)
+            original_manifest = cohort_path.read_bytes()
+            with load.BudgetLedger(ledger_path) as ledger:
+                for expected in range(3):
+                    self.assertEqual(
+                        ledger.claim_participant(
+                            old_fingerprint, 5_000, "phase1-test"
+                        ),
+                        expected,
+                    )
+
+            stage_report = {
+                "virtual_users": 10,
+                "admission_window_seconds": 15,
+                "actual_seconds_including_cleanup": 0.01,
+                "burst": False,
+                "stopped_early": False,
+                "metrics": load.Metrics().report(0.01),
+            }
+            with mock.patch.object(
+                load,
+                "preflight",
+                return_value=(
+                    preview_health(deployment="dpl_new_456"),
+                    preview_config(),
+                ),
+            ), mock.patch.object(load, "security_probe"), mock.patch.object(
+                load, "run_stage", return_value=stage_report
+            ):
+                result = load.main(
+                    [
+                        "--mode",
+                        "remote",
+                        "--base-url",
+                        remote_url,
+                        "--profile",
+                        "smoke10",
+                        "--cohort",
+                        str(cohort_path),
+                        "--ledger",
+                        str(ledger_path),
+                        "--report",
+                        str(report_path),
+                        "--expected-deployment-id",
+                        "dpl_new_456",
+                        "--resume-from-deployment-id",
+                        "dpl_old_123",
+                        "--resume-from-base-url",
+                        OLD_REMOTE_URL,
+                    ]
+                )
+            self.assertEqual(result, 0)
+            self.assertEqual(cohort_path.read_bytes(), original_manifest)
+            with load.BudgetLedger(ledger_path) as ledger:
+                self.assertNotIn(old_fingerprint, ledger.data["cohorts"])
+                self.assertEqual(
+                    ledger.data["cohorts"][new_fingerprint]["next_index"], 3
+                )
+                self.assertEqual(len(ledger.data["redeployment_migrations"]), 1)
+                self.assertEqual(
+                    ledger.data["redeployment_migrations"][0]["old_base_url"],
+                    OLD_REMOTE_URL,
+                )
+                self.assertEqual(
+                    ledger.data["redeployment_migrations"][0]["new_base_url"],
+                    NEW_REMOTE_URL,
+                )
+            report = json.loads(report_path.read_text())
+            self.assertEqual(
+                report["redeployment_resume"]["migration_state"], "completed"
+            )
+            self.assertEqual(
+                report["redeployment_resume"]["new_base_url"], NEW_REMOTE_URL
+            )
 
     def test_no_jump_payload_uses_real_physics_and_wait_duration(self):
         for seed in (1, 7, 123456, 2_147_483_646):
