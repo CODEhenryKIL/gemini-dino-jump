@@ -1,0 +1,23 @@
+{
+  "deployment": "dpl_2FdJVqEqL3Hw169mS1ADkjBj5m1w",
+  "commit": "4fd36f4",
+  "environment": "preview",
+  "ready_state": "READY",
+  "python_build_version": "3.12",
+  "checks": {
+    "/api/health": true,
+    "/api/config": true,
+    "environment_guard": true,
+    "project_ref": true,
+    "schema": true,
+    "synthetic_only": true,
+    "deployment_identity": true
+  },
+  "checks_source": "phase1-remote-load-burst-retry.json; phase1_load.validate_preflight",
+  "api_calls_cumulative": 25065,
+  "duration_reserved_seconds_cumulative": 2204,
+  "alias": "https://google-korea-team-gemini.vercel.app",
+  "alias_assignment_verified": true,
+  "access_protection": "existing project protection unchanged; official temporary share used for co-test",
+  "latest_browser_check": "User directly played final Preview and accepted Phase 1 test experience; slight stage-transition stutter remains unmeasured."
+}

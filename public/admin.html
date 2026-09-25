@@ -1,212 +1,53 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Team Gemini 공룡 점프 챌린지 - 운영 관리자</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>공룡 점프 운영 관리자</title>
   <link rel="stylesheet" href="/css/style.css">
-  <style>
-    body {
-      background: #F1F3F4;
-      padding: 24px;
-      display: block;
-    }
-    .admin-container {
-      max-width: 900px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-      font-size: 13px;
-    }
-    th, td {
-      padding: 10px 12px;
-      text-align: left;
-      border-bottom: 1px solid #E0E0E0;
-    }
-    th {
-      background: #F8FAFF;
-      font-weight: 700;
-      color: #202124;
-    }
-  </style>
 </head>
-<body>
+<body class="admin-body">
+  <main class="admin-container">
+    <header class="card admin-header"><div><span class="sticker-badge badge-blue">Admin</span><h1>공룡 점프 운영 관리</h1></div><a class="btn btn-secondary btn-sm" href="/">이벤트 홈</a></header>
 
-  <div class="admin-container">
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <span class="sticker-badge badge-blue">Admin Console</span>
-          <h1 style="font-size: 24px; font-weight: 900; margin-top: 4px;">운영 관리 대시보드</h1>
-        </div>
-        <a href="/" class="btn btn-secondary btn-sm" style="width: auto;">
-          ← 이벤트 홈으로
-        </a>
-      </div>
-    </div>
+    <section id="admin-login" class="card admin-login">
+      <h2>관리자 로그인</h2>
+      <p>Supabase Auth 로그인 뒤 서버가 관리자 명단과 권한을 다시 확인합니다.</p>
+      <label class="form-field"><span>이메일</span><input id="admin-email" type="email" autocomplete="username"></label>
+      <label class="form-field"><span>비밀번호</span><input id="admin-password" type="password" autocomplete="current-password"></label>
+      <button id="btn-admin-login" class="btn btn-primary">로그인</button>
+      <p id="admin-login-message" class="status-note" role="status"></p>
+    </section>
 
-    <!-- Campaign Status & Overview -->
-    <div class="card">
-      <h2 style="font-size: 18px; font-weight: 800; margin-bottom: 14px;">⚡ 행사 상태 및 지표</h2>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
-        <div style="background: #F8FAFF; padding: 16px; border-radius: 14px; text-align: center;">
-          <div style="font-size: 12px; color: var(--text-sub);">현재 행사 상태</div>
-          <div id="stat-campaign-status" style="font-size: 20px; font-weight: 900; color: var(--primary); margin-top: 4px;">ACTIVE</div>
-        </div>
-        <div style="background: #F8FAFF; padding: 16px; border-radius: 14px; text-align: center;">
-          <div style="font-size: 12px; color: var(--text-sub);">총 익명 참여자</div>
-          <div id="stat-participants" style="font-size: 20px; font-weight: 900; color: #202124; margin-top: 4px;">0명</div>
-        </div>
-        <div style="background: #F8FAFF; padding: 16px; border-radius: 14px; text-align: center;">
-          <div style="font-size: 12px; color: var(--text-sub);">총 플레이 완료 건수</div>
-          <div id="stat-games" style="font-size: 20px; font-weight: 900; color: #34A853; margin-top: 4px;">0회</div>
-        </div>
-      </div>
+    <section id="admin-app" hidden>
+      <section class="card admin-session-row"><div><strong id="admin-name"></strong><p id="admin-permissions"></p></div><button id="btn-admin-logout" class="btn btn-secondary btn-sm">로그아웃</button></section>
+      <section class="card">
+        <h2>조회 조건</h2>
+        <form id="analytics-filter" class="filter-grid">
+          <label>시작일 (KST)<input name="from" type="date"></label><label>종료일 포함 (KST)<input name="to" type="date"></label>
+          <label>환경<select name="environment"><option value="">현재 환경</option><option value="local">local</option><option value="test">test</option><option value="preview">preview</option></select></label>
+          <label>유입 유형<input name="link_kind" maxlength="30"></label><label>채널<input name="channel" maxlength="30"></label>
+          <label>콘텐츠<input name="content" maxlength="30"></label><label>복주머니 당첨 여부 (행사 전체)<select name="won"><option value="">전체</option><option value="true">당첨</option><option value="false">미당첨</option></select></label>
+          <button class="btn btn-primary btn-sm" type="submit">지표 조회</button>
+        </form>
+      </section>
+      <section class="card"><div class="section-heading"><h2>운영 지표</h2><span id="metrics-refreshed"></span></div><p id="metrics-window" class="status-note"></p><div id="metrics-grid" class="metrics-grid"></div><p class="status-note">각 카드에는 분자/분모, 고유 참가자, 이벤트 건수, 관측 기간, 원 집계 또는 추정 여부를 표시합니다.</p></section>
+      <section class="card"><h2>집계 범위와 정의</h2><p id="metrics-scope" class="status-note"></p><div id="metrics-definitions" class="admin-table-wrap"></div></section>
 
-      <!-- State Change Controls -->
-      <div style="display: flex; gap: 10px; align-items: center;">
-        <span style="font-size: 13px; font-weight: 700;">상태 변경:</span>
-        <button class="btn btn-secondary btn-sm btn-status-set" data-status="ACTIVE" style="width: auto;">정상 진행 (ACTIVE)</button>
-        <button class="btn btn-secondary btn-sm btn-status-set" data-status="MAINTENANCE" style="width: auto;">점검 중 (MAINTENANCE)</button>
-        <button class="btn btn-secondary btn-sm btn-status-set" data-status="ENDED" style="width: auto;">행사 종료 (ENDED)</button>
-      </div>
-    </div>
-
-    <!-- Prize Stock & Budget -->
-    <div class="card">
-      <h2 style="font-size: 18px; font-weight: 800; margin-bottom: 10px;">🎁 경품 재고 및 확률 관리</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>경품명</th>
-            <th>구분</th>
-            <th>총 재고</th>
-            <th>예약량</th>
-            <th>지급 완료</th>
-            <th>잔여 재고</th>
-            <th>설정 확률</th>
-          </tr>
-        </thead>
-        <tbody id="prize-stock-body">
-          <tr><td colspan="7" style="text-align: center;">로딩 중...</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Manual Ticket Ledger Adjustment -->
-    <div class="card">
-      <h2 style="font-size: 18px; font-weight: 800; margin-bottom: 12px;">🎟️ 게임권 수동 보정 (운영 지원)</h2>
-      <div style="display: flex; gap: 10px; align-items: center; max-width: 600px;">
-        <input id="adj-participant-id" type="text" placeholder="참여자 ID (예: p_xxx)" style="flex: 2; padding: 10px; border: 1px solid #CCC; border-radius: 10px;">
-        <input id="adj-delta" type="number" value="1" placeholder="수량" style="flex: 1; padding: 10px; border: 1px solid #CCC; border-radius: 10px;">
-        <button id="btn-adjust-ticket" class="btn btn-primary btn-sm" style="flex: 1; width: auto;">보정 지급</button>
-      </div>
-    </div>
-
-    <!-- Suspicious Score Verification Monitoring -->
-    <div class="card">
-      <h2 style="font-size: 18px; font-weight: 800; margin-bottom: 10px;">🛡️ 이상 점수 및 치트 검토 (서버 검증 실패 건)</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>세션 ID</th>
-            <th>닉네임</th>
-            <th>제출 점수</th>
-            <th>검증 결과</th>
-            <th>조치</th>
-          </tr>
-        </thead>
-        <tbody id="suspicious-scores-body">
-          <tr><td colspan="5" style="text-align: center;">이상 기록이 없습니다.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <script>
-    async function loadAdminData() {
-      try {
-        const res = await fetch('/api/admin/overview');
-        const data = await res.json();
-
-        document.getElementById('stat-campaign-status').textContent = data.campaign_status;
-        document.getElementById('stat-participants').textContent = data.total_participants + '명';
-        document.getElementById('stat-games').textContent = data.total_games + '회';
-
-        // Render prizes table
-        const tbody = document.getElementById('prize-stock-body');
-        tbody.innerHTML = data.prizes.map(p => {
-          const remaining = p.total_stock - (p.reserved_stock + p.issued_stock);
-          return `
-            <tr>
-              <td style="font-weight: 700;">${p.name}</td>
-              <td>${p.category}</td>
-              <td>${p.total_stock}</td>
-              <td>${p.reserved_stock}</td>
-              <td>${p.issued_stock}</td>
-              <td style="font-weight: 800; color: ${remaining <= 5 ? '#EA4335' : '#34A853'};">${remaining}</td>
-              <td>${(p.probability * 100).toFixed(0)}%</td>
-            </tr>
-          `;
-        }).join('');
-
-        // Suspicious scores
-        const sRes = await fetch('/api/admin/scores/suspicious');
-        const sData = await sRes.json();
-        const sBody = document.getElementById('suspicious-scores-body');
-        if (sData.suspicious_sessions && sData.suspicious_sessions.length > 0) {
-          sBody.innerHTML = sData.suspicious_sessions.map(s => `
-            <tr>
-              <td>${s.session_id}</td>
-              <td>${s.nickname}</td>
-              <td style="font-weight: 700; color: #EA4335;">${s.score}점</td>
-              <td>${s.verification_result}</td>
-              <td><span class="sticker-badge badge-red">검토/제외</span></td>
-            </tr>
-          `).join('');
-        }
-      } catch (err) {
-        console.error('Admin load error:', err);
-      }
-    }
-
-    // Status change
-    document.querySelectorAll('.btn-status-set').forEach(btn => {
-      btn.onclick = async () => {
-        const status = btn.dataset.status;
-        await fetch('/api/admin/campaign/status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status })
-        });
-        alert('상태가 ' + status + '로 변경되었습니다.');
-        loadAdminData();
-      };
-    });
-
-    // Ticket Adjust
-    document.getElementById('btn-adjust-ticket').onclick = async () => {
-      const pId = document.getElementById('adj-participant-id').value.trim();
-      const delta = parseInt(document.getElementById('adj-delta').value, 10);
-      if (!pId) return alert('참여자 ID를 입력하세요.');
-
-      const res = await fetch('/api/admin/tickets/adjust', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participant_id: pId, delta })
-      });
-      const resData = await res.json();
-      alert('보정 완료! 새 잔여권: ' + resData.new_balance + '장');
-      loadAdminData();
-    };
-
-    loadAdminData();
-  </script>
+      <section class="card"><h2>유입 경로별 성과</h2><p class="status-note">첫 유입과 이번 방문의 유입을 분리해 표시합니다.</p><div id="source-funnel" class="admin-table-wrap"></div></section>
+      <section class="card"><h2>로딩·화면·게임 단계</h2><div id="loading-summary" class="admin-table-wrap"></div><div id="screen-summary" class="admin-table-wrap"></div><div id="stage-summary" class="admin-table-wrap"></div><div id="game-summary" class="admin-table-wrap"></div></section>
+      <section class="card"><h2>점수 분포</h2><div id="score-distribution" class="admin-table-wrap"></div></section>
+      <section class="card"><h2>현재 최고점·순위</h2><p class="status-note">공개 닉네임만 표시하며 비공개 참가자는 익명으로 표시합니다.</p><div id="leaderboard-summary" class="admin-table-wrap"></div></section>
+      <section class="card"><h2>게임권 원장 집계</h2><div id="ticket-ledger" class="admin-table-wrap"></div></section>
+      <section class="card"><h2>수령 상태 집계</h2><div id="claim-summary" class="admin-table-wrap"></div></section>
+      <section class="card"><h2>결과·초대·Gemini 전환</h2><div id="result-dwell" class="admin-table-wrap"></div><div id="invitation-summary" class="admin-table-wrap"></div><div id="gemini-summary" class="admin-table-wrap"></div></section>
+      <section id="fault-review-section" class="card" hidden><div class="section-heading"><h2>게임 장애 환급 심사</h2><button id="btn-refresh-faults" class="btn btn-secondary btn-sm">새로고침</button></div><p class="status-note">서버 증거와 체크포인트를 확인해 승인 또는 거절합니다. 클라이언트 주장만으로 자동 지급하지 않습니다.</p><div id="admin-faults" class="admin-claims"></div></section>
+      <section id="claim-operations-section" class="card" hidden><div class="section-heading"><h2>수동 연락·지급 원장</h2><button id="btn-refresh-claims" class="btn btn-secondary btn-sm">새로고침</button></div><p class="status-note">연락 정보는 claims:read 권한이 있는 운영자에게만 이 업무 화면에서 표시되며 분석 표에는 포함되지 않습니다.</p><div id="admin-claims" class="admin-claims"></div></section>
+      <section id="ranking-contact-section" class="card" hidden><div class="section-heading"><h2>잠정 TOP3 연락 접수</h2><button id="btn-refresh-ranking-contacts" class="btn btn-secondary btn-sm">새로고침</button></div><div id="admin-ranking-contacts" class="admin-claims"></div></section>
+      <section class="card"><h2>행사 상태</h2><p>Production 공개는 1차 범위가 아닙니다. 상태 변경에는 현재 버전과 사유가 필요합니다.</p><div class="inline-controls"><select id="campaign-status"><option>ACTIVE</option><option>PAUSED</option><option>ENDED</option></select><input id="campaign-reason" maxlength="120" placeholder="변경 사유"><button id="btn-campaign-update" class="btn btn-secondary btn-sm">상태 변경</button></div></section>
+    </section>
+  </main>
+  <script type="module" src="/js/admin.js"></script>
 </body>
 </html>

@@ -1,0 +1,272 @@
+{
+  "actual_elapsed_seconds": 54.9,
+  "budget": {
+    "admitted_api_calls_cumulative": 23047,
+    "api_calls_remaining": 6953,
+    "completed_api_calls_cumulative": 23047,
+    "duration_reserved_seconds_cumulative": 2084
+  },
+  "cohort_fingerprint": "f63744faeb0ae84fd091e64ebf330bdb3e758db751af029334995a490b6b80bb",
+  "failure": null,
+  "invitation_probe": null,
+  "last_stock_guarded": false,
+  "metrics": {
+    "api_calls": 301,
+    "endpoints": {
+      "GET /api/config": {
+        "count": 1,
+        "p50_ms": 189.06,
+        "p95_ms": 189.06,
+        "p99_ms": 189.06,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/game-sessions/{id}": {
+        "count": 3,
+        "p50_ms": 136.02,
+        "p95_ms": 140.8,
+        "p99_ms": 140.8,
+        "statuses": {
+          "200": 2,
+          "404": 1
+        }
+      },
+      "GET /api/health": {
+        "count": 1,
+        "p50_ms": 197.41,
+        "p95_ms": 197.41,
+        "p99_ms": 197.41,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/me": {
+        "count": 202,
+        "p50_ms": 1130.9,
+        "p95_ms": 1567.8,
+        "p99_ms": 1602.24,
+        "statuses": {
+          "200": 171,
+          "401": 1,
+          "503": 30
+        }
+      },
+      "POST /api/game-sessions": {
+        "count": 53,
+        "p50_ms": 305.24,
+        "p95_ms": 1385.99,
+        "p99_ms": 1563.09,
+        "statuses": {
+          "201": 47,
+          "503": 6
+        }
+      },
+      "POST /api/game-sessions/{id}/checkpoint": {
+        "count": 2,
+        "p50_ms": 129.04,
+        "p95_ms": 179.32,
+        "p99_ms": 179.32,
+        "statuses": {
+          "202": 2
+        }
+      },
+      "POST /api/game-sessions/{id}/fault": {
+        "count": 2,
+        "p50_ms": 166.72,
+        "p95_ms": 168.08,
+        "p99_ms": 168.08,
+        "statuses": {
+          "202": 2
+        }
+      },
+      "POST /api/game-sessions/{id}/start": {
+        "count": 34,
+        "p50_ms": 751.8,
+        "p95_ms": 1181.06,
+        "p99_ms": 1189.35,
+        "statuses": {
+          "200": 31,
+          "503": 3
+        }
+      },
+      "POST /api/observations": {
+        "count": 3,
+        "p50_ms": 183.98,
+        "p95_ms": 189.62,
+        "p99_ms": 189.62,
+        "statuses": {
+          "201": 2,
+          "409": 1
+        }
+      }
+    },
+    "expected_negative_responses": 3,
+    "flows_completed": 0,
+    "phases": {
+      "entrance": {
+        "count": 200,
+        "p50_ms": 1131.39,
+        "p95_ms": 1567.8,
+        "p99_ms": 1602.24
+      },
+      "game_start": {
+        "count": 83,
+        "p50_ms": 348.11,
+        "p95_ms": 1189.35,
+        "p99_ms": 1563.09
+      },
+      "preflight": {
+        "count": 2,
+        "p50_ms": 189.06,
+        "p95_ms": 197.41,
+        "p99_ms": 197.41
+      },
+      "security": {
+        "count": 16,
+        "p50_ms": 166.72,
+        "p95_ms": 216.41,
+        "p99_ms": 216.41
+      }
+    },
+    "rate_limited_429": 0,
+    "rps": 5.48,
+    "timeouts": 0,
+    "unexpected_failures": 39
+  },
+  "mode": "remote",
+  "participants_remaining": 1970,
+  "plan_envelope": {
+    "absolute_api_calls_ceiling": 2439,
+    "claim_flow_attempts_ceiling": 10,
+    "client_tracking_events_ceiling": 200,
+    "cohort_participants_required_ceiling": 202,
+    "database_write_statement_envelope": 4940,
+    "flow_attempts_ceiling": 200,
+    "http_mutation_requests_ceiling": 1431,
+    "script_api_calls_ceiling": 2039,
+    "server_domain_event_attempts_ceiling": 1217,
+    "stages": [
+      {
+        "burst": true,
+        "flow_attempts_ceiling": 200,
+        "seconds": 30,
+        "virtual_users": 200
+      }
+    ]
+  },
+  "planned_stage_seconds": 30,
+  "profile": "burst",
+  "redeployment_resume": {
+    "migration_state": "completed",
+    "new_base_url": "https://dino-nanobanana-aig1kcbh8-henry-kils-projects.vercel.app",
+    "new_deployment_id": "dpl_HXVRTEVhTxF4KnonoS8NMzmv7B35",
+    "old_base_url": "https://dino-nanobanana-3pkg1attx-henry-kils-projects.vercel.app",
+    "old_deployment_id": "dpl_671SHRmqfa3RZyiT2hbPnRxoULL7",
+    "participant_identity_sha256": "11640ea6dd6426270bcbe7ae4a7adfdd93cf55a8dfe8e853a0a8137ebe69e113"
+  },
+  "reserved_duration_seconds": 120,
+  "serious_stop": true,
+  "stages": [
+    {
+      "actual_seconds_including_cleanup": 1.95,
+      "admission_window_seconds": 30,
+      "burst": true,
+      "metrics": {
+        "api_calls": 283,
+        "endpoints": {
+          "GET /api/me": {
+            "count": 200,
+            "p50_ms": 1131.39,
+            "p95_ms": 1567.8,
+            "p99_ms": 1602.24,
+            "statuses": {
+              "200": 170,
+              "503": 30
+            }
+          },
+          "POST /api/game-sessions": {
+            "count": 51,
+            "p50_ms": 311.73,
+            "p95_ms": 1385.99,
+            "p99_ms": 1563.09,
+            "statuses": {
+              "201": 45,
+              "503": 6
+            }
+          },
+          "POST /api/game-sessions/{id}/start": {
+            "count": 32,
+            "p50_ms": 775.14,
+            "p95_ms": 1181.06,
+            "p99_ms": 1189.35,
+            "statuses": {
+              "200": 29,
+              "503": 3
+            }
+          }
+        },
+        "expected_negative_responses": 0,
+        "flows_completed": 0,
+        "phases": {
+          "entrance": {
+            "count": 200,
+            "p50_ms": 1131.39,
+            "p95_ms": 1567.8,
+            "p99_ms": 1602.24
+          },
+          "game_start": {
+            "count": 83,
+            "p50_ms": 348.11,
+            "p95_ms": 1189.35,
+            "p99_ms": 1563.09
+          }
+        },
+        "rate_limited_429": 0,
+        "rps": 144.97,
+        "timeouts": 0,
+        "unexpected_failures": 39
+      },
+      "stopped_early": true,
+      "virtual_users": 200
+    }
+  ],
+  "target": {
+    "campaign_id": "gemini_dino_phase1_test",
+    "deployment": "dpl_HXVRTEVhTxF4KnonoS8NMzmv7B35",
+    "environment": "preview",
+    "host": "dino-nanobanana-aig1kcbh8-henry-kils-projects.vercel.app",
+    "project_ref": "igfrnexknwtiljdqjrbp",
+    "schema": "dino_dev",
+    "synthetic_only": true
+  },
+  "targets": {
+    "database_reconciliation_required": true,
+    "finish_draw_p95_at_most_2000ms": true,
+    "finish_draw_violations": [],
+    "general_api_p95_at_most_1000ms": false,
+    "general_violations": [
+      {
+        "endpoint": "GET /api/me",
+        "limit_ms": 1000,
+        "p95_ms": 1567.8
+      },
+      {
+        "endpoint": "POST /api/game-sessions",
+        "limit_ms": 1000,
+        "p95_ms": 1385.99
+      },
+      {
+        "endpoint": "POST /api/game-sessions/{id}/start",
+        "limit_ms": 1000,
+        "p95_ms": 1181.06
+      }
+    ],
+    "unexpected_failure_rate": 0.129568,
+    "unexpected_failure_rate_below_1_percent": false
+  },
+  "operator_coordination": {
+    "start_announced": true,
+    "gate_timeout_seconds": 30
+  }
+}

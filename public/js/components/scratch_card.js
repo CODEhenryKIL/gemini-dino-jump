@@ -10,11 +10,14 @@ export class ScratchCard {
     this.canvas = canvasElement;
     this.ctx = canvasElement.getContext('2d', { willReadFrequently: true });
     this.onReveal = options.onReveal || (() => {});
+    this.onStart = options.onStart || (() => {});
     this.autoRevealThreshold = options.threshold || 0.70; // 70% 긁는 손맛 강화
 
     this.isDrawing = false;
     this.isRevealed = false;
     this.scratchStrokeCount = 0;
+    this.cleanupTasks = [];
+    this.started = false;
 
     this.setupCanvas();
     this.initCoating();
@@ -75,6 +78,10 @@ export class ScratchCard {
 
     const startScratch = (e) => {
       if (this.isRevealed) return;
+      if (!this.started) {
+        this.started = true;
+        this.onStart();
+      }
       this.isDrawing = true;
       e.preventDefault();
       const pos = getPos(e);
@@ -99,6 +106,14 @@ export class ScratchCard {
     this.canvas.addEventListener('touchstart', startScratch, { passive: false });
     window.addEventListener('touchmove', moveScratch, { passive: false });
     window.addEventListener('touchend', endScratch);
+    this.cleanupTasks.push(() => {
+      this.canvas.removeEventListener('mousedown', startScratch);
+      window.removeEventListener('mousemove', moveScratch);
+      window.removeEventListener('mouseup', endScratch);
+      this.canvas.removeEventListener('touchstart', startScratch);
+      window.removeEventListener('touchmove', moveScratch);
+      window.removeEventListener('touchend', endScratch);
+    });
   }
 
   scratch(x, y) {
@@ -164,8 +179,15 @@ export class ScratchCard {
     }
 
     audio.playWin();
-    setTimeout(() => {
+    this.revealTimer = setTimeout(() => {
       this.onReveal();
     }, 300);
+  }
+
+  destroy() {
+    clearTimeout(this.revealTimer);
+    for (const cleanup of this.cleanupTasks) cleanup();
+    this.cleanupTasks = [];
+    this.isDrawing = false;
   }
 }

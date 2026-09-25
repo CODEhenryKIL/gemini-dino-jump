@@ -1,112 +1,40 @@
-/**
- * S10 Real-time Leaderboard View Component
- */
-
 import { api } from '../api.js';
-import { ui } from '../ui.js';
+import { analytics } from '../analytics.js';
+import { ResultView } from './result_view.js';
 
 export const RankingView = {
-  async render(container, router) {
-    container.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 16px;">
-        <!-- Header Card -->
-        <div class="card" style="padding: 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h2 style="font-size: 20px; font-weight: 900;">🏆 명예의 전당</h2>
-            <span class="sticker-badge badge-blue">실시간 검증</span>
-          </div>
-          <p style="font-size: 13px; color: var(--text-sub);">
-            * 검증된 최고 점수 기준이며, 동점일 경우 <strong>먼저 달성한 순서</strong>로 정렬됩니다.
-          </p>
-        </div>
-
-        <!-- My Ranking Float Card -->
-        <div id="my-ranking-card" class="card" style="background: linear-gradient(135deg, #1967D2 0%, #4285F4 100%); color: #FFF; padding: 16px 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-              <div style="font-size: 11px; opacity: 0.85; font-weight: 600;">내 최고 순위</div>
-              <div id="my-rank-text" style="font-size: 26px; font-weight: 900;">- 위</div>
-            </div>
-            <div style="text-align: right;">
-              <div id="my-nick-text" style="font-size: 13px; font-weight: 700;">-</div>
-              <div id="my-score-text" style="font-size: 24px; font-weight: 900; font-family: monospace;">0점</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Leaderboard List -->
-        <div class="card" style="padding: 12px 16px;">
-          <div id="leaderboard-list" style="display: flex; flex-direction: column; gap: 8px;">
-            <div style="text-align: center; padding: 30px; color: var(--text-sub);">
-              랭킹을 불러오는 중...
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const listEl = container.querySelector('#leaderboard-list');
-    const myRankEl = container.querySelector('#my-rank-text');
-    const myNickEl = container.querySelector('#my-nick-text');
-    const myScoreEl = container.querySelector('#my-score-text');
-
+  async render(container, router, renderToken) {
+    container.innerHTML = '<section class="card empty-state"><p>랭킹을 불러오는 중...</p></section>';
+    analytics.track('ranking_viewed');
     try {
       const data = await api.getLeaderboard();
-      const list = data.leaderboard || [];
-      const myCard = data.my_card;
-
-      if (myCard) {
-        myRankEl.textContent = `${myCard.rank}위`;
-        myNickEl.textContent = myCard.nickname;
-        myScoreEl.textContent = `${myCard.score}점`;
-      } else {
-        myRankEl.textContent = '기록 없음';
-        myScoreEl.textContent = '0점';
+      if (!router.isCurrent(renderToken)) return;
+      container.replaceChildren();
+      const intro = document.createElement('section'); intro.className = 'card compact-card';
+      const title = document.createElement('h1'); title.textContent = '검증된 최고 점수 랭킹';
+      const note = document.createElement('p'); note.textContent = '동점자는 같은 순위로 표시합니다. 최종 동점 수상 정책은 아직 확정하지 않았습니다.';
+      const mine = document.createElement('strong'); mine.textContent = data.me?.rank ? `내 순위 ${data.me.rank}위 · ${data.me.best_score}점` : '아직 내 기록이 없어요';
+      intro.append(title, note, mine); container.appendChild(intro);
+      if (router.state.top3Profile?.status === 'REQUESTED') {
+        const contact = document.createElement('section'); contact.className = 'card compact-card';
+        const contactTitle = document.createElement('h2'); contactTitle.textContent = '잠정 TOP3 수령 정보 등록';
+        const contactText = document.createElement('p'); contactText.textContent = '새로고침하거나 현재 순위가 내려가도 접수 요청은 유지됩니다. 최종 수상 확정은 운영 마감 뒤 별도입니다.';
+        const contactButton = document.createElement('button'); contactButton.className = 'btn btn-primary'; contactButton.textContent = '합성 테스트 정보 입력';
+        contactButton.onclick = () => ResultView.top3Modal(router);
+        contact.append(contactTitle, contactText, contactButton); container.appendChild(contact);
       }
-
-      if (list.length === 0) {
-        listEl.innerHTML = `
-          <div style="text-align: center; padding: 30px; color: var(--text-sub);">
-            아직 등록된 랭킹 기록이 없습니다.<br>첫 번째 챔피언이 되어보세요!
-          </div>
-        `;
-        return;
+      const list = document.createElement('section'); list.className = 'card ranking-list';
+      if (!data.leaderboard?.length) { const empty = document.createElement('p'); empty.textContent = '등록된 기록이 없습니다.'; list.appendChild(empty); }
+      for (const entry of data.leaderboard || []) {
+        const row = document.createElement('div'); row.className = `ranking-row${entry.is_me ? ' is-me' : ''}`;
+        const rank = document.createElement('strong'); rank.textContent = `${entry.rank}위${entry.tied ? ' (동점)' : ''}`;
+        const nickname = document.createElement('span'); nickname.textContent = entry.nickname;
+        const score = document.createElement('span'); score.textContent = `${entry.score}점`;
+        row.append(rank, nickname, score); list.appendChild(row);
       }
-
-      listEl.innerHTML = list.map((item) => {
-        let rankBadge = `${item.rank}`;
-        let rankColor = '#202124';
-        if (item.rank === 1) { rankBadge = '🥇 1'; rankColor = '#FBBC04'; }
-        else if (item.rank === 2) { rankBadge = '🥈 2'; rankColor = '#9E9E9E'; }
-        else if (item.rank === 3) { rankBadge = '🥉 3'; rankColor = '#CD7F32'; }
-
-        return `
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 8px; border-radius: 12px; ${item.is_me ? 'background: #E8F2FF; border: 1px solid rgba(25, 103, 210, 0.2);' : 'border-bottom: 1px solid rgba(0,0,0,0.04);'}">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <span style="font-size: 16px; font-weight: 900; color: ${rankColor}; min-width: 40px;">
-                ${rankBadge}
-              </span>
-              <div>
-                <span style="font-size: 14px; font-weight: 700; color: #202124;">
-                  ${item.nickname}
-                </span>
-                ${item.is_me ? '<span class="sticker-badge badge-blue" style="font-size: 10px; margin-left: 4px;">나</span>' : ''}
-              </div>
-            </div>
-
-            <div style="font-size: 16px; font-weight: 900; font-family: monospace; color: var(--primary);">
-              ${item.score}점
-            </div>
-          </div>
-        `;
-      }).join('');
-
-    } catch (err) {
-      listEl.innerHTML = `
-        <div style="text-align: center; padding: 20px; color: #EA4335;">
-          랭킹 정보를 불러오지 못했습니다.
-        </div>
-      `;
+      container.appendChild(list);
+    } catch (error) {
+      container.replaceChildren(); const card = document.createElement('section'); card.className = 'card empty-state'; card.textContent = error.message; container.appendChild(card);
     }
-  }
+  },
 };

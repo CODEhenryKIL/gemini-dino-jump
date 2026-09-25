@@ -1,181 +1,84 @@
-/**
- * S06 Winning / S07 Non-winning / S09 Prize Claim Box View Component
- */
-
 import { api } from '../api.js';
+import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 
+const STATUS_LABELS = {
+  AWAITING_INFORMATION: '정보 입력 대기',
+  INFORMATION_RECEIVED: '정보 접수', PENDING_REVIEW: '확인 대기', CONTACTED: '연락 완료',
+  PAID: '지급 완료', ON_HOLD: '보류', INELIGIBLE: '부적격', NO_RESPONSE: '미응답', READY: '정보 입력 대기',
+};
+
 export const PrizeView = {
-  async render(container, router) {
-    container.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 16px;">
-        <div class="card" style="padding: 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h2 style="font-size: 20px; font-weight: 900;">🎁 내 경품 수령함</h2>
-            <span class="sticker-badge badge-blue">72시간 이내 수령</span>
-          </div>
-          <p style="font-size: 13px; color: var(--text-sub);">
-            복주머니 스크래치에서 당첨된 모바일 쿠폰과 굿즈를 확인하세요.
-          </p>
-        </div>
-
-        <!-- Claims List Container -->
-        <div id="claims-list-container" style="display: flex; flex-direction: column; gap: 12px;">
-          <div style="text-align: center; padding: 40px 0; color: var(--text-sub);">
-            수령함 내역을 불러오는 중...
-          </div>
-        </div>
-      </div>
-    `;
-
-    const listContainer = container.querySelector('#claims-list-container');
+  async render(container, router, renderToken) {
+    container.innerHTML = '<section class="card empty-state"><p>수령 상태를 불러오는 중...</p></section>';
     try {
-      const res = await api.getClaims();
-      const claims = res.claims || [];
-
-      if (claims.length === 0) {
-        listContainer.innerHTML = `
-          <div class="card" style="text-align: center; padding: 40px 20px;">
-            <div style="font-size: 48px; margin-bottom: 12px;">📦</div>
-            <div style="font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
-              아직 당첨된 경품이 없어요
-            </div>
-            <p style="font-size: 13px; color: var(--text-sub); margin-bottom: 20px;">
-              공룡 점프 게임을 완료하고 복주머니를 열어보세요!
-            </p>
-            <button id="btn-empty-play" class="btn btn-primary btn-sm">
-              🦖 게임 시작하러 가기
-            </button>
-          </div>
-        `;
-        listContainer.querySelector('#btn-empty-play').onclick = () => {
-          router.navigate('home');
-        };
-        return;
-      }
-
-      listContainer.innerHTML = claims.map((claim) => {
-        const isCoupon = claim.category === 'COUPON';
-        const isIssued = claim.status === 'ISSUED';
-
-        return `
-          <div class="card" style="padding: 16px;">
-            <div style="display: flex; gap: 14px; align-items: center;">
-              <div style="width: 60px; height: 60px; border-radius: 14px; background: #F8FAFF; border: 1px solid rgba(0,0,0,0.06); display: flex; align-items: center; justify-content: center;">
-                <img src="${claim.image_url || '/assets/icons/Picture-Dark.png'}" alt="Prize" style="width: 44px; height: 44px; object-fit: contain;">
-              </div>
-              <div style="flex: 1;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span class="sticker-badge ${isIssued ? 'badge-green' : 'badge-yellow'}" style="font-size: 11px;">
-                    ${isIssued ? '발급 완료' : '수령 대기'}
-                  </span>
-                  <span style="font-size: 11px; color: var(--text-sub);">
-                    ${new Date(claim.created_at * 1000).toLocaleDateString()}
-                  </span>
-                </div>
-                <div style="font-size: 16px; font-weight: 800; color: var(--text-main); margin: 4px 0;">
-                  ${claim.prize_name}
-                </div>
-                <div style="font-size: 12px; color: var(--text-sub);">
-                  ${isCoupon ? '모바일 즉시 교환권' : '택배 배송 상품'}
-                </div>
-              </div>
-            </div>
-
-            <!-- Action Area -->
-            <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(0,0,0,0.08);">
-              ${isIssued && claim.coupon_code ? `
-                <div style="display: flex; gap: 8px; align-items: center; background: #F8FAFF; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(25, 103, 210, 0.15);">
-                  <div style="flex: 1; font-family: monospace; font-size: 15px; font-weight: 800; color: var(--primary);">
-                    ${claim.coupon_code}
-                  </div>
-                  <button class="btn btn-primary btn-sm btn-copy-code" data-code="${claim.coupon_code}" style="width: auto; padding: 6px 14px; min-height: 36px;">
-                    복사
-                  </button>
-                </div>
-              ` : `
-                <button class="btn btn-primary btn-sm btn-claim-submit" data-id="${claim.id}" data-category="${claim.category}">
-                  ${isCoupon ? '⚡ 쿠폰 코드 발급받기' : '📦 배송지 정보 입력하기'}
-                </button>
-              `}
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      // Copy Code Handlers
-      listContainer.querySelectorAll('.btn-copy-code').forEach((btn) => {
-        btn.onclick = () => {
-          const code = btn.dataset.code;
-          navigator.clipboard.writeText(code).then(() => {
-            ui.showToast('쿠폰 번호가 복사되었습니다!');
-          }).catch(() => {
-            ui.showToast(`쿠폰 번호: ${code}`);
-          });
-        };
-      });
-
-      // Claim Submit Handlers
-      listContainer.querySelectorAll('.btn-claim-submit').forEach((btn) => {
-        btn.onclick = () => {
-          const claimId = btn.dataset.id;
-          const category = btn.dataset.category;
-          this.showClaimModal(claimId, category, router);
-        };
-      });
-
-    } catch (err) {
-      listContainer.innerHTML = `
-        <div class="card" style="text-align: center; color: #EA4335;">
-          수령함 목록을 불러오지 못했습니다.
-        </div>
-      `;
+      const { claims = [] } = await api.getClaims();
+      if (!router.isCurrent(renderToken)) return;
+      container.replaceChildren();
+      const intro = document.createElement('section'); intro.className = 'card compact-card';
+      const heading = document.createElement('h1'); heading.textContent = '내 수령함';
+      const text = document.createElement('p'); text.textContent = '경품은 자동 발급되지 않습니다. 정보를 접수하면 관리자가 확인하고 직접 연락한 뒤 지급 상태를 변경합니다.';
+      intro.append(heading, text); container.appendChild(intro);
+      if (!claims.length) return this.renderEmpty(container, router);
+      for (const claim of claims) container.appendChild(this.claimCard(claim, router));
+    } catch (error) {
+      container.replaceChildren();
+      const card = document.createElement('section'); card.className = 'card empty-state';
+      const p = document.createElement('p'); p.textContent = error.message || '수령함을 불러오지 못했습니다.';
+      card.appendChild(p); container.appendChild(card);
     }
   },
 
-  showClaimModal(claimId, category, router) {
-    const isCoupon = category === 'COUPON';
+  renderEmpty(container, router) {
+    const card = document.createElement('section'); card.className = 'card empty-state';
+    const title = document.createElement('h2'); title.textContent = '접수할 경품이 아직 없어요';
+    const button = document.createElement('button'); button.className = 'btn btn-primary'; button.textContent = '복주머니 확인'; button.onclick = () => router.navigate('draw');
+    card.append(title, button); container.appendChild(card);
+  },
 
-    const formHtml = isCoupon ? `
-      <div style="text-align: left; font-size: 14px;">
-        <p style="margin-bottom: 12px;">즉시 바코드 / 쿠폰 코드를 발급받으시겠습니까?</p>
-      </div>
-    ` : `
-      <div style="display: flex; flex-direction: column; gap: 10px; text-align: left;">
-        <input id="claim-name" type="text" placeholder="수령인 성함" style="width: 100%; padding: 10px; border: 1px solid #CCC; border-radius: 10px;">
-        <input id="claim-phone" type="tel" placeholder="연락처 (010-0000-0000)" style="width: 100%; padding: 10px; border: 1px solid #CCC; border-radius: 10px;">
-        <input id="claim-addr" type="text" placeholder="상세 배송지 주소" style="width: 100%; padding: 10px; border: 1px solid #CCC; border-radius: 10px;">
-      </div>
-    `;
+  claimCard(claim, router) {
+    const card = document.createElement('article'); card.className = 'card claim-card';
+    const header = document.createElement('div'); header.className = 'claim-card-header';
+    const name = document.createElement('h2'); name.textContent = claim.prize_name || '경품';
+    const badge = document.createElement('span'); badge.className = 'sticker-badge badge-blue'; badge.textContent = STATUS_LABELS[claim.status] || claim.status;
+    header.append(name, badge);
+    const claimType = claim.claim_type || claim.type || 'DRAW';
+    const type = document.createElement('p'); type.textContent = claimType === 'RANKING' ? '랭킹 경품' : '복주머니 경품';
+    card.append(header, type);
+    if (!claim.contact_submitted && !['PAID', 'INELIGIBLE'].includes(claim.status)) {
+      const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = '합성 테스트 수령 정보 입력';
+      button.onclick = () => this.claimModal(claim, router); card.appendChild(button);
+    }
+    return card;
+  },
 
+  claimModal(claim, router) {
+    const claimType = claim.claim_type || claim.type || 'DRAW';
+    analytics.track('claim_form_started', { claim_type: claimType });
+    const form = document.createElement('form'); form.className = 'stack-form';
+    const definitions = [
+      ['이름 (테스트 정보)', 'text', 'name', 30], ['연락처 (테스트 정보)', 'text', 'contact', 60], ['학교 (선택)', 'text', 'school', 60], ['주소 (필요한 경우)', 'text', 'address', 120],
+    ];
+    const fields = definitions.map(([label, type, name, maxlength]) => ui.formField(label, type, name, { required: name !== 'school' && name !== 'address', maxlength }));
+    fields[0].input.value = 'TEST_사용자';
+    fields[1].input.value = '01000000000';
+    fields[2].input.value = 'TEST_학교';
+    fields[3].input.value = 'TEST_주소';
+    fields.forEach(({ label }) => form.appendChild(label));
+    const consent = document.createElement('label'); consent.className = 'consent-row';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+    const words = document.createElement('span'); words.textContent = '현재는 Preview 검증용 합성 정보이며 실제 개인정보를 입력하지 않습니다.';
+    consent.append(checkbox, words); form.appendChild(consent);
     ui.showModal({
-      title: isCoupon ? '쿠폰 즉시 발급' : '배송지 정보 입력',
-      content: formHtml,
-      confirmText: '발급 완료',
+      title: '수령 정보 접수', content: form, confirmText: '접수', cancelText: '취소',
       onConfirm: async () => {
-        let name = '', phone = '', addr = '';
-        if (!isCoupon) {
-          name = document.getElementById('claim-name')?.value || '';
-          phone = document.getElementById('claim-phone')?.value || '';
-          addr = document.getElementById('claim-addr')?.value || '';
-          if (!name || !phone || !addr) {
-            ui.showToast('모든 항목을 입력해주세요.');
-            return;
-          }
-        }
+        if (!checkbox.checked || fields.filter(({ input }) => input.required).some(({ input }) => !input.value.trim())) { ui.showToast('필수 항목과 확인란을 완료해 주세요.'); return false; }
         try {
-          await api.submitClaim(claimId, {
-            recipient_name: name,
-            contact_phone: phone,
-            shipping_address: addr
-          });
-          ui.showToast(isCoupon ? '쿠폰 코드가 발급되었습니다!' : '배송지 접수가 완료되었습니다.');
-          router.navigate('claims');
-        } catch (err) {
-          ui.showToast(err.message || '수령 처리에 실패했습니다.');
-        }
+          await api.submitClaim(claim.id, Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])));
+          analytics.track('claim_form_submitted', { claim_type: claimType });
+          router.announceStateChange(); router.navigate('claims');
+        } catch (error) { ui.showToast(error.message); return false; }
       },
-      cancelText: '취소'
     });
-  }
+  },
 };

@@ -1,17 +1,68 @@
 {
   "redirects": [
-    { "source": "/gate_runner.html", "destination": "/", "permanent": false },
-    { "source": "/gate-runner", "destination": "/", "permanent": false },
-    { "source": "/gate-runner/", "destination": "/", "permanent": false }
+    {
+      "source": "/gate_runner.html",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/gate-runner",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/gate-runner/",
+      "destination": "/",
+      "permanent": false
+    }
   ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.py" },
-    { "source": "/invite/(.*)", "destination": "/public/index.html?invite=$1" },
-    { "source": "/", "destination": "/public/index.html" },
-    { "source": "/admin.html", "destination": "/public/admin.html" },
-    { "source": "/preview.html", "destination": "/public/preview.html" },
-    { "source": "/css/(.*)", "destination": "/public/css/$1" },
-    { "source": "/js/(.*)", "destination": "/public/js/$1" },
-    { "source": "/assets/(.*)", "destination": "/public/assets/$1" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/invite/([A-Za-z0-9_-]{1,64})",
+      "destination": "/index.html?invite=$1"
+    }
+  ],
+  "outputDirectory": "public",
+  "regions": [
+    "icn1"
+  ],
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30,
+      "includeFiles": "{server/**,shared/**}",
+      "excludeFiles": "{public/**,tests/**,docs/**,.venv/**,.artifacts/**,.local/**,supabase/**}"
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, private"
+        }
+      ]
+    }
   ]
 }

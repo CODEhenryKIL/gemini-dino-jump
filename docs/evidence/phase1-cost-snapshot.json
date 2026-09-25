@@ -1,0 +1,32 @@
+{
+  "checked_at": "2026-09-25",
+  "scope": "Phase 1 cost snapshot; not final invoice",
+  "vercel": {
+    "project": "dino-nanobanana",
+    "period": {
+      "from": "2026-09-01T07:00:00.000Z",
+      "to": "2026-09-25T11:02:40.275Z"
+    },
+    "currency": "USD",
+    "effective_cost": 0.021330857881473323,
+    "billed_cost": 1.3410803314198494e-10,
+    "display_rounded_billed_cost": 0.0
+  },
+  "supabase": {
+    "source": "Authenticated organization billing dashboard",
+    "cycle": "2026-09-23/2026-10-23",
+    "currency": "USD",
+    "plan": "Pro",
+    "spend_cap_enabled": true,
+    "base_plan": 25.0,
+    "micro_compute_55_hours": 0.74,
+    "compute_credit": -0.74,
+    "current_costs": 25.0,
+    "projected_costs": 27.5,
+    "projected_difference_not_attributed": true
+  },
+  "limitations": [
+    "Usage and billing can be delayed; snapshot is not a promise of zero future charges.",
+    "Existing plan costs remain. No new paid resource or compute upgrade was created."
+  ]
+}

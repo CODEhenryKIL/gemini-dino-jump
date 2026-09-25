@@ -1,0 +1,60 @@
+{
+  "evidence_type": "sanitized_preview_burst_diagnostics",
+  "observed_window_utc": {
+    "start": "2026-09-25T10:35:00Z",
+    "end": "2026-09-25T10:40:00Z"
+  },
+  "burst_result": {
+    "requests_observed": 318,
+    "unexpected_http_503": 57,
+    "timeouts": 0,
+    "rate_limited_http_429": 0,
+    "stopped_early": true
+  },
+  "vercel_runtime_evidence": {
+    "sampled_structured_503_logs": 200,
+    "database_failure_classification": {
+      "connection": 200,
+      "pool_wait": 0
+    },
+    "observed_latency_ms": {
+      "minimum": 35,
+      "maximum": 81
+    },
+    "interpretation": "The sampled application failures were classified as database connection failures rather than local pool-wait timeouts."
+  },
+  "supavisor_evidence": {
+    "handshake_errors": 106,
+    "connecting_errors": 65,
+    "interpretation": "Connection-handshake and connecting errors occurred in the same bounded observation window."
+  },
+  "retained_configuration": {
+    "application_pool_slots": 8,
+    "shared_database_role_connection_limit": 20,
+    "database_pool_configuration_changed": false
+  },
+  "remediation": {
+    "action": "Restored the pre-experiment single shared IP rate-limit bucket implementation.",
+    "reason": "The experimental partitioned IP buckets coincided with the failed burst, while the earlier implementation completed the prior full run without request errors.",
+    "verification": {
+      "targeted_rate_limit_tests": 5,
+      "passed": 5,
+      "failed": 0
+    }
+  },
+  "assessment": {
+    "confidence": "high that the HTTP 503 responses were connection-class failures; medium that the burst exposed aggregate connection-handshake saturation",
+    "limits": [
+      "The evidence does not prove an exact connection-cap exhaustion mechanism.",
+      "The aggregate number of active serverless instances and sockets was not directly observed.",
+      "The rate-limit rollback is a stability rollback, not proof that rate-limit partitioning alone caused the database connection failures.",
+      "No further remote burst was run after the rollback within this diagnostic task."
+    ]
+  },
+  "sanitization": {
+    "contains_credentials": false,
+    "contains_raw_error_contents": false,
+    "contains_service_or_deployment_identifiers": false,
+    "contains_local_paths": false
+  }
+}

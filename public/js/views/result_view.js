@@ -1,110 +1,90 @@
-/**
- * S04 Game Result View Component
- */
-
 import { api } from '../api.js';
+import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 
 export const ResultView = {
   render(container, router) {
-    const res = router.state.lastResult || { score: 0, bestScore: 0, rank: 1 };
-    const participant = api.participant || {};
-
+    const result = router.state.lastResult;
+    if (!result) { router.navigate('home'); return; }
     container.innerHTML = `
-      <div class="card" style="text-align: center; padding: 28px 20px;">
-        <div style="margin-bottom: 8px;">
-          <span class="sticker-badge badge-green">✨ 기록 검증 완료</span>
-        </div>
-
-        <h2 style="font-size: 22px; font-weight: 900; margin-bottom: 16px;">
-          게임 종료!
-        </h2>
-
-        <!-- Score Board -->
-        <div style="background: #F8FAFF; border: 2px solid rgba(25, 103, 210, 0.12); border-radius: 20px; padding: 20px; margin-bottom: 20px;">
-          <div style="font-size: 13px; color: var(--text-sub); font-weight: 700;">이번 판 기록</div>
-          <div style="font-size: 42px; font-weight: 900; color: var(--primary); font-family: monospace; line-height: 1.1; margin: 4px 0;">
-            ${res.score}점
-          </div>
-
-          <div style="display: flex; justify-content: space-around; margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(0,0,0,0.1);">
-            <div>
-              <div style="font-size: 11px; color: var(--text-sub); font-weight: 600;">내 최고 점수</div>
-              <div style="font-size: 18px; font-weight: 800; color: #6200EE;">${res.bestScore}점</div>
-            </div>
-            <div style="width: 1px; background: rgba(0,0,0,0.08);"></div>
-            <div>
-              <div style="font-size: 11px; color: var(--text-sub); font-weight: 600;">현재 순위</div>
-              <div style="font-size: 18px; font-weight: 800; color: #EA4335;">${res.rank}위</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Nickname Setting Section -->
-        <div style="display: flex; align-items: center; justify-content: space-between; background: #FFF; border: 1px solid rgba(0,0,0,0.08); padding: 10px 14px; border-radius: 14px; margin-bottom: 24px;">
-          <div style="text-align: left;">
-            <div style="font-size: 11px; color: var(--text-sub); font-weight: 600;">랭킹 닉네임</div>
-            <div style="font-size: 14px; font-weight: 700;">${participant.nickname || '익명 러너'}</div>
-          </div>
-          <button id="btn-edit-nick" class="btn btn-secondary btn-sm" style="width: auto; padding: 6px 12px;">
-            수정
-          </button>
-        </div>
-
-        <!-- Action: Lucky Pouch S05 -->
-        <button id="btn-go-pouch" class="btn btn-primary" style="font-size: 18px; height: 56px; margin-bottom: 10px; background: linear-gradient(135deg, #FBBC04 0%, #F29900 100%); color: #000; box-shadow: 0 6px 20px rgba(242, 153, 0, 0.3);">
-          <span>🧧 복주머니 고르러 가기 (1회)</span>
-        </button>
-
-        <button id="btn-share-record" class="btn btn-outline btn-sm">
-          <span>📤 내 기록 자랑하고 친구 초대하기</span>
-        </button>
-      </div>
-    `;
-
-    // Handlers
-    container.querySelector('#btn-go-pouch').onclick = () => {
-      router.navigate('draw');
-    };
-
-    container.querySelector('#btn-share-record').onclick = () => {
-      router.navigate('invite');
-    };
-
-    container.querySelector('#btn-edit-nick').onclick = () => {
-      this.showNicknameModal(participant, router);
-    };
+      <section class="card result-card">
+        <span class="sticker-badge badge-green">기록 검증 완료</span>
+        <h1>게임 종료</h1>
+        <div class="score-panel"><small>이번 판</small><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
+        <div class="profile-row"><div><small>랭킹 닉네임</small><strong id="result-nickname"></strong></div><button id="btn-edit-nick" class="btn btn-secondary btn-sm">수정</button></div>
+        <div id="top3-request"></div>
+        <button id="btn-go-pouch" class="btn btn-primary">복주머니 확인하기</button>
+        <button id="btn-share-record" class="btn btn-outline btn-sm">기록 공유하고 친구 초대하기</button>
+      </section>`;
+    ui.text(container.querySelector('#result-score'), `${result.score}점`);
+    ui.text(container.querySelector('#result-best'), `최고 ${result.bestScore}점`);
+    ui.text(container.querySelector('#result-rank'), result.rank ? `현재 ${result.rank}위` : '순위 집계 중');
+    ui.text(container.querySelector('#result-nickname'), router.state.participant?.nickname || '익명 러너');
+    container.querySelector('#btn-go-pouch').onclick = () => router.navigate('draw');
+    container.querySelector('#btn-share-record').onclick = () => { router.shareContext = 'prize_share'; router.navigate('invite'); };
+    container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router);
+    const profile = router.state.top3Profile || result.top3Profile;
+    if (profile?.required || profile?.status === 'REQUESTED') this.renderTop3Request(container.querySelector('#top3-request'), router, profile);
   },
 
-  showNicknameModal(participant, router) {
-    const inputHtml = `
-      <input id="modal-nick-input" type="text" maxlength="12" value="${participant.nickname || ''}" 
-             placeholder="2~12자 닉네임 입력"
-             style="width: 100%; padding: 12px; font-size: 16px; border: 1.5px solid var(--primary); border-radius: 12px; outline: none; margin-top: 8px;">
-      <div style="font-size: 11px; color: var(--text-sub); margin-top: 6px;">* 연락처나 부적절한 단어는 사용할 수 없습니다.</div>
-    `;
-
+  nicknameModal(router) {
+    const field = ui.formField('닉네임', 'text', 'nickname', { maxlength: 12, autocomplete: 'nickname' });
+    field.input.value = router.state.participant?.nickname || '';
     ui.showModal({
-      title: '닉네임 변경',
-      content: inputHtml,
-      confirmText: '변경 완료',
+      title: '랭킹 닉네임 변경', content: field.label, confirmText: '저장', cancelText: '취소',
       onConfirm: async () => {
-        const input = document.getElementById('modal-nick-input');
-        const newNick = input ? input.value.trim() : '';
-        if (newNick.length < 2 || newNick.length > 12) {
-          ui.showToast('2자 이상 12자 이하로 입력해주세요.');
-          return;
-        }
+        const nickname = field.input.value.trim();
+        if (nickname.length < 2) { ui.showToast('닉네임은 2자 이상 입력해 주세요.'); return false; }
         try {
-          await api.updateProfile({ nickname: newNick });
-          if (api.participant) api.participant.nickname = newNick;
-          ui.showToast('닉네임이 변경되었습니다.');
+          const participant = await api.updateProfile({ nickname, is_public: true });
+          router.state.participant = participant.participant || participant;
+          api.participant = router.state.participant;
           router.navigate('result');
-        } catch (err) {
-          ui.showToast(err.message || '닉네임 변경에 실패했습니다.');
-        }
+        } catch (error) { ui.showToast(error.message); return false; }
       },
-      cancelText: '취소'
     });
-  }
+  },
+
+  renderTop3Request(target, router, profile) {
+    const card = document.createElement('section');
+    card.className = 'inline-notice';
+    const title = document.createElement('strong'); title.textContent = '잠정 TOP3 수령 정보를 등록해 주세요';
+    const text = document.createElement('p'); text.textContent = '현재 순위가 내려가더라도 이 요청 상태는 보존됩니다. 최종 수상 확정은 운영 마감 뒤 별도입니다.';
+    const button = document.createElement('button'); button.className = 'btn btn-secondary btn-sm';
+    button.textContent = profile.status === 'SUBMITTED' ? '정보 접수 완료' : '합성 테스트 정보 입력';
+    button.disabled = profile.status === 'SUBMITTED';
+    button.onclick = () => this.top3Modal(router);
+    card.append(title, text, button); target.appendChild(card);
+  },
+
+  top3Modal(router) {
+    analytics.track('top3_profile_started');
+    const form = document.createElement('form'); form.className = 'stack-form';
+    const fields = [
+      ui.formField('이름 (테스트 정보)', 'text', 'name', { maxlength: 30, autocomplete: 'name' }),
+      ui.formField('연락처 (테스트 정보)', 'text', 'contact', { maxlength: 60, autocomplete: 'off' }),
+      ui.formField('학교 (테스트 정보)', 'text', 'school', { maxlength: 60, autocomplete: 'organization' }),
+    ];
+    fields[0].input.value = 'TEST_사용자';
+    fields[1].input.value = '01000000000';
+    fields[2].input.value = 'TEST_학교';
+    fields.forEach(({ label }) => form.appendChild(label));
+    const consent = document.createElement('label'); consent.className = 'consent-row';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+    const consentText = document.createElement('span'); consentText.textContent = 'Preview에서는 실제 개인정보가 아닌 합성 테스트 정보만 입력합니다.';
+    consent.append(checkbox, consentText); form.appendChild(consent);
+    ui.showModal({
+      title: '잠정 TOP3 정보 접수', content: form, confirmText: '접수', cancelText: '취소',
+      onConfirm: async () => {
+        if (!checkbox.checked || fields.some(({ input }) => !input.value.trim())) { ui.showToast('모든 항목과 테스트 정보 확인을 완료해 주세요.'); return false; }
+        try {
+          const submitted = await api.submitTop3Profile(Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])));
+          analytics.track('top3_profile_submitted');
+          router.state.top3Profile = { required: true, status: submitted.status || 'SUBMITTED' };
+          if (router.state.lastResult) router.state.lastResult.top3Profile = router.state.top3Profile;
+          router.navigate('result');
+        } catch (error) { ui.showToast(error.message); return false; }
+      },
+    });
+  },
 };

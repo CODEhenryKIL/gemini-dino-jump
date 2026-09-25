@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-09-25",
+  "phase": "during_200vu_rerun",
+  "public": {
+    "answers": 26,
+    "profiles": 3,
+    "cost_logs": 45,
+    "feedbacks": 22,
+    "questions": 33,
+    "transcripts": 22,
+    "analysis_jobs": 2,
+    "question_sets": 3,
+    "score_results": 1,
+    "test_sessions": 5,
+    "audio_analyses": 22
+  },
+  "auth_users": 7,
+  "lock_waiters": 0,
+  "private_tables": 25,
+  "storage_objects": 47,
+  "game_connections": 16,
+  "current_connections": 30,
+  "public_table_grants": 0,
+  "old_dino_participants": 5000
+}

@@ -5,7 +5,11 @@
 class SoundEngine {
   constructor() {
     this.ctx = null;
-    this.muted = localStorage.getItem('gemini_dino_muted') === 'true';
+    try {
+      this.muted = localStorage.getItem('gemini_dino_muted') === 'true';
+    } catch (_) {
+      this.muted = false;
+    }
   }
 
   init() {
@@ -20,7 +24,9 @@ class SoundEngine {
 
   toggleMute() {
     this.muted = !this.muted;
-    localStorage.setItem('gemini_dino_muted', String(this.muted));
+    try {
+      localStorage.setItem('gemini_dino_muted', String(this.muted));
+    } catch (_) {}
     return this.muted;
   }
 

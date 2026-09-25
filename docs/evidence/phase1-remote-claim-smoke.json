@@ -1,0 +1,10 @@
+{
+  "deployment": "dpl_DtuPX3jMcdSm3juRS6wU7aZ6fEjw",
+  "synthetic_only": true,
+  "checks": {
+    "claim_submit_and_exact_replay": true,
+    "other_participant_cannot_submit": true,
+    "claim_restored": true
+  },
+  "admitted_api_calls_cumulative": 21778
+}

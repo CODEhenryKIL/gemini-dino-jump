@@ -1,0 +1,502 @@
+{
+  "framework": {
+    "name": "Other",
+    "slug": null
+  },
+  "fileCount": 74,
+  "totalSize": 39983951,
+  "ignoredCount": 52,
+  "ignored": [
+    ".env.example",
+    ".env.local",
+    ".git",
+    ".gitignore",
+    ".local/phase1",
+    ".venv",
+    ".vercel",
+    "README.md",
+    "api/__pycache__",
+    "docs/gate-runner-design.md",
+    "docs/phase1-api-contract.md",
+    "docs/phase1-events.md",
+    "docs/phase1-implementation-plan.md",
+    "docs/phase1-load-plan.md",
+    "docs/phase1-policy-decisions.md",
+    "docs/phase1-runbook.md",
+    "docs/phase1-work-instructions.md",
+    "docs/phase2-work-instructions.md",
+    "docs/phase3-work-instructions.md",
+    "docs/spec_v1.0.md",
+    "docs/spec_v1.1.md",
+    "public/figma-handoff/README.md",
+    "public/figma-handoff/board.html",
+    "public/figma-handoff/board.js",
+    "public/figma-handoff/fixtures.js",
+    "public/figma-handoff/render.html",
+    "public/figma-handoff/render.js",
+    "public/preview.html",
+    "run.sh",
+    "scripts/__pycache__",
+    "scripts/phase1_load.py",
+    "scripts/prepare_phase1_cohort.py",
+    "scripts/run_local.py",
+    "server/__pycache__",
+    "server/dino_jump.db",
+    "server/dino_jump.db-shm",
+    "server/dino_jump.db-wal",
+    "server/services/__pycache__",
+    "supabase/.temp",
+    "supabase/migrations",
+    "supabase/seed_dino_dev.sql",
+    "tests/__pycache__",
+    "tests/dino_only.test.cjs",
+    "tests/frontend_phase1_contract.test.cjs",
+    "tests/test_backend_concurrency.py",
+    "tests/test_backend_config.py",
+    "tests/test_backend_phase1.py",
+    "tests/test_backend_security_regression.py",
+    "tests/test_cohort_guards.py",
+    "tests/test_load_guards.py",
+    "tests/test_metrics.py",
+    "tests/vercel_analytics.test.cjs"
+  ],
+  "files": [
+    {
+      "path": ".local",
+      "size": 0,
+      "mode": 16877
+    },
+    {
+      "path": ".python-version",
+      "size": 5,
+      "mode": 33188,
+      "sha": "2c561ed018185a0ab382c0d28e718aa1debe8756"
+    },
+    {
+      "path": ".vercelignore",
+      "size": 217,
+      "mode": 33188,
+      "sha": "c8b550d5f5dfe2cba289a223883afe7a5a8fd7a3"
+    },
+    {
+      "path": "api/index.py",
+      "size": 301,
+      "mode": 33188,
+      "sha": "7d917bfec27ba1f0c5d21fed85c7938ad6274a5c"
+    },
+    {
+      "path": "docs",
+      "size": 0,
+      "mode": 16877
+    },
+    {
+      "path": "public/admin.html",
+      "size": 5884,
+      "mode": 33188,
+      "sha": "cb8ecbd11fd34d8d796c4e24ec4837cfc7355a44"
+    },
+    {
+      "path": "public/assets/dino/gemini_dino_anime.jpg",
+      "size": 624665,
+      "mode": 33188,
+      "sha": "c25b265476b5a35232e5a3514b7d841adc82af6b"
+    },
+    {
+      "path": "public/assets/dino/preset_clay.png",
+      "size": 612913,
+      "mode": 33188,
+      "sha": "fc1c22824f28153e8905cda44f0f63fe91001e17"
+    },
+    {
+      "path": "public/assets/dino/preset_graduate.png",
+      "size": 789697,
+      "mode": 33188,
+      "sha": "b4ff1fcd5f5dcddff7c0a9b53d6d13be9fd773e2"
+    },
+    {
+      "path": "public/assets/dino/preset_winter.png",
+      "size": 836878,
+      "mode": 33188,
+      "sha": "ba154f10a150a0000d38e158eebc4cace676b2c9"
+    },
+    {
+      "path": "public/assets/icons/Audio-Dark.png",
+      "size": 1011490,
+      "mode": 33188,
+      "sha": "1bf16c48aea934c445b896b23a9574ccf61208fb"
+    },
+    {
+      "path": "public/assets/icons/Audio-Light.png",
+      "size": 958261,
+      "mode": 33188,
+      "sha": "4dfa9208acc5f6d1ea9af01586f668f22b7f9dc3"
+    },
+    {
+      "path": "public/assets/icons/Dino-Dark.png",
+      "size": 1309803,
+      "mode": 33188,
+      "sha": "a8b401ec96bf27bb2e45f645e8524a07633ddf4b"
+    },
+    {
+      "path": "public/assets/icons/Dino-Light.png",
+      "size": 1359105,
+      "mode": 33188,
+      "sha": "ea9829317e0013778c557bb47f91453493596dcc"
+    },
+    {
+      "path": "public/assets/icons/Heart-Dark.png",
+      "size": 2253489,
+      "mode": 33188,
+      "sha": "56670236dda7b681cd2852b12e238454fec381af"
+    },
+    {
+      "path": "public/assets/icons/Heart-Light.png",
+      "size": 2371777,
+      "mode": 33188,
+      "sha": "8e9b2b7e23cd0c2b728da9458bdef32c53f91184"
+    },
+    {
+      "path": "public/assets/icons/Pen-Dark.png",
+      "size": 1040865,
+      "mode": 33188,
+      "sha": "087b4755e68d04df60676f917880b2f4533842ab"
+    },
+    {
+      "path": "public/assets/icons/Pen-Light.png",
+      "size": 1127001,
+      "mode": 33188,
+      "sha": "b18c76a580a7b533d59ae1aa6608bd799d703e63"
+    },
+    {
+      "path": "public/assets/icons/Picture-Dark.png",
+      "size": 1981888,
+      "mode": 33188,
+      "sha": "a4629cebf927f745dc8aaad6bab6c2869785e581"
+    },
+    {
+      "path": "public/assets/icons/Picture-Light.png",
+      "size": 2046966,
+      "mode": 33188,
+      "sha": "bcf002227596f80ab5ca56169f70689048d03045"
+    },
+    {
+      "path": "public/assets/icons/Rocker-Light.png",
+      "size": 1708303,
+      "mode": 33188,
+      "sha": "1738aa3a96cfde953e3f7ce879272ac1fdda6a02"
+    },
+    {
+      "path": "public/assets/icons/Rocket-Dark.png",
+      "size": 1607322,
+      "mode": 33188,
+      "sha": "8c298a44b253dcb453bc69f5a1b7276b094a304f"
+    },
+    {
+      "path": "public/assets/icons/Send-Dark.png",
+      "size": 1380042,
+      "mode": 33188,
+      "sha": "d8890021b7b50be318d529bf4795d56fa4135f0c"
+    },
+    {
+      "path": "public/assets/icons/Send-Light.png",
+      "size": 1393947,
+      "mode": 33188,
+      "sha": "a62278e82f9e09034f453f66abd9b368c22a2122"
+    },
+    {
+      "path": "public/assets/icons/Smile-Dark.png",
+      "size": 2341270,
+      "mode": 33188,
+      "sha": "9166d31fdef84e146a7e5915d489cd4e7d65f16d"
+    },
+    {
+      "path": "public/assets/icons/Smile-Light.png",
+      "size": 2389430,
+      "mode": 33188,
+      "sha": "19b3c20199ba0a3062733bd2f9369b7c4048f036"
+    },
+    {
+      "path": "public/assets/icons/Speach-Dark.png",
+      "size": 1920680,
+      "mode": 33188,
+      "sha": "820cee802edce77b7e46694e42db0a3390b1d170"
+    },
+    {
+      "path": "public/assets/icons/Speach-Light.png",
+      "size": 1968493,
+      "mode": 33188,
+      "sha": "786145ae3199d950bbf8b12cbf815c1be5719607"
+    },
+    {
+      "path": "public/assets/icons/Speaker-Dark.png",
+      "size": 1329712,
+      "mode": 33188,
+      "sha": "0aaaa49bd32ae5aadc6fb5d03d5ddcd7a3da9acd"
+    },
+    {
+      "path": "public/assets/icons/Speaker-Light.png",
+      "size": 1288973,
+      "mode": 33188,
+      "sha": "a517adb2f86c18e50a2368a53237922d063df58e"
+    },
+    {
+      "path": "public/assets/logos/01_TeamGemini_Logo.png",
+      "size": 605943,
+      "mode": 33188,
+      "sha": "532e19d8fb469074bfc484fbd85b204d603df41d"
+    },
+    {
+      "path": "public/assets/logos/02_TeamGemini_Logo_Coloured.png",
+      "size": 630587,
+      "mode": 33188,
+      "sha": "93c640f03a9e531c5a74c5f99161822bb294e134"
+    },
+    {
+      "path": "public/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png",
+      "size": 767027,
+      "mode": 33188,
+      "sha": "bef33927e5c303d56921ab63ee905811b1e51d1c"
+    },
+    {
+      "path": "public/assets/logos/04_TeamGemini_Logo_Ambassador_Alt.png",
+      "size": 703830,
+      "mode": 33188,
+      "sha": "e3de7f9da1ad4329b22ac34c244c03bdd13aaf56"
+    },
+    {
+      "path": "public/assets/logos/googlegemini_lockup_fullcolor_white.png",
+      "size": 270214,
+      "mode": 33188,
+      "sha": "f1371a056dc63ead7bd70ddbbab845cfcf33d012"
+    },
+    {
+      "path": "public/assets/logos/googlegemini_lockup_fullcolor.png",
+      "size": 278746,
+      "mode": 33188,
+      "sha": "aaffc4615d1faa7c2ff55aa751637e94763d9422"
+    },
+    {
+      "path": "public/assets/logos/test_logo.png",
+      "size": 767027,
+      "mode": 33188,
+      "sha": "bef33927e5c303d56921ab63ee905811b1e51d1c"
+    },
+    {
+      "path": "public/css/game.css",
+      "size": 5448,
+      "mode": 33188,
+      "sha": "1bfa58bb1cdc471fd94aad31debc5109aaf00fb7"
+    },
+    {
+      "path": "public/css/scratch.css",
+      "size": 3815,
+      "mode": 33188,
+      "sha": "15ce0f62c73fbb365a4430f897c1768241bc6e8d"
+    },
+    {
+      "path": "public/css/style.css",
+      "size": 15238,
+      "mode": 33188,
+      "sha": "c5122c1308d15d00d8dd202c908abccf49026ade"
+    },
+    {
+      "path": "public/figma-handoff",
+      "size": 0,
+      "mode": 16877
+    },
+    {
+      "path": "public/index.html",
+      "size": 3930,
+      "mode": 33188,
+      "sha": "460e553edecda665c240e7fa9ec928122b63a26a"
+    },
+    {
+      "path": "public/js/admin.js",
+      "size": 23953,
+      "mode": 33188,
+      "sha": "0eb6cd406239970be6aa80844b8a59e5bd08a388"
+    },
+    {
+      "path": "public/js/analytics.js",
+      "size": 7110,
+      "mode": 33188,
+      "sha": "4e7c507dc444805ba1335be3609bda5f2c8d4562"
+    },
+    {
+      "path": "public/js/api.js",
+      "size": 5887,
+      "mode": 33188,
+      "sha": "01cbddaeecd8923fd95140db7dd0dfa13121d6d6"
+    },
+    {
+      "path": "public/js/app.js",
+      "size": 11823,
+      "mode": 33188,
+      "sha": "18cdad64920e63b8b394d8a18643980231c6b30a"
+    },
+    {
+      "path": "public/js/components/scratch_card.js",
+      "size": 5773,
+      "mode": 33188,
+      "sha": "118b43386283279d4e6e7fb940b6c9b11e958cba"
+    },
+    {
+      "path": "public/js/game/audio.js",
+      "size": 4840,
+      "mode": 33188,
+      "sha": "81d586012c2c7b85b1109f480791a227b19e4068"
+    },
+    {
+      "path": "public/js/game/engine.js",
+      "size": 32291,
+      "mode": 33188,
+      "sha": "af0e79352c8c891a7a613e2c0ce988940925d8dd"
+    },
+    {
+      "path": "public/js/ui.js",
+      "size": 3109,
+      "mode": 33188,
+      "sha": "bbe969654cd32675b97067ed3000baaf3c853ff7"
+    },
+    {
+      "path": "public/js/vercel_analytics.js",
+      "size": 1244,
+      "mode": 33188,
+      "sha": "1739daf07a2d0d17f29e32f9c77d7ec053b72381"
+    },
+    {
+      "path": "public/js/views/benefit_view.js",
+      "size": 2435,
+      "mode": 33188,
+      "sha": "7f60d7865a09841e364ba482f09f3b7e4a0a7969"
+    },
+    {
+      "path": "public/js/views/draw_view.js",
+      "size": 8845,
+      "mode": 33188,
+      "sha": "772a5332132a8e030b9b509bd160d66dae72ef78"
+    },
+    {
+      "path": "public/js/views/game_view.js",
+      "size": 18223,
+      "mode": 33188,
+      "sha": "b1afdc06405f56929069240bb37f63f171c88f14"
+    },
+    {
+      "path": "public/js/views/home.js",
+      "size": 4717,
+      "mode": 33188,
+      "sha": "473e6dea4b07e38d086331dd4823e328e47ee7ca"
+    },
+    {
+      "path": "public/js/views/invite_view.js",
+      "size": 4391,
+      "mode": 33188,
+      "sha": "db87fde38458d3988e6e39f3725a96df15bbbb1a"
+    },
+    {
+      "path": "public/js/views/prize_view.js",
+      "size": 5273,
+      "mode": 33188,
+      "sha": "98b9d5acf41d2b02da3431bc16fadae29072ad69"
+    },
+    {
+      "path": "public/js/views/ranking_view.js",
+      "size": 3058,
+      "mode": 33188,
+      "sha": "28b2ac02e53bab38c164959fb21542afd53e221c"
+    },
+    {
+      "path": "public/js/views/result_view.js",
+      "size": 5588,
+      "mode": 33188,
+      "sha": "9d89326bdf9d39160072a9c7cd0a93453d5d7661"
+    },
+    {
+      "path": "requirements.txt",
+      "size": 23,
+      "mode": 33188,
+      "sha": "08a60113862a1436a4c9afb4b170c59e886ec582"
+    },
+    {
+      "path": "scripts",
+      "size": 0,
+      "mode": 16877
+    },
+    {
+      "path": "server/app.py",
+      "size": 14431,
+      "mode": 33188,
+      "sha": "ce269e4ad45ef789d494ed3cb38b890eef79568c"
+    },
+    {
+      "path": "server/auth.py",
+      "size": 1376,
+      "mode": 33188,
+      "sha": "04bc655eda1d94a9a578ea3f25599cedb9007c61"
+    },
+    {
+      "path": "server/certs/supabase-ca-2021.crt",
+      "size": 1367,
+      "mode": 33188,
+      "sha": "bef70379182123a384bc0de18c94e33547627f5b"
+    },
+    {
+      "path": "server/config.py",
+      "size": 5716,
+      "mode": 33188,
+      "sha": "f27a8688e1d14765bbe7ba8b0d2d4ec55355c0eb"
+    },
+    {
+      "path": "server/db.py",
+      "size": 2232,
+      "mode": 33188,
+      "sha": "9a53e51ed5a1a79606a110ba474f853c5c2157fe"
+    },
+    {
+      "path": "server/game_verifier.py",
+      "size": 9404,
+      "mode": 33188,
+      "sha": "76f6c3a0df86bad1d3dbc6bc65621ca119d9e13e"
+    },
+    {
+      "path": "server/metrics.py",
+      "size": 20591,
+      "mode": 33188,
+      "sha": "fc18052e3b4a73497715e9b5ba13ade332515fcf"
+    },
+    {
+      "path": "server/operations.py",
+      "size": 64571,
+      "mode": 33188,
+      "sha": "6f1d3372c866be0a2c7d4d62deb550c7beb00d67"
+    },
+    {
+      "path": "server/services",
+      "size": 0,
+      "mode": 16877
+    },
+    {
+      "path": "shared/game_constants.json",
+      "size": 3181,
+      "mode": 33188,
+      "sha": "6669f38b02441fc72eade3c1f4ddd76709929189"
+    },
+    {
+      "path": "supabase",
+      "size": 0,
+      "mode": 16877
+    },
+    {
+      "path": "tests",
+      "size": 0,
+      "mode": 16877
+    },
+    {
+      "path": "vercel.json",
+      "size": 1317,
+      "mode": 33188,
+      "sha": "25bf177ba29cea8ef7e4afb0eba0cb831dfcc7af"
+    }
+  ]
+}

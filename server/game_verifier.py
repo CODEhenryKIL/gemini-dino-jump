@@ -80,6 +80,13 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
     """
     Simulates game deterministically. jump_ticks can be either [tick, ...] or [{'tick': t, 'high': bool}, ...]
     """
+    if not isinstance(seed, int) or not isinstance(jump_ticks, list):
+        raise ValueError('INVALID_GAME_INPUT')
+    if isinstance(submitted_score, bool) or isinstance(submitted_ticks, bool):
+        raise ValueError('INVALID_GAME_INPUT')
+    submitted_score, submitted_ticks = int(submitted_score), int(submitted_ticks)
+    if not 0 <= submitted_score <= 6000 or not 0 <= submitted_ticks <= 36000 or len(jump_ticks) > 2048:
+        raise ValueError('GAME_INPUT_OUT_OF_BOUNDS')
     prng = PRNG(seed)
     dino_y = GROUND_Y - DINO_H
     dino_vy = 0.0
@@ -93,15 +100,22 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
     jump_map = {}
     for item in jump_ticks:
         if isinstance(item, dict):
-            jump_map[item['tick']] = bool(item.get('high', False))
-        elif isinstance(item, (int, float)):
-            jump_map[int(item)] = True # default high if unspecified
+            tick = item['tick']
+            if isinstance(tick, bool) or not isinstance(tick, int) or not 0 <= tick <= submitted_ticks:
+                raise ValueError('INVALID_JUMP_TICK')
+            jump_map[tick] = bool(item.get('high', False))
+        elif isinstance(item, int) and not isinstance(item, bool):
+            if not 0 <= item <= submitted_ticks:
+                raise ValueError('INVALID_JUMP_TICK')
+            jump_map[item] = True # default high if unspecified
+        else:
+            raise ValueError('INVALID_JUMP_TICK')
 
     obstacles = []
     next_spawn_time = SAFE_TIME_SEC
     last_was_combo = False
 
-    max_sim_ticks = max(submitted_ticks + 120, 60 * 600)
+    max_sim_ticks = min(36000, max(submitted_ticks + 120, 60 * 10))
     collision_tick = -1
 
     for tick in range(max_sim_ticks):
@@ -230,7 +244,4 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
 
     if tick_diff <= 15 and score_diff <= 5:
         return True, calculated_score, collision_tick, "VERIFIED"
-    else:
-        if submitted_ticks < collision_tick and submitted_score <= calculated_score:
-            return True, submitted_score, submitted_ticks, "EARLY_TERMINATION_VERIFIED"
-        return False, calculated_score, collision_tick, f"SCORE_MISMATCH: server={calculated_score}, client={submitted_score}"
+    return False, calculated_score, collision_tick, f"SCORE_MISMATCH: server={calculated_score}, client={submitted_score}"
