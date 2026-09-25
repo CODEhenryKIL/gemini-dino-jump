@@ -5,25 +5,30 @@
   "project_ref": "igfrnexknwtiljdqjrbp",
   "synthetic_only": true,
   "reconciliation": {
+    "participants": 5005,
+    "sessions": 2303,
+    "verified_finishes": 2212,
     "draws": 2163,
-    "sessions": 2285,
-    "paid_claims": 1,
-    "admin_audits": 5,
-    "participants": 5003,
-    "admin_members": 2,
-    "inventory_paid": 1,
     "duplicate_draws": 0,
-    "inventory_total": 25,
     "duplicate_rewards": 0,
-    "verified_finishes": 2211,
-    "inventory_reserved": 24,
-    "inventory_allocations": 25,
     "invalid_ticket_balances": 0,
-    "duplicate_inventory_allocations": 0
+    "inventory_total": 25,
+    "inventory_reserved": 24,
+    "inventory_paid": 1,
+    "inventory_allocations": 25,
+    "duplicate_inventory_allocations": 0,
+    "paid_claims": 1,
+    "admin_members": 2,
+    "admin_audits": 5
+  },
+  "preservation": {
+    "auth_users": 7,
+    "storage_objects": 47,
+    "old_dino_participants": 5000
   },
   "notes": [
-    "After full rerun and stopped NEW3 burst.",
-    "One PAID claim is a synthetic workflow validation; no actual contact or prize delivery.",
-    "No duplicate reward, duplicate allocation or invalid ticket balance observed."
+    "After the one user-approved additional burst on a4a8606; snapshot may include separate browser tests.",
+    "One PAID claim is synthetic; no actual contact or prize delivery.",
+    "No duplicate draw/reward/allocation or invalid ticket balance observed."
   ]
 }

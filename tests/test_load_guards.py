@@ -189,7 +189,7 @@ class LoadGuardTests(unittest.TestCase):
                 self.assertEqual(ledger.data["duration_reserved_seconds"], 1844)
                 self.assertEqual(ledger.data["admitted_api_calls"], 1)
                 self.assertEqual(ledger.participants_remaining("fp", 5000), 4999)
-                ledger.reserve_run(76, "remaining", "fp", "dpl_new")
+                ledger.reserve_run(load.MAX_DURATION_SECONDS - 1844, "remaining", "fp", "dpl_new")
                 with self.assertRaises(load.BudgetExceeded):
                     ledger.reserve_run(1, "over-cap", "fp", "dpl_new")
                 self.assertEqual(load.MAX_API_CALLS, 30000)

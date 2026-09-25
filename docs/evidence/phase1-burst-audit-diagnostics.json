@@ -1,0 +1,29 @@
+{
+  "window_utc": {
+    "start": "2026-09-25T11:13:00Z",
+    "end": "2026-09-25T11:16:00Z"
+  },
+  "deployment": "dpl_9jvaU7ja7sPZW3BJdQtyQvhFEfJo",
+  "load_calls": 247,
+  "load_unexpected_503": 15,
+  "load_timeouts": 0,
+  "load_completed_flows": 0,
+  "serious_stop": true,
+  "sampled_runtime_error_records": 30,
+  "database_failure_classification": {
+    "connection": 30
+  },
+  "supavisor": {
+    "limit_message_records": 56,
+    "sanitized_error": "(EMAXCONN) max client connections reached, limit: 200"
+  },
+  "interpretation": "Database connection admission saturation is evidenced; the count of application instances and client sockets per instance was not measured. Log record counts are not one-to-one load request counts.",
+  "pool_configuration_changed": false,
+  "paid_resource_or_compute_upgrade": false,
+  "budget": {
+    "admitted_api_calls_cumulative": 22363,
+    "api_calls_remaining": 7637,
+    "completed_api_calls_cumulative": 22363,
+    "duration_reserved_seconds_cumulative": 1844
+  }
+}

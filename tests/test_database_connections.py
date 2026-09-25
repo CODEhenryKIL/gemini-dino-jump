@@ -33,6 +33,32 @@ class ConnectionTest(unittest.TestCase):
         self.assertIs(first,second)
         self.assertEqual(connect.call_count,1)
 
+    def test_completed_concurrent_wave_retains_only_one_idle_connection_without_checkout(self):
+        entered=threading.Barrier(9)
+        release=threading.Event()
+        connections=[]
+
+        def create(*_args,**_kwargs):
+            connection=FakeConnection()
+            connections.append(connection)
+            return connection
+
+        def run(_index):
+            with db.connection(self.settings):
+                entered.wait(timeout=5)
+                release.wait(timeout=5)
+
+        with patch.object(db.psycopg,"connect",side_effect=create):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                futures=[executor.submit(run,index) for index in range(8)]
+                entered.wait(timeout=5)
+                release.set()
+                for future in futures:future.result(timeout=5)
+
+        self.assertEqual(len(connections),8)
+        self.assertEqual(len(db._idle),1)
+        self.assertEqual(sum(not connection.closed for connection in connections),1)
+
     def test_failure_is_not_replayed_and_discards_connection(self):
         with patch.object(db.psycopg,"connect",side_effect=lambda *a,**k:FakeConnection()) as connect:
             with self.assertRaises(db.psycopg.OperationalError):
@@ -74,7 +100,21 @@ class ConnectionTest(unittest.TestCase):
         self.assertTrue(old.closed)
 
     def test_concurrent_requests_have_exclusive_connections_and_bounded_count(self):
-        active=set();lock=threading.Lock();maximum=0
+        active=set();lock=threading.Lock();maximum=0;live=0;peak_live=0
+        def create(*_args,**_kwargs):
+            nonlocal live,peak_live
+            connection=FakeConnection()
+            original_close=connection.close
+            with lock:
+                live+=1
+                peak_live=max(peak_live,live)
+            def close():
+                nonlocal live
+                with lock:
+                    if not connection.closed:live-=1
+                original_close()
+            connection.close=close
+            return connection
         def run(_):
             nonlocal maximum
             with db.connection(self.settings) as conn:
@@ -83,11 +123,12 @@ class ConnectionTest(unittest.TestCase):
                     active.add(id(conn));maximum=max(maximum,len(active))
                 time.sleep(.02)
                 with lock: active.remove(id(conn))
-        with patch.object(db.psycopg,"connect",side_effect=lambda *a,**k:FakeConnection()) as connect:
+        with patch.object(db.psycopg,"connect",side_effect=create):
             with concurrent.futures.ThreadPoolExecutor(max_workers=24) as executor: list(executor.map(run,range(48)))
         self.assertGreater(maximum,2)
         self.assertLessEqual(maximum,8)
-        self.assertLessEqual(connect.call_count,8)
+        self.assertLessEqual(peak_live,8)
+        self.assertEqual((live,len(db._idle)),(1,1))
 
     def test_failed_connect_releases_capacity_for_later_requests(self):
         with patch.object(db.psycopg,"connect",side_effect=db.psycopg.OperationalError("unavailable")):

@@ -41,8 +41,8 @@ COOKIE_NAME = "dj_session"
 GAME_VERSION = "1.2.0"
 MAX_COHORT_SIZE = 5_000
 MAX_API_CALLS = 30_000
-# 2026-09-25: user approved one additional burst, raising time only by 2 minutes.
-MAX_DURATION_SECONDS = 32 * 60
+# 2026-09-25: user approved a 40-minute cumulative limit; call cap is unchanged.
+MAX_DURATION_SECONDS = 40 * 60
 RUN_OVERHEAD_SECONDS = 90
 DEFAULT_THINK_TIME_SECONDS = 45.0
 PLAY_WAIT_GRACE_SECONDS = 0.25

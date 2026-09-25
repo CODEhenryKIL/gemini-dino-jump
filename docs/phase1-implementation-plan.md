@@ -25,6 +25,8 @@ Started 2026-09-25 from `58b1e14` on `codex/phase1-clean-start`; application bas
 
 ## Work and audit log
 
+2026-09-25 final burst remediation plan: preserve business transactions, TLS validation and active pool limit 8; first add a regression that completes a parallel wave without any later checkout and proves immediately retained idle sockets <=1. Then enforce that return-time cap, preserving one-connection reuse and all failure disposal paths. No background timer, new dependency, schema change, request replay or paid resource increase. User raised the cumulative remote test time cap to 40 minutes; announce 200-VU execution before dispatch.
+
 The entries below are chronological notes, not the latest state. Use [phase1-report.md](phase1-report.md) for current deployment, permissions and test results. Subsequent acceptance review identified additional replay authorization, refund response, concurrent draw and measurement gaps; those fixes must be tested before final acceptance.
 
 - Live access verified: GitHub public repo admin/push; Supabase selected Seoul project active PG17.6; Vercel dino-nanobanana latest previous Preview is ERROR.

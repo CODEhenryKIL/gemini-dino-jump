@@ -11,6 +11,7 @@ from config import APP_ROLE,ConfigurationError,SCHEMA_NAME,SCHEMA_VERSION
 _slots=BoundedSemaphore(8)
 _idle=[]
 _idle_lock=Lock()
+MAX_IDLE_CONNECTIONS=1
 
 def close_idle_connections():
     with _idle_lock:
@@ -50,8 +51,10 @@ def connection(settings):
         yield conn
         # Only clean autocommit connections can cross request boundaries.
         if not conn.closed and conn.info.transaction_status==TransactionStatus.IDLE:
-            with _idle_lock: _idle.append((key,conn,created,monotonic()))
-            conn=None
+            with _idle_lock:
+                if len(_idle)<MAX_IDLE_CONNECTIONS:
+                    _idle.append((key,conn,created,monotonic()))
+                    conn=None
     finally:
         if conn is not None: conn.close()
         _slots.release()
