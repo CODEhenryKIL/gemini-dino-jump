@@ -32,6 +32,7 @@ ADMIN_DSN = os.getenv(
 FOUNDATION = ROOT / "supabase/migrations/20260925083548_phase1_dino_dev_foundation.sql"
 ADDITIONS = ROOT / "supabase/migrations/20260925092759_phase1_acceptance_additions.sql"
 CLAIM_FIX = ROOT / "supabase/migrations/20260925125939_add_awaiting_claim_information_status.sql"
+PHASE2 = ROOT / "supabase/migrations/20260925140902_phase2_game_versions_and_tracking.sql"
 SEED = ROOT / "supabase/seed_dino_dev.sql"
 CAMPAIGN_ID = "gemini_dino_phase1_test"
 PEPPER = "acceptance-boundary-pepper-0123456789"
@@ -122,6 +123,7 @@ class AcceptanceBoundaryTest(unittest.TestCase):
             _run_sql(cls.database, FOUNDATION)
             _run_sql(cls.database, ADDITIONS)
             _run_sql(cls.database, CLAIM_FIX)
+            _run_sql(cls.database, PHASE2)
             with psycopg.connect(cls.dsn) as conn:
                 conn.execute(
                     "insert into dino_dev.environment_guard"

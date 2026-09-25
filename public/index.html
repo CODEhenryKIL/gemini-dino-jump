@@ -20,36 +20,35 @@
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/game.css">
   <link rel="stylesheet" href="/css/scratch.css">
+  <link rel="stylesheet" href="/css/phase2-views.css">
 </head>
 <body>
 
   <!-- Mobile Container Wrapper (Max 440px) -->
   <div id="app-container">
     
-    <!-- Actual service initialization screen; no artificial minimum delay. -->
-    <div id="splash-screen">
-      <div class="splash-badge">
-        <span>공룡 점프 준비 중</span>
+    <div id="splash-screen" role="status" aria-live="polite" aria-label="게임 준비 중">
+      <div class="splash-ambassador">Google Student Ambassador</div>
+      <div class="splash-story" aria-label="Google AI로 만든 게임입니다. 게임하고 복주머니에서 복권 뽑고 긁으면 선물!">
+        <div class="splash-title-group">
+          <strong class="splash-main-title">Google AI로 만든<br>게임입니다</strong>
+          <span class="splash-event-title">전국 대학생 한정 이벤트</span>
+          <span class="splash-eligibility">게임은 누구나 참여 가능 · 경품은 대학생 대상</span>
+        </div>
+        <div class="splash-steps" aria-hidden="true">
+          <span>게임하고</span>
+          <span>복주머니에서 복권 뽑고</span>
+          <span>긁으면 선물!</span>
+          <strong>최대 삼텐바이미!</strong>
+        </div>
       </div>
-
-      <div class="splash-logos">
-        <img class="splash-ambassador-logo" src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
-        <img class="splash-gemini-lockup" src="/assets/logos/googlegemini_lockup_fullcolor.png" alt="Google Gemini" onerror="this.style.display='none'">
+      <p class="splash-preview-note">Preview 경품 문구 · 추첨 결과에 따라 미당첨이 있을 수 있어요.</p>
+      <div class="splash-team-logo-wrap">
+        <img class="splash-team-logo" src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
       </div>
-
-      <!-- Hop Animation Dino -->
-      <div class="splash-dino-track">
-        <img class="splash-dino-img" src="/assets/icons/Dino-Dark.png" alt="Dino Runner">
-        <div class="splash-dino-shadow"></div>
-      </div>
-
-      <!-- 4-Color Google Progress Bar -->
-      <div class="splash-progress-container">
-        <div id="splash-progress-bar" class="splash-progress-bar"></div>
-      </div>
-
-      <div id="splash-status-text" class="splash-status-text">참여 기록을 안전하게 불러오는 중...</div>
-      <div class="splash-sub-text">연결이 끝나면 자동으로 시작합니다.</div>
+      <div class="splash-progress-container" aria-hidden="true"><div id="splash-progress-bar" class="splash-progress-bar"></div></div>
+      <div id="splash-status-text" class="splash-status-text">참여 기록과 게임 자산을 준비하는 중...</div>
+      <button id="splash-retry" class="btn btn-primary splash-retry" type="button" hidden>다시 연결</button>
     </div>
     
     <!-- Top Fixed App Bar -->

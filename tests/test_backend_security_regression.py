@@ -2,6 +2,7 @@ import contextlib
 import datetime as dt
 import http.client
 import json
+import re
 import os
 import secrets
 import sys
@@ -56,6 +57,7 @@ class BackendSecurityRegressionTest(unittest.TestCase):
             token_pepper=PEPPER,
             allowed_origins=frozenset({cls.base_url}),
             deployment="security-regression",
+            game_version="1.2.0",
         )
         cls.patches = [
             mock.patch.object(app.Settings, "from_env", side_effect=lambda: cls.settings),
@@ -228,7 +230,7 @@ class BackendSecurityRegressionTest(unittest.TestCase):
             ({'link': 'prize_share', 'share': 'share_1234', 'channel': 'campus-A', 'campaign': 'fall_2026', 'token': 'private', 'view': 'claims'},
              {'invite': [code], 'link': ['prize_share'], 'share': ['share_1234'], 'channel': ['campus-A'], 'campaign': ['fall_2026']}),
             ({'link': 'https://evil.example', 'share': 'bad!', 'channel': 'private@example.com', 'campaign': 'bad space', 'invite': 'spoof'},
-             {'invite': [code]}),
+             {'invite': [code], 'link': ['retry_invite']}),
         ]
         parsed = urllib.parse.urlsplit(self.base_url)
         for query, expected in cases:
@@ -236,11 +238,23 @@ class BackendSecurityRegressionTest(unittest.TestCase):
                 conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
                 conn.request('GET', f'/invite/{code}?' + urllib.parse.urlencode(query))
                 response = conn.getresponse()
-                location = response.getheader('Location')
-                response.read(); conn.close()
-                self.assertEqual(response.status, 302)
+                html = response.read().decode(); conn.close()
+                location = json.loads(re.search(r'window.location.replace\((.+?)\);', html).group(1))
+                self.assertEqual(response.status, 200)
+                self.assertIn('og:title', html)
+                self.assertIsNone(response.getheader('Set-Cookie'))
                 self.assertEqual(urllib.parse.urlsplit(location).path, '/')
                 self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(location).query), expected)
+
+    def test_vercel_function_destination_serves_share_card_without_cookie(self):
+        parsed = urllib.parse.urlsplit(self.base_url)
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+        conn.request('GET','/api/index.py?share_preview=1&code=Abcdef_123456&link=record_share')
+        response=conn.getresponse();html=response.read().decode();conn.close()
+        self.assertEqual(response.status,200)
+        self.assertIn('og:title',html)
+        self.assertIn('link=record_share',html)
+        self.assertIsNone(response.getheader('Set-Cookie'))
 
     def test_zero_tick_submission_cannot_finish_or_unlock_draw(self):
         _participant, cookie = self.participant()

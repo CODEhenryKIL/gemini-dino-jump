@@ -23,7 +23,7 @@
     },
     {
       "source": "/invite/([A-Za-z0-9_-]{12,64})",
-      "destination": "/index.html?invite=$1"
+      "destination": "/api/index.py?share_preview=1&code=$1"
     }
   ],
   "outputDirectory": "public",

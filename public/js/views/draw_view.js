@@ -46,7 +46,7 @@ export const DrawView = {
       <section class="card pouch-selection-container">
         <span class="sticker-badge badge-yellow">행사당 한 번</span>
         <h2>복주머니 하나를 골라주세요</h2>
-        <p>선택 순간 서버가 하나의 결과를 확정합니다. 새로고침해도 결과는 바뀌지 않아요.</p>
+        <p>하나를 고르면 결과가 정해져요. 정해진 결과는 새로고침해도 같아요.</p>
         <div class="pouch-grid">
           <button class="pouch-item wiggle" data-index="0"><span class="pouch-icon">🧧</span><span class="pouch-label">1번</span></button>
           <button class="pouch-item wiggle" data-index="1"><span class="pouch-icon">🧧</span><span class="pouch-label">2번</span></button>
@@ -88,27 +88,42 @@ export const DrawView = {
         <div class="scratch-ticket">
           <div class="ticket-header"><span>Team Gemini Lucky Ticket</span><span>행사당 1회</span></div>
           <div class="ticket-scratch-area">
-            <div class="ticket-result-underlay"><img id="result-prize-img" src="/assets/icons/Smile-Light.png" alt=""><div id="result-prize-title" class="result-title"></div><div id="result-prize-sub" class="result-sub"></div></div>
-            <canvas id="scratch-canvas" aria-label="긁어서 결과 확인"></canvas>
+            <div class="ticket-result-underlay" id="scratch-result-content" aria-hidden="true" inert><img id="result-prize-img" src="/assets/icons/Smile-Light.png" alt=""><div id="result-prize-title" class="result-title"></div><div id="result-prize-sub" class="result-sub"></div></div>
+            <canvas id="scratch-canvas" tabindex="0" role="button" aria-label="복권 긁기. Enter 또는 Space 키로 같은 결과를 바로 확인할 수 있습니다." aria-describedby="scratch-instruction"></canvas>
           </div>
         </div>
-        <button id="btn-instant-reveal" class="btn btn-secondary btn-sm">한 번에 확인하기</button>
+        <p id="scratch-instruction" class="scratch-hint-text">화면을 긁거나 아래 버튼으로 같은 서버 확정 결과를 확인하세요.</p>
+        <button id="btn-instant-reveal" class="btn btn-secondary btn-sm">긁기 어려우면 결과 확인</button>
+        <p id="restored-pouch" class="status-note"></p>
         <p id="scratch-save-status" class="status-note" role="status"></p>
         <div id="post-reveal-actions" hidden><button id="btn-after-draw" class="btn btn-primary"></button></div>
       </section>`;
     const prize = draw.prize || {};
+    const resultContent = container.querySelector('#scratch-result-content');
+    resultContent.setAttribute('aria-hidden', 'true');
+    resultContent.inert = true;
+    const scratchCanvas = container.querySelector('#scratch-canvas');
+    scratchCanvas.tabIndex = 0;
     const img = container.querySelector('#result-prize-img');
     img.src = prize.image_url || (draw.is_won ? '/assets/icons/Heart-Dark.png' : '/assets/icons/Rocket-Dark.png');
     img.alt = draw.is_won ? '당첨 경품' : '혜택 안내';
     ui.text(container.querySelector('#result-prize-title'), draw.is_won ? prize.name : '이번 복주머니는 미당첨이에요');
     ui.text(container.querySelector('#result-prize-sub'), draw.is_won ? '운영자가 정보를 확인하고 직접 연락해 지급합니다.' : '게임 기록과 초대 도전은 계속 이용할 수 있어요.');
+    if (Number.isInteger(draw.pouch_index)) ui.text(container.querySelector('#restored-pouch'), `${draw.pouch_index + 1}번 주머니에서 정해진 결과예요. 새로고침해도 같아요.`);
     const after = container.querySelector('#btn-after-draw');
     after.textContent = draw.is_won ? '수령 정보 입력하기' : '혜택 안내 보기';
     after.onclick = () => router.navigate(draw.is_won ? 'claims' : 'benefit');
     const showResult = () => {
       if (!router.isCurrent(this.renderToken)) return;
-      container.querySelector('#btn-instant-reveal').hidden = true;
+      resultContent.inert = false;
+      resultContent.removeAttribute('inert');
+      resultContent.setAttribute('aria-hidden', 'false');
+      const revealButton = container.querySelector('#btn-instant-reveal');
       container.querySelector('#post-reveal-actions').hidden = false;
+      if (typeof document !== 'undefined' && (document.activeElement === scratchCanvas || document.activeElement === revealButton)) after.focus();
+      scratchCanvas.tabIndex = -1;
+      scratchCanvas.setAttribute('aria-hidden', 'true');
+      revealButton.hidden = true;
       if (!this.resultViewed) {
         this.resultViewed = true;
         analytics.track('draw_result_viewed', { result_type: draw.is_won ? 'won' : 'no_prize' });
@@ -141,8 +156,16 @@ export const DrawView = {
         ui.showToast(error.message || '결과 확인 상태를 저장하지 못했습니다.');
       }
     };
-    this.scratchCard = new ScratchCard(container.querySelector('#scratch-canvas'), { threshold: 0.7, onStart: () => analytics.track('scratch_started'), onReveal: persistReveal });
-    container.querySelector('#btn-instant-reveal').onclick = () => this.scratchCard.revealInstantly();
+    this.scratchCard = new ScratchCard(scratchCanvas, {
+      threshold: 0.7,
+      onStart: () => analytics.track('scratch_started'),
+      onKeyboardReveal: () => analytics.track('scratch_reveal_requested', { action: 'keyboard' }),
+      onReveal: persistReveal,
+    });
+    container.querySelector('#btn-instant-reveal').onclick = () => {
+      analytics.track('scratch_reveal_requested', { action: 'accessibility_button' });
+      this.scratchCard.revealInstantly();
+    };
     if (draw.scratch_completed || draw.revealed) {
       this.scratchCard.revealInstantly();
       showResult();

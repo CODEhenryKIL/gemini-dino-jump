@@ -225,7 +225,7 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual((data['sharing']['unknown_sharing']['linked_participants'],
                           data['sharing']['unknown_sharing']['cancelled_events']), (1,1))
         self.assertEqual({row['purpose'] for row in data['sharing']['by_purpose']},
-                         {'gemini','invitation','unknown'})
+                         {'gemini','retry_invite','unknown'})
         study = next(row for row in data['content'] if row['content']=='study')
         photo = next(row for row in data['content'] if row['content']=='photo')
         self.assertEqual((study['click_events'],study['outbound_request_events'],study['linked_participants']), (2,1,1))

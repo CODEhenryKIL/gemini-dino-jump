@@ -20,6 +20,7 @@ FOUNDATION = ROOT / "supabase/migrations/20260925083548_phase1_dino_dev_foundati
 ADDITIONS = ROOT / "supabase/migrations/20260925092759_phase1_acceptance_additions.sql"
 CLAIM_FIX = ROOT / "supabase/migrations/20260925125939_add_awaiting_claim_information_status.sql"
 
+PHASE2 = ROOT / "supabase/migrations/20260925140902_phase2_game_versions_and_tracking.sql"
 
 def _guard_admin_dsn():
     parsed = urlsplit(ADMIN_DSN)
@@ -122,6 +123,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(FOUNDATION)
         self.database.apply(ADDITIONS)
         self.database.apply(CLAIM_FIX)
+        self.database.apply(PHASE2)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -138,7 +140,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
 
         self.assertEqual(
             versions,
-            [("20260925083548",), ("20260925092759",), ("20260925125939",)],
+            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",)],
         )
         self.assertTrue(
             {"participant", "game_session", "ranking_snapshot"}.issubset(
@@ -153,7 +155,9 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(ADDITIONS)
         self.database.apply(ADDITIONS)
         self.database.apply(CLAIM_FIX)
+        self.database.apply(PHASE2)
         self.database.apply(CLAIM_FIX)
+        self.database.apply(PHASE2)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -175,6 +179,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
                 ("20260925083548", 1),
                 ("20260925092759", 1),
                 ("20260925125939", 1),
+                ("20260925140902", 1),
             ],
         )
         self.assertIn(("fault_review_status",), columns)

@@ -8,6 +8,7 @@
  */
 
 import { audio } from './audio.js';
+import { V2GameSimulation, V2_RULES } from './simulation.js';
 
 class PRNG {
   constructor(seed) {
@@ -115,6 +116,11 @@ export class DinoGameEngine {
     this.onScoreUpdate = options.onScoreUpdate || (() => {});
     this.onStageChange = options.onStageChange || (() => {});
     this.onGameOver = options.onGameOver || (() => {});
+    this.onCoinCollected = options.onCoinCollected || (() => {});
+    this.onHeartChange = options.onHeartChange || (() => {});
+    this.onRevive = options.onRevive || (() => {});
+    this.gameVersion = options.version || V2_RULES.version;
+    this.reducedMotion = options.reducedMotion ?? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
     // Canonical Logical Dimensions (16:10 ratio)
     this.width = 960;
@@ -204,7 +210,8 @@ export class DinoGameEngine {
     this.animId = null;
 
     this.resizeCanvas();
-    window.addEventListener('resize', () => this.resizeCanvas());
+    this.resizeHandler = () => this.resizeCanvas();
+    window.addEventListener('resize', this.resizeHandler);
   }
 
   resizeCanvas() {
@@ -215,6 +222,7 @@ export class DinoGameEngine {
   start(seed) {
     this.seed = seed;
     this.prng = new PRNG(seed);
+    this.simulation = this.gameVersion === V2_RULES.version ? new V2GameSimulation(seed) : null;
 
     this.isRunning = true;
     this.isPaused = false;
@@ -244,6 +252,70 @@ export class DinoGameEngine {
     cancelAnimationFrame(this.animId);
     this.loop = this.gameLoop.bind(this);
     this.animId = requestAnimationFrame(this.loop);
+  }
+
+  restoreSnapshot(snapshot) {
+    const tick = Number(snapshot?.tick);
+    const seed = Number(snapshot?.seed);
+    const jumps = snapshot?.jumpTicks;
+    if (this.gameVersion !== V2_RULES.version || snapshot?.version !== this.gameVersion) throw new Error('지원하지 않는 게임 버전의 복원 데이터입니다.');
+    if (!Number.isInteger(seed) || seed < 0 || !Number.isInteger(tick) || tick < 0 || tick >= V2_RULES.maxTicks || !Array.isArray(jumps)) throw new Error('게임 복원 데이터가 올바르지 않습니다.');
+    let previousTick = -1;
+    const jumpByTick = new Map();
+    for (const jump of jumps) {
+      const jumpTick = Number(jump?.tick);
+      if (!Number.isInteger(jumpTick) || jumpTick < 0 || jumpTick >= tick || jumpTick <= previousTick || typeof jump?.high !== 'boolean') throw new Error('점프 복원 데이터가 올바르지 않습니다.');
+      previousTick = jumpTick;
+      jumpByTick.set(jumpTick, jump.high);
+    }
+
+    this.seed = seed;
+    this.prng = new PRNG(seed);
+    this.simulation = new V2GameSimulation(seed);
+    while (this.simulation.currentTick < tick && !this.simulation.ended) {
+      const high = jumpByTick.get(this.simulation.currentTick);
+      this.simulation.step(high === undefined ? {} : { jump: true, high });
+    }
+    if (this.simulation.ended || this.simulation.currentTick !== tick) throw new Error('종료된 게임은 이어할 수 없습니다.');
+
+    this.syncV2State();
+    const timeSec = this.currentTick / this.tickRate;
+    const stage = this.stages.find((candidate) => timeSec >= candidate.start && timeSec < candidate.end) || this.stages[this.stages.length - 1];
+    this.currentStage = stage.stage;
+    this.isRunning = false;
+    this.isPaused = false;
+    this.isHoldingJump = false;
+    this.particles = [];
+    this.shootingStars = [];
+    this.currentEnv = this.getEnvironment(timeSec);
+    this.accumulator = 0;
+    this.render();
+    return {
+      score: this.score,
+      stage,
+      heart: this.simulation.heart,
+      summary: this.getSummary(),
+    };
+  }
+
+  resumeRestored() {
+    if (!this.simulation || this.simulation.ended) throw new Error('복원된 게임 상태가 없습니다.');
+    this.isRunning = true;
+    this.isPaused = false;
+    this.lastFrameTime = performance.now();
+    cancelAnimationFrame(this.animId);
+    this.loop = this.gameLoop.bind(this);
+    this.animId = requestAnimationFrame(this.loop);
+  }
+
+  getResumeSnapshot() {
+    if (!this.simulation || this.simulation.ended) return null;
+    return {
+      version: this.gameVersion,
+      seed: this.seed,
+      tick: this.simulation.currentTick,
+      jumpTicks: this.simulation.jumpTicks.map((jump) => ({ tick: jump.tick, high: Boolean(jump.high) })),
+    };
   }
 
   getEnvironment(timeSec) {
@@ -327,6 +399,10 @@ export class DinoGameEngine {
   stop() {
     this.isRunning = false;
     cancelAnimationFrame(this.animId);
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
   }
 
   /**
@@ -336,6 +412,16 @@ export class DinoGameEngine {
     if (!this.isRunning || this.isPaused) return;
 
     this.isHoldingJump = true;
+
+    if (this.simulation) {
+      const jumped = this.simulation.pressJump(false);
+      this.syncV2State();
+      if (jumped) {
+        audio.playJump();
+        this.spawnDust(this.dinoX + 20, this.groundY);
+      }
+      return;
+    }
 
     if (this.isGrounded) {
       this.dinoVy = this.jumpVelocityLow;
@@ -402,6 +488,10 @@ export class DinoGameEngine {
   }
 
   updateSimulationTick() {
+    if (this.simulation) {
+      this.updateV2SimulationTick();
+      return;
+    }
     const timeSec = this.currentTick * this.dt;
     const speed = this.getSpeed(timeSec);
 
@@ -567,6 +657,58 @@ export class DinoGameEngine {
     }
   }
 
+  syncV2State() {
+    const sim = this.simulation;
+    if (!sim) return;
+    this.currentTick = sim.currentTick;
+    this.score = sim.score;
+    this.dinoY = sim.dinoY;
+    this.dinoVy = sim.dinoVy;
+    this.isGrounded = sim.isGrounded;
+    this.activeJumpTick = sim.activeJumpTick;
+    this.activeJumpHigh = sim.activeJumpHigh;
+    this.jumpBufferedUntil = sim.jumpBufferedUntil;
+    this.obstacles = sim.obstacles;
+    this.items = sim.items;
+    this.jumpTicks = sim.jumpTicks;
+  }
+
+  updateV2SimulationTick() {
+    const previousStage = this.currentStage;
+    const events = this.simulation.step({ holding: this.isHoldingJump });
+    this.syncV2State();
+    const timeSec = this.currentTick / this.tickRate;
+    const speed = this.getSpeed(timeSec);
+    const stage = this.stages.find((candidate) => timeSec >= candidate.start && timeSec < candidate.end) || this.stages[this.stages.length - 1];
+    if (stage.stage !== previousStage) {
+      this.currentStage = stage.stage;
+      audio.playStageUp();
+      this.onStageChange(stage);
+    }
+    for (const event of events) {
+      if (event.type === 'coin') {
+        audio.playStageUp();
+        this.onCoinCollected({ coin_count: this.simulation.coins, coin_score: this.simulation.coins * V2_RULES.coinScore, score: this.score });
+      } else if (event.type === 'heart') {
+        this.onHeartChange({ hearts: this.simulation.heart, hearts_collected: this.simulation.hearts, reason: 'collected' });
+      } else if (event.type === 'revive') {
+        audio.playCollision();
+        this.spawnReviveEffect();
+        this.onHeartChange({ hearts: 0, hearts_collected: this.simulation.hearts, reason: 'consumed' });
+        this.onRevive({ revive_count: this.simulation.revives, hearts: 0, invulnerable_until_tick: event.invulnerableUntilTick });
+      }
+    }
+    this.groundOffset = (this.groundOffset + speed * this.dt) % 40;
+    this.updateParticles();
+    this.updateShootingStars(timeSec);
+    this.onScoreUpdate(this.score);
+    if (this.simulation.ended) this.handleCrash(this.simulation.result());
+  }
+
+  getSummary() {
+    return this.simulation?.result().summary || { coins: 0, coin_score: 0, hearts: 0, revives: 0 };
+  }
+
   checkCollision(a, b) {
     return !(
       a.x + a.w <= b.x ||
@@ -576,12 +718,14 @@ export class DinoGameEngine {
     );
   }
 
-  handleCrash() {
+  handleCrash(result = null) {
     this.isRunning = false;
-    audio.playCollision();
-    this.spawnCrashExplosion(this.dinoX + 30, this.dinoY + 30);
+    if (!result || result.end_reason === 'COLLISION') {
+      audio.playCollision();
+      this.spawnCrashExplosion(this.dinoX + 30, this.dinoY + 30);
+    }
     this.render(); // draw crash frame
-    this.onGameOver({
+    this.onGameOver(result || {
       score: this.score,
       ticks: this.currentTick,
       jump_ticks: this.jumpTicks
@@ -648,6 +792,22 @@ export class DinoGameEngine {
         size: Math.random() * 6 + 4,
         alpha: 1.0,
         color: colors[Math.floor(Math.random() * colors.length)]
+      });
+    }
+  }
+
+  spawnReviveEffect() {
+    const count = this.reducedMotion ? 4 : 14;
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count;
+      this.particles.push({
+        x: this.dinoX + this.dinoW / 2,
+        y: this.dinoY + this.dinoH / 2,
+        vx: Math.cos(angle) * (this.reducedMotion ? 25 : 100),
+        vy: Math.sin(angle) * (this.reducedMotion ? 25 : 100),
+        size: this.reducedMotion ? 3 : 5,
+        alpha: 0.9,
+        color: '#EA4335'
       });
     }
   }
@@ -850,8 +1010,20 @@ export class DinoGameEngine {
       this.drawObstacle(ctx, obs);
     }
 
+    for (const item of this.items || []) this.drawItem(ctx, item);
+
     // 4. Dino
     this.drawDino(ctx);
+
+    if (this.simulation && this.currentTick < this.simulation.overlayUntilTick) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(234, 67, 53, 0.85)';
+      ctx.lineWidth = this.reducedMotion ? 3 : 5;
+      ctx.beginPath();
+      ctx.arc(this.dinoX + this.dinoW / 2, this.dinoY + this.dinoH / 2, this.dinoW * 0.68, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // 5. Particles
     for (const p of this.particles) {
@@ -1020,6 +1192,31 @@ export class DinoGameEngine {
       }
     }
 
+    ctx.restore();
+  }
+
+  drawItem(ctx, item) {
+    ctx.save();
+    if (item.kind === 'coin') {
+      ctx.fillStyle = '#FBBC04';
+      ctx.strokeStyle = '#E37400';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(item.x + item.w / 2, item.y + item.h / 2, item.w / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('G', item.x + item.w / 2, item.y + item.h / 2 + 1);
+    } else {
+      ctx.fillStyle = '#EA4335';
+      ctx.font = '30px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('♥', item.x + item.w / 2, item.y + item.h / 2);
+    }
     ctx.restore();
   }
 

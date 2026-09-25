@@ -208,3 +208,61 @@ Requires `ranking:read` or `ranking:write`. POST captures an immutable `DRAFT` s
 ### `PATCH /api/admin/participants/{id}`
 
 Body `{status:"ACTIVE|BLOCKED",expected_status,revoke_session,reason,event_id}`. Requires `participants:write`. Blocking and token expiry are independently explicit and every change is audited; an expired token is not silently reissued.
+
+## Phase 2 v2 contract addendum
+
+This section records the additive `2.0.0` contract implemented after Phase 1. It overrides the earlier game/ranking response examples only when the session or deployed game version is `2.0.0`. Legacy `1.2.0` records and ranking storage remain intact. Adopted v2 numbers are test-build rules, not final public-event approval; see `phase2-game-rules.md`.
+
+### Version and session responses
+
+`GET /api/config` exposes the deployed `campaign.game_version`. Every created session stores its own immutable `version`; finish verification and ranking use that stored version rather than trusting the current client or campaign value.
+
+`POST /api/game-sessions` and owner-only `GET /api/game-sessions/{id}` return:
+
+```json
+{"session_id":"gs_...","seed":41,"version":"2.0.0","status":"RESERVED|ACTIVE|FAULT_REPORTED|FINISHED|REJECTED|ABORTED","ticket_kind":"INITIAL|INVITATION","last_checkpoint_tick":300,"expires_at":"...","refund":{"status":"...","ticket_kind":"..."},"fault_review":{"status":"...","version":1}}
+```
+
+A new reservation has a 2-minute expiry. `POST /api/game-sessions/{id}/start` returns the same session fields plus `started_at` and changes v2 `expires_at` to 720 seconds after start. This covers the 600-second/36,000-tick play limit plus 120 seconds of pause and submission grace; it does not extend the verified playable timeline.
+
+The client may use the returned seed/version/checkpoint/expiry to validate its PII-free `sessionStorage` replay snapshot. A snapshot is never accepted by the server as score or item evidence. Missing or invalid local state must not restart an already active session at tick zero.
+
+### v2 finish request and authoritative response
+
+For v2, `POST /api/game-sessions/{id}/finish` sends:
+
+```json
+{"event_id":"finish_gs_...","version":"2.0.0","end_reason":"COLLISION|TIME_LIMIT","score":8990,"ticks":36000,"jump_ticks":[{"tick":120,"high":true}],"checkpoints":[],"summary":{"coins":299,"coin_score":2990,"hearts":3,"revives":2}}
+```
+
+The server requires the body version, when present, to equal the stored session version. It replays the stored seed and jump inputs and ignores the submitted summary/end reason as authority. A valid finish persists and returns the server-derived `summary` and `end_reason`. `TIME_LIMIT` is valid only for v2 at exactly 36,000 ticks. The v2 score bound is 0–9,000.
+
+The accepted response adds version-scoped rank metadata:
+
+```json
+{"session_id":"gs_...","status":"FINISHED","verification":"VERIFIED","score":6400,"best_score":6400,"rank":2,"game_version":"2.0.0","top3_gap":{"status":"IN_TOP3","third_score":6100,"score_needed":0,"rank":2,"tied":false,"participant_count":20},"summary":{"coins":40,"coin_score":400,"hearts":2,"revives":1},"end_reason":"COLLISION","draw":{"status":"AVAILABLE","draw_id":null},"top3_profile":{"required":true,"status":"REQUESTED","game_version":"2.0.0"}}
+```
+
+`GET /api/me` likewise includes `game_version`, `top3_gap`, version-scoped `best_score`/`rank`, and `top3_profile.game_version`. Its compact `pending_game_session` identifies an unfinished session; the client reads the owner-only session endpoint before resume.
+
+### Versioned leaderboard and TOP3 provenance
+
+`GET /api/leaderboard?limit=100` now returns:
+
+```json
+{"leaderboard":[{"rank":1,"nickname":"...","score":6400,"tied":true,"is_me":false}],"me":{"rank":4,"best_score":5900,"top3_gap":{"status":"CHASING","third_score":6100,"score_needed":200,"rank":4,"tied":false,"participant_count":20}},"top3_gap":{"status":"CHASING","third_score":6100,"score_needed":200,"rank":4,"tied":false,"participant_count":20},"game_version":"2.0.0","tie_policy":"UNDECIDED"}
+```
+
+Gap statuses are `IN_TOP3`, `TOO_FEW`, `NO_SCORE`, and `CHASING`. Dense rank and the third distinct score include all active participants' valid version-scoped scores; `is_public=false` hides a nickname from the public list but does not remove its score from ranking math. Equal scores remain tied.
+
+`GET /api/ranking/profile`, finish responses, and `/api/me` expose the current `ranking_contact.game_version` pointer with TOP3 contact status. A submitted legacy contact stays submitted. A later verified v2 TOP3 finish advances this pointer to `2.0.0` without clearing submission or collecting contact again.
+
+Version qualification history is retained separately in `ranking_contact_version(participant_id,game_version,qualified_at)`. A `BEFORE INSERT OR UPDATE OF game_version` trigger records each qualifying version before the reusable contact pointer changes. PostgreSQL runs that `BEFORE INSERT` trigger even for a legacy Preview insert that later resolves through `ON CONFLICT DO NOTHING`; therefore an attempted legacy `1.2.0` qualification is retained while an existing `ranking_contact.game_version='2.0.0'` pointer remains unchanged. Version-scoped metrics and ranking snapshot contact status join through this association table. Contact status is provisional evidence only; `tie_policy` and final awards remain undecided.
+
+### Share-link and attribution contract
+
+Approved public share purposes are `record_share`, `prize_share`, and `retry_invite`. A generated destination carries the invitation code plus `link=<purpose>` and an opaque `share` ID. `POST /api/observations` records `link_kind`/`share_id`; `POST /api/participants/anonymous` carries `invite_code` and `share_id` into the normal invitation visit. Share IDs are attribution only and never replace campaign+inviter+visitor deduplication.
+
+`GET /invite/{code}?link=...&share=...` renders an escaped, noindex public preview and redirects to the sanitized app destination. Preview reads are side-effect free. A record card can include an opted-in public nickname and v2 score; a prize card can include an opted-in public nickname and already revealed public prize name. It never joins or exposes contact, claim, authentication, or redemption data.
+
+D14 applies through the existing `POST /api/referrals/qualify` contract: a valid visit from any approved share purpose may grant one invitation ticket, but opening/copying/sharing a link cannot. Pair deduplication, active-time/interaction proof, self-invite rejection, balance cap 3, and cooldown are identical across purposes.

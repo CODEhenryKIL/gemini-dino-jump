@@ -54,3 +54,15 @@ The landing parser accepts only the named attribution query values used by this 
 Synthetic and Preview data carry `is_synthetic=true` or the environment dimension and are excluded from later Production reporting by default.
 
 The dashboard's `won` filter is explicitly a campaign-lifetime draw-prize cohort filter. The selected period still scopes displayed events and state changes; it does not redefine whether that participant has ever received a winning draw in the campaign.
+
+
+## Phase 2 추가 계약 (2026-09-25)
+
+현재 구현의 추가 이벤트·공유 목적·가이드 카드 노출 정의는 [phase2-tracking-coverage.md](phase2-tracking-coverage.md)를 따른다. 기존 Phase 1 측정 결과의 의미는 변경하지 않는다.
+
+- 유입 `link_kind`는 `record_share`, `prize_share`, `retry_invite`, `initial`, `direct`, `unknown`을 구분한다. 동일 초대자–방문자 보상은 유형과 무관하게 한 번이다.
+- `loading_data_ready`, `loading_intro_completed`, `loading_ready`를 각각 기록한다.
+- `game_coin_collected`, `game_heart_collected`, `game_revived`는 클라이언트 관측값이다. 서버 `game_finish_verified`와 저장된 `game_summary`가 최종 점수·아이템 집계의 근거다.
+- 추가 차원: `end_reason=COLLISION|TIME_LIMIT`, `coin_count`, `coin_score`, `hearts`, `revive_count`, `tick`, `reduced_motion`. 점수 상한은 v2에서 9,000이며 정확한 유효값은 서버 재현으로 판단한다.
+- `scratch_reveal_requested`는 보조 버튼/키보드의 공개 요청이다. `content_viewed`는 앱 안 가이드 카드 노출이며 Notion 본문 열람을 뜻하지 않는다.
+- TOP3 접수의 `game_version`은 마지막으로 자격을 얻은 게임 규칙의 출처다. 기존 제출 연락처·처리 상태를 초기화하지 않는다.

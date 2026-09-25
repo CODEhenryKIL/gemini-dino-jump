@@ -14,11 +14,13 @@ export const RankingView = {
       const title = document.createElement('h1'); title.textContent = '검증된 최고 점수 랭킹';
       const note = document.createElement('p'); note.textContent = '동점자는 같은 순위로 표시합니다. 최종 동점 수상 정책은 아직 확정하지 않았습니다.';
       const mine = document.createElement('strong'); mine.textContent = data.me?.rank ? `내 순위 ${data.me.rank}위 · ${data.me.best_score}점` : '아직 내 기록이 없어요';
-      intro.append(title, note, mine); container.appendChild(intro);
+      const gap = document.createElement('p'); gap.className = 'result-gap'; gap.textContent = ResultView.top3GapMessage({ rank: data.me?.rank, top3_gap: data.top3_gap ?? data.me?.top3_gap });
+      intro.append(title, note, mine, gap); container.appendChild(intro);
       if (router.state.top3Profile?.status === 'REQUESTED') {
         const contact = document.createElement('section'); contact.className = 'card compact-card';
-        const contactTitle = document.createElement('h2'); contactTitle.textContent = '잠정 TOP3 수령 정보 등록';
-        const contactText = document.createElement('p'); contactText.textContent = '새로고침하거나 현재 순위가 내려가도 접수 요청은 유지됩니다. 최종 수상 확정은 운영 마감 뒤 별도입니다.';
+        const copy = ResultView.top3RequestCopy(router.state.top3Profile, router.config);
+        const contactTitle = document.createElement('h2'); contactTitle.textContent = copy.title;
+        const contactText = document.createElement('p'); contactText.textContent = `${copy.description} 새로고침하거나 현재 순위가 내려가도 접수 요청은 유지됩니다.`;
         const contactButton = document.createElement('button'); contactButton.className = 'btn btn-primary'; contactButton.textContent = '합성 테스트 정보 입력';
         contactButton.onclick = () => ResultView.top3Modal(router);
         contact.append(contactTitle, contactText, contactButton); container.appendChild(contact);

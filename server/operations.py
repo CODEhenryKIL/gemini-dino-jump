@@ -27,6 +27,31 @@ def _participant(conn,ctx,lock=False,active=False):
     if active and row["status"]!="ACTIVE": raise DomainError("PARTICIPANT_BLOCKED","현재 참여할 수 없습니다.",403)
     return row
 def _public(row): return {"id":row["id"],"nickname":row["nickname"],"is_public":row["is_public"],"referral_code":row["referral_code"]}
+def _game_version(conn,ctx):
+    version=ctx.get("game_version") or _campaign(conn)["game_version"]
+    if version not in {"1.2.0","2.0.0"}:raise DomainError("GAME_VERSION_UNSUPPORTED","게임 업데이트를 확인해 주세요.",409)
+    return version
+def _score_source(version):
+    # Static SQL fragments only. Old deployments can keep writing the v1 table.
+    if version=="1.2.0":return "dino_dev.best_score"
+    if version=="2.0.0":return "(select participant_id,session_id,score,achieved_at from dino_dev.versioned_best_score where game_version='2.0.0')"
+    raise DomainError("GAME_VERSION_UNSUPPORTED","게임 업데이트를 확인해 주세요.",409)
+def _ranking_info(conn,pid,version,campaign_id):
+    source=_score_source(version)
+    row=_one(conn,f"""with scores as (
+      select b.* from {source} b join dino_dev.participant p on p.id=b.participant_id
+      where p.campaign_id=%s and p.status='ACTIVE'
+    ), mine as (select score from scores where participant_id=%s)
+    select (select score from mine) best_score,
+      case when exists(select 1 from mine) then 1+(select count(distinct score)::int from scores where score>(select score from mine)) end rank,
+      (select score from (select distinct score from scores order by score desc offset 2 limit 1) t) third_score,
+      (select count(*)::int from scores) participant_count,
+      (select count(*)>1 from scores where score=(select score from mine)) tied""",(campaign_id,pid))
+    own=row["best_score"];rank=row["rank"];third=row["third_score"]
+    state="IN_TOP3" if rank is not None and rank<=3 else "TOO_FEW" if third is None else "NO_SCORE" if own is None else "CHASING"
+    return {"best_score":own or 0,"rank":rank,"game_version":version,
+      "top3_gap":{"status":state,"third_score":third,"score_needed":max(0,third-(own or 0)) if third is not None else None,
+                  "rank":rank,"tied":row["tied"],"participant_count":row["participant_count"]}}
 def _tickets(row):
     return {"initial":row["initial_balance"],"invitation":row["invitation_balance"],"invitation_reserved":row["invitation_refund_pending"],"available_total":row["initial_balance"]+row["invitation_balance"],"cooldown_until":_iso(row["cooldown_until"]),"cooldown_notice_pending":row["cooldown_notice_pending"]}
 def _event(conn,name,ctx,participant_id=None,event_id=None,screen=None,game_session_id=None,dimensions=None,observation_id=None,visit_session_id=None):
@@ -77,7 +102,7 @@ def create_observation(conn,body,ctx):
     if not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",oid) or not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",eid): raise DomainError("VALIDATION_ERROR","관측 식별자를 확인해 주세요.")
     link=str(body.get("link_kind") or "unknown");channel=str(body.get("channel_code") or "unknown");campaign_code=str(body.get("campaign_code") or "");share_id=str(body.get("share_id") or "")
     code_pattern=r"(?:unknown|[A-Za-z][A-Za-z0-9_-]{0,31})"
-    if link not in {"initial","retry_invite","prize_share","direct","unknown"} or not re.fullmatch(code_pattern,channel) or (campaign_code and not re.fullmatch(code_pattern,campaign_code)) or (share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id)): raise DomainError("VALIDATION_ERROR","유입 값을 확인해 주세요.")
+    if link not in {"initial","retry_invite","record_share","prize_share","direct","unknown"} or not re.fullmatch(code_pattern,channel) or (campaign_code and not re.fullmatch(code_pattern,campaign_code)) or (share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id)): raise DomainError("VALIDATION_ERROR","유입 값을 확인해 주세요.")
     referrer=str(body.get("referrer_origin") or "");parsed=urlparse(referrer) if referrer else None
     if parsed and (parsed.scheme not in {"http","https"} or not parsed.hostname or parsed.path not in {"","/"} or parsed.query or parsed.fragment or parsed.username): raise DomainError("VALIDATION_ERROR","유입 출처는 origin만 허용합니다.")
     key=ctx.get("idempotency_key")
@@ -145,14 +170,14 @@ def participant_init(conn,body,ctx):
     return (201 if created else 200),{"participant":_public(p),"tickets":_tickets(p),"invite_visit":visit,"_set_cookie_token":ctx["new_participant_token"]}
 
 def get_me(conn,ctx):
-    p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],));best=_one(conn,"select score from dino_dev.best_score where participant_id=%s",(p["id"],))
-    rank=_one(conn,"select 1+count(*)::int rank from dino_dev.best_score where score>(select score from dino_dev.best_score where participant_id=%s)",(p["id"],)) if best else None
+    p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
+    ranking=_ranking_info(conn,p["id"],_game_version(conn,ctx),p["campaign_id"])
     live=_one(conn,"select id,status,ticket_kind,expires_at,last_checkpoint_tick from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1",(p["id"],))
     draw=_one(conn,"select id from dino_dev.draw where campaign_id=%s and participant_id=%s",(p["campaign_id"],p["id"]))
     eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
-    contact=_one(conn,"select status from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
+    contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
     claims=_one(conn,"select count(*)::int n from dino_dev.claim where participant_id=%s",(p["id"],))["n"]
-    return 200,{"participant":_public(p),"tickets":_tickets(p),"best_score":best["score"] if best else 0,"rank":rank["rank"] if rank else None,"pending_game_session":dict(live) if live else None,"draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":{"status":contact["status"] if contact else "NOT_REQUIRED"},"claim_count":claims}
+    return 200,{"participant":_public(p),"tickets":_tickets(p),**ranking,"pending_game_session":dict(live) if live else None,"draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":{"status":contact["status"] if contact else "NOT_REQUIRED","game_version":contact["game_version"] if contact else None},"claim_count":claims}
 
 def patch_profile(conn,body,ctx):
     p=_participant(conn,ctx,True,True); nickname=str(body.get("nickname") or "").strip(); public=body.get("is_public",p["is_public"])
@@ -161,10 +186,14 @@ def patch_profile(conn,body,ctx):
     return 200,{"participant":_public(p)}
 
 def referral_me(conn,ctx):
-    p=_participant(conn,ctx); counts=_one(conn,"""select count(*)::int valid_visits,count(*) filter(where status='REWARDED')::int rewarded_visits,
+    p=_participant(conn,ctx); counts=_one(conn,"""select count(distinct visitor_id) filter(where qualified_at is not null and active_ms>=3000 and interacted)::int valid_visits,count(*) filter(where status='REWARDED')::int rewarded_visits,
       count(*) filter(where status not in ('PENDING','REWARDED'))::int rejected_visits from dino_dev.invitation_visit where inviter_id=%s""",(p["id"],))
     pairs=_one(conn,"select count(*)::int n from dino_dev.invitation_reward where inviter_id=%s",(p["id"],))["n"]
-    return 200,{"invite_url":ctx["base_url"]+"/invite/"+p["referral_code"],"referral_code":p["referral_code"],"invitation_balance":p["invitation_balance"],"invitation_reserved":p["invitation_refund_pending"],"cooldown_until":_iso(p["cooldown_until"]),"cooldown_notice_pending":p["cooldown_notice_pending"],"rewarded_pairs":pairs,**dict(counts)}
+    totals=_one(conn,"""select count(*) filter(where source_type='INVITATION_GRANT')::int granted,
+      count(*) filter(where source_type='PLAY_CONSUME')::int used,
+      count(*) filter(where source_type='FAULT_REFUND')::int refunded
+      from dino_dev.ticket_ledger where participant_id=%s and ticket_kind='INVITATION'""",(p["id"],))
+    return 200,{"invite_url":ctx["base_url"]+"/invite/"+p["referral_code"],"referral_code":p["referral_code"],"invitation_balance":p["invitation_balance"],"invitation_reserved":p["invitation_refund_pending"],"cooldown_until":_iso(p["cooldown_until"]),"cooldown_notice_pending":p["cooldown_notice_pending"],"rewarded_pairs":pairs,"ticket_totals":dict(totals),**dict(counts)}
 
 def qualify_referral(conn,body,ctx):
     visitor=_participant(conn,ctx,active=True); raw=str(body.get("visit_nonce") or "")
@@ -230,14 +259,14 @@ def create_session(conn,body,ctx):
         conn.execute("update dino_dev.participant set invitation_balance=invitation_balance-1,invitation_refund_pending=invitation_refund_pending+1,updated_at=clock_timestamp() where id=%s",(p["id"],)); after=p["invitation_balance"]-1
     sid=_id("gs"); conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after) values(%s,%s,-1,'PLAY_CONSUME',%s,%s)",(p["id"],kind,sid,after))
     row=_one(conn,"""insert into dino_dev.game_session(id,participant_id,campaign_id,idempotency_key,seed,version,ticket_kind,expires_at,environment)
-      values(%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '2 minutes',%s) returning *""",(sid,p["id"],campaign["id"],ctx["idempotency_key"],secrets.randbelow(2147483646)+1,campaign["game_version"],kind,ctx["environment"]))
+      values(%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '2 minutes',%s) returning *""",(sid,p["id"],campaign["id"],ctx["idempotency_key"],secrets.randbelow(2147483646)+1,_game_version(conn,ctx),kind,ctx["environment"]))
     _event(conn,"game_start_approved",ctx,p["id"],"game_reserved:"+sid,game_session_id=sid,observation_id=observation_id,visit_session_id=visit_session_id)
     return 201,_session(row)
 def start_session(conn,sid,ctx):
     p=_participant(conn,ctx,True,True); s=_owned_session(conn,sid,p["id"],True)
     if s["status"]=="ACTIVE": return 200,_session(s)
     if s["status"]!="RESERVED" or s["expires_at"]<=dt.datetime.now(UTC): raise DomainError("SESSION_NOT_STARTABLE","게임 시작 시간이 만료되었습니다.",409)
-    s=_one(conn,"update dino_dev.game_session set status='ACTIVE',started_at=clock_timestamp(),expires_at=clock_timestamp()+interval '10 minutes' where id=%s returning *",(sid,))
+    s=_one(conn,"update dino_dev.game_session set status='ACTIVE',started_at=clock_timestamp(),expires_at=clock_timestamp()+make_interval(secs=>%s) where id=%s returning *",(720 if s["version"]=="2.0.0" else 600,sid))
     return 200,{**_session(s),"started_at":_iso(s["started_at"])}
 def checkpoint(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
@@ -254,27 +283,45 @@ def finish_session(conn,sid,body,ctx):
     if s["status"] in ("FINISHED","REJECTED"):
         return 200,finish_response(conn,s)
     if s["status"]!="ACTIVE": raise DomainError("SESSION_NOT_ACTIVE","진행 중인 게임만 종료할 수 있습니다.",409)
+    if s["expires_at"]<=dt.datetime.now(UTC):
+        _reconcile_expired(conn,p["id"])
+        return 409,{"error":"SESSION_EXPIRED","message":"게임 시간이 만료되어 장애 확인을 요청했어요.","retryable":False,"session_id":sid,"status":"FAULT_REPORTED"}
     v=ctx.get("verification")
     if not v: raise DomainError("VERIFICATION_REQUIRED","게임 검증 결과가 없습니다.",500)
-    valid,score,ticks,reason=v; status="FINISHED" if valid else "REJECTED"
+    if isinstance(v,dict):
+        valid,score,ticks,reason=(v[k] for k in ("valid","score","ticks","reason"))
+        summary=v.get("summary",{});end_reason=v.get("end_reason")
+    else:
+        valid,score,ticks,reason=v;summary={};end_reason="COLLISION" if valid else None
+    status="FINISHED" if valid else "REJECTED"
     elapsed=(dt.datetime.now(UTC)-s["started_at"]).total_seconds() if s["started_at"] else 0
     if valid and (ticks<60 or ticks/60.0>elapsed+1.0):valid=False;status="REJECTED";reason="IMPOSSIBLE_WALLCLOCK_DURATION"
     _settle_invitation_pending(conn,s)
-    s=_one(conn,"update dino_dev.game_session set status=%s,score=%s,valid_ticks=%s,verification_result=%s,finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s returning *",(status,score,ticks,reason,sid))
+    s=_one(conn,"update dino_dev.game_session set status=%s,score=%s,valid_ticks=%s,verification_result=%s,game_summary=%s::jsonb,end_reason=%s,finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s returning *",(status,score,ticks,reason,json.dumps(summary if valid else {}),end_reason if valid else None,sid))
     if not valid:
         _event(conn,"game_verification_rejected",ctx,p["id"],"game_rejected:"+sid,game_session_id=sid,dimensions={"reason":reason})
         return 422,{"error":"GAME_VERIFICATION_FAILED","message":"게임 결과를 검증하지 못했습니다.","retryable":False,"session_id":sid,"status":"REJECTED","verification":reason}
-    conn.execute("""insert into dino_dev.best_score(participant_id,session_id,score,achieved_at) values(%s,%s,%s,clock_timestamp())
-      on conflict(participant_id) do update set session_id=excluded.session_id,score=excluded.score,achieved_at=excluded.achieved_at where excluded.score>dino_dev.best_score.score""",(p["id"],sid,score))
-    rank=_one(conn,"select 1+count(*)::int rank from dino_dev.best_score where score>%s",(score,))["rank"]
-    if rank<=3: conn.execute("insert into dino_dev.ranking_contact(participant_id) values(%s) on conflict(participant_id) do nothing",(p["id"],))
-    _event(conn,"game_finish_verified",ctx,p["id"],"game_finished:"+sid,game_session_id=sid,dimensions={"score":score,"rank":rank})
+    if s["version"]=="1.2.0":
+        conn.execute("""insert into dino_dev.best_score(participant_id,session_id,score,achieved_at) values(%s,%s,%s,clock_timestamp())
+          on conflict(participant_id) do update set session_id=excluded.session_id,score=excluded.score,achieved_at=excluded.achieved_at where excluded.score>dino_dev.best_score.score""",(p["id"],sid,score))
+    else:
+        conn.execute("""insert into dino_dev.versioned_best_score(participant_id,game_version,session_id,score,achieved_at) values(%s,%s,%s,%s,clock_timestamp())
+          on conflict(participant_id,game_version) do update set session_id=excluded.session_id,score=excluded.score,achieved_at=excluded.achieved_at where excluded.score>dino_dev.versioned_best_score.score""",(p["id"],s["version"],sid,score))
+    rank=_ranking_info(conn,p["id"],s["version"],p["campaign_id"])["rank"]
+    if rank<=3:
+        conn.execute("""insert into dino_dev.ranking_contact(participant_id,game_version) values(%s,%s)
+          on conflict(participant_id) do update set game_version=case when dino_dev.ranking_contact.game_version='2.0.0' then '2.0.0' else excluded.game_version end""",(p["id"],s["version"]))
+    _event(conn,"game_finish_verified",ctx,p["id"],"game_finished:"+sid,game_session_id=sid,dimensions={"score":score,"rank":rank,"game_version":s["version"],"end_reason":end_reason,**summary})
     return 200,finish_response(conn,s)
 def finish_response(conn,s):
-    best=_one(conn,"select score from dino_dev.best_score where participant_id=%s",(s["participant_id"],)); rank=_one(conn,"select 1+count(*)::int rank from dino_dev.best_score where score>%s",(s["score"],))["rank"] if s["status"]=="FINISHED" else None
+    ranking=_ranking_info(conn,s["participant_id"],s["version"],s["campaign_id"])
+    if s["status"]!="FINISHED":ranking["rank"]=None
     draw=_one(conn,"select id from dino_dev.draw where campaign_id=%s and participant_id=%s",(s["campaign_id"],s["participant_id"]))
-    contact=_one(conn,"select status from dino_dev.ranking_contact where participant_id=%s",(s["participant_id"],))
-    return {"session_id":s["id"],"status":s["status"],"verification":s["verification_result"],"score":s["score"],"best_score":best["score"] if best else 0,"rank":rank,"draw":{"status":"DRAWN" if draw else "AVAILABLE","draw_id":draw["id"] if draw else None},"top3_profile":{"required":bool(contact and contact["status"]=="REQUESTED"),"status":contact["status"] if contact else "NOT_REQUIRED"}}
+    contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(s["participant_id"],))
+    eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' limit 1",(s["participant_id"],s["campaign_id"]))
+    return {"session_id":s["id"],"status":s["status"],"verification":s["verification_result"],"score":s["score"],**ranking,
+      "summary":s.get("game_summary") or {},"end_reason":s.get("end_reason"),
+      "draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":{"required":bool(contact and contact["status"]=="REQUESTED"),"status":contact["status"] if contact else "NOT_REQUIRED","game_version":contact["game_version"] if contact else None}}
 
 def report_fault(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
@@ -328,14 +375,19 @@ def leaderboard(conn,query,ctx):
         except DomainError: pass
     try:limit=max(1,min(100,int(query.get("limit",100))))
     except (TypeError,ValueError):limit=100
-    rows=_all(conn,"""select b.participant_id,p.nickname,b.score,dense_rank() over(order by b.score desc)::int rank,
-      count(*) over(partition by b.score)>1 tied from dino_dev.best_score b join dino_dev.participant p on p.id=b.participant_id
-      where p.is_public and p.status='ACTIVE' order by b.score desc,b.achieved_at limit %s""",(limit,))
-    mine=_one(conn,"select b.score,1+(select count(distinct score) from dino_dev.best_score x where x.score>b.score)::int rank from dino_dev.best_score b where participant_id=%s",(p["id"],)) if p else None
-    return 200,{"leaderboard":[{"rank":r["rank"],"nickname":r["nickname"],"score":r["score"],"tied":r["tied"],"is_me":bool(p and r["participant_id"]==p["id"])} for r in rows],"me":{"rank":mine["rank"],"best_score":mine["score"]} if mine else None,"tie_policy":"UNDECIDED"}
+    version=_game_version(conn,ctx);campaign=_campaign(conn);source=_score_source(version)
+    rows=_all(conn,f"""select * from (
+      select b.participant_id,p.nickname,p.is_public,b.score,b.achieved_at,dense_rank() over(order by b.score desc)::int rank,
+        count(*) over(partition by b.score)>1 tied from {source} b join dino_dev.participant p on p.id=b.participant_id
+      where p.campaign_id=%s and p.status='ACTIVE') ranked
+      where is_public order by score desc,achieved_at limit %s""",(campaign["id"],limit))
+    mine=_ranking_info(conn,p["id"] if p else None,version,campaign["id"])
+    return 200,{"leaderboard":[{"rank":r["rank"],"nickname":r["nickname"],"score":r["score"],"tied":r["tied"],"is_me":bool(p and r["participant_id"]==p["id"])} for r in rows],
+      "me":{k:mine[k] for k in ("rank","best_score","top3_gap")} if mine["rank"] is not None else None,
+      "top3_gap":mine["top3_gap"],"game_version":version,"tie_policy":"UNDECIDED"}
 def ranking_profile_get(conn,ctx):
-    p=_participant(conn,ctx); row=_one(conn,"select status,submitted_at from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
-    return 200,{"required":bool(row and row["status"]=="REQUESTED"),"status":row["status"] if row else "NOT_REQUIRED","submitted_at":_iso(row["submitted_at"]) if row else None}
+    p=_participant(conn,ctx); row=_one(conn,"select status,game_version,submitted_at from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
+    return 200,{"required":bool(row and row["status"]=="REQUESTED"),"status":row["status"] if row else "NOT_REQUIRED","submitted_at":_iso(row["submitted_at"]) if row else None,"game_version":row["game_version"] if row else None}
 def ranking_profile_post(conn,body,ctx):
     p=_participant(conn,ctx,active=True); row=_one(conn,"select * from dino_dev.ranking_contact where participant_id=%s for update",(p["id"],))
     if not row: raise DomainError("TOP3_PROFILE_NOT_REQUIRED","현재 잠정 TOP3 정보 등록 대상이 아닙니다.",409)
@@ -418,19 +470,19 @@ def submit_claim(conn,cid,body,ctx):
     _event(conn,"claim_information_received",ctx,p["id"],"claim_submit:"+cid,dimensions={"claim_type":claim["claim_type"]})
     return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
 
-CLIENT_EVENTS={"entry_viewed","participant_ready","loading_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","notion_redirect_requested","page_view"}
+CLIENT_EVENTS={"entry_viewed","participant_ready","loading_data_ready","loading_intro_completed","loading_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_coin_collected","game_heart_collected","game_revived","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_reveal_requested","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","content_viewed","notion_redirect_requested","page_view"}
 SCREENS={"loading","home","game","result","draw","claim","claims","invite","benefit","ranking","content","admin"}
-DIMENSIONS={"previous_screen","source","link_kind","channel","campaign_code","content","position","action","status","reason","stage","bucket","result_type","prize_kind","share_method","share_id","checkpoint","is_new","is_synthetic","connected","observed","score","rank","game_version","draw_status","claim_type"}
+DIMENSIONS={"previous_screen","source","link_kind","channel","campaign_code","content","position","action","status","reason","stage","bucket","result_type","prize_kind","share_method","share_id","checkpoint","is_new","is_synthetic","connected","observed","score","rank","game_version","draw_status","claim_type","end_reason","coin_count","coin_score","hearts","revive_count","tick","reduced_motion"}
 SERVER_EVENT_NAMES={"game_start_approved","game_fault_reported","game_completed","invite_visit_qualified","scratch_completed","claim_form_submitted","top3_profile_submitted"}
-BOOLEAN_DIMENSIONS={"is_new","is_synthetic","connected","observed"};INTEGER_DIMENSIONS={"score","rank","checkpoint"};OPAQUE_DIMENSIONS={"share_id"}
-INTEGER_DIMENSION_RANGES={"score":(0,6000),"rank":(0,100000),"checkpoint":(0,36000)}
+BOOLEAN_DIMENSIONS={"is_new","is_synthetic","connected","observed","reduced_motion"};INTEGER_DIMENSIONS={"score","rank","checkpoint","coin_count","coin_score","hearts","revive_count","tick"};OPAQUE_DIMENSIONS={"share_id"}
+INTEGER_DIMENSION_RANGES={"score":(0,9000),"rank":(0,100000),"checkpoint":(0,36000),"coin_count":(0,300),"coin_score":(0,3000),"hearts":(0,1),"revive_count":(0,30),"tick":(0,36000)}
 ENUM_DIMENSIONS={
   "previous_screen":SCREENS|{"unknown"},
-  "source":{"home","gemini","phase1_load","unknown"},
-  "link_kind":{"initial","retry_invite","prize_share","direct","unknown"},
-  "content":{"study","photo","other","unknown"},
-  "position":{"benefit_main","unknown"},
-  "action":{"pouch_0","pouch_1","pouch_2"},
+  "source":{"home","gemini","phase1_load","phase2_load","unknown"},
+  "link_kind":{"initial","retry_invite","record_share","prize_share","direct","unknown"},
+  "content":{"study","photo","study_note","job_photo","other","unknown"},
+  "position":{"benefit_main","benefit_guides","unknown"},
+  "action":{"pouch_0","pouch_1","pouch_2","accessibility_button","keyboard"},
   "status":{"attempted","share_sheet_closed","cancelled","failed","copied","VERIFIED",
     "INVALID_CODE","SELF_INVITE","PENDING","COOLDOWN","BALANCE_FULL","REWARDED","ALREADY_REWARDED","NOT_QUALIFIED","REJECTED",
     "INVALID_NONCE","CAMPAIGN_UNAVAILABLE","RATE_LIMITED","RESERVED","ACTIVE","FAULT_REPORTED","FINISHED","ABORTED","EXPIRED"},
@@ -445,6 +497,7 @@ ENUM_DIMENSIONS={
   "share_method":{"kakao","copy","native","unknown"},
   "claim_type":{"DRAW","RANKING"},
   "draw_status":{"LOCKED","AVAILABLE","DRAWN"},
+  "end_reason":{"COLLISION","TIME_LIMIT"},
 }
 CODE_DIMENSIONS={"channel","campaign_code"}
 CODE_DIMENSION_VALUE=re.compile(r"(?:unknown|[A-Za-z][A-Za-z0-9_-]{0,31})")
@@ -577,28 +630,30 @@ def admin_participant_patch(conn,pid,body,ctx):
     return 200,{"participant_id":pid,"status":updated["status"],"session_revoked":revoke}
 
 def admin_ranking_snapshots(conn,ctx):
-    _admin(conn,ctx,"ranking:read");rows=_all(conn,"""select s.id,s.status,s.tie_policy,s.campaign_closes_at,s.captured_at,count(e.participant_id)::int entry_count
+    _admin(conn,ctx,"ranking:read");rows=_all(conn,"""select s.id,s.status,s.tie_policy,s.game_version,s.campaign_closes_at,s.captured_at,count(e.participant_id)::int entry_count
       from dino_dev.ranking_snapshot s left join dino_dev.ranking_snapshot_entry e on e.snapshot_id=s.id group by s.id order by s.captured_at desc limit 50""")
     return 200,{"snapshots":[{**dict(row),"campaign_closes_at":_iso(row["campaign_closes_at"]),"captured_at":_iso(row["captured_at"])} for row in rows]}
 
 def admin_ranking_contacts(conn,ctx):
-    _admin(conn,ctx,"claims:read");rows=_all(conn,"""select r.participant_id,r.status ranking_status,r.requested_at,r.submitted_at,c.id claim_id,c.status claim_status,
+    _admin(conn,ctx,"claims:read");rows=_all(conn,"""select r.participant_id,r.status ranking_status,r.game_version,r.requested_at,r.submitted_at,c.id claim_id,c.status claim_status,
       c.verification_status,c.assignee_user_id,c.version,cc.recipient_name,cc.contact,cc.school
       from dino_dev.ranking_contact r left join dino_dev.claim c on c.participant_id=r.participant_id and c.claim_type='RANKING'
       left join dino_dev.claim_contact cc on cc.claim_id=c.id order by r.requested_at desc limit 200""")
     return 200,{"ranking_contacts":[{**dict(row),"requested_at":_iso(row["requested_at"]),"submitted_at":_iso(row["submitted_at"])} for row in rows]}
 
 def create_admin_ranking_snapshot(conn,body,ctx):
-    admin=_admin(conn,ctx,"ranking:write");campaign=_campaign(conn,True);sid=_id("rank_snapshot")
-    snapshot=_one(conn,"""insert into dino_dev.ranking_snapshot(id,campaign_id,campaign_closes_at,created_by)
-      values(%s,%s,%s,%s) returning *""",(sid,campaign["id"],campaign["closes_at"],admin["auth_user_id"]))
-    conn.execute("""insert into dino_dev.ranking_snapshot_entry(snapshot_id,participant_id,score,rank,tied,contact_status)
+    admin=_admin(conn,ctx,"ranking:write");campaign=_campaign(conn,True);sid=_id("rank_snapshot");version=_game_version(conn,ctx);source=_score_source(version)
+    snapshot=_one(conn,"""insert into dino_dev.ranking_snapshot(id,campaign_id,campaign_closes_at,created_by,game_version)
+      values(%s,%s,%s,%s,%s) returning *""",(sid,campaign["id"],campaign["closes_at"],admin["auth_user_id"],version))
+    conn.execute(f"""insert into dino_dev.ranking_snapshot_entry(snapshot_id,participant_id,score,rank,tied,contact_status)
       select %s,b.participant_id,b.score,dense_rank() over(order by b.score desc),count(*) over(partition by b.score)>1,coalesce(r.status,'NOT_REQUESTED')
-      from dino_dev.best_score b join dino_dev.participant p on p.id=b.participant_id left join dino_dev.ranking_contact r on r.participant_id=b.participant_id
-      where p.campaign_id=%s and p.status='ACTIVE'""",(sid,campaign["id"]))
+      from {source} b join dino_dev.participant p on p.id=b.participant_id
+      left join dino_dev.ranking_contact_version rv on rv.participant_id=b.participant_id and rv.game_version=%s
+      left join dino_dev.ranking_contact r on r.participant_id=rv.participant_id
+      where p.campaign_id=%s and p.status='ACTIVE'""",(sid,version,campaign["id"]))
     count=_one(conn,"select count(*)::int n from dino_dev.ranking_snapshot_entry where snapshot_id=%s",(sid,))["n"]
     conn.execute("insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,after_value,event_id) values(%s,'RANKING_SNAPSHOT','ranking_snapshot',%s,%s::jsonb,%s)",(admin["auth_user_id"],sid,json.dumps({"status":"DRAFT","tie_policy":"UNDECIDED","entry_count":count}),str(body.get("event_id"))))
-    return 201,{"id":sid,"status":snapshot["status"],"tie_policy":snapshot["tie_policy"],"campaign_closes_at":_iso(snapshot["campaign_closes_at"]),"captured_at":_iso(snapshot["captured_at"]),"entry_count":count,"final_awards_created":False}
+    return 201,{"id":sid,"status":snapshot["status"],"tie_policy":snapshot["tie_policy"],"campaign_closes_at":_iso(snapshot["campaign_closes_at"]),"captured_at":_iso(snapshot["captured_at"]),"entry_count":count,"game_version":version,"final_awards_created":False}
 
 def dispatch(conn,method,path,body,query,ctx):
     def call():

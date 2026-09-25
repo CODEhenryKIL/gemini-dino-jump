@@ -63,11 +63,11 @@ body {
 
 /* Top App Bar */
 .app-header {
-  height: 60px;
+  min-height: 76px;
   padding: 0 16px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   background: rgba(248, 250, 255, 0.92);
   backdrop-filter: blur(10px);
   position: sticky;
@@ -80,10 +80,15 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .brand-logo-area img {
-  height: 28px;
+  width: 95px;
+  height: 60px;
+  max-width: 95px;
   object-fit: contain;
 }
 
@@ -91,6 +96,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-left: auto;
 }
 
 .ticket-pill {
@@ -372,9 +378,7 @@ body {
   transform: translateX(-50%) translateY(0);
 }
 
-/* ==========================================================================
-   2-Second Official Google Student Ambassador Splash Screen
-   ========================================================================== */
+/* Initial 2.5 second brand and participation flow. */
 
 #splash-screen {
   position: fixed;
@@ -394,8 +398,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 32px 24px;
+  justify-content: space-between;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
   transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -405,75 +409,72 @@ body {
   pointer-events: none;
 }
 
-.splash-badge {
-  background: #F8FAFF;
-  border: 1.5px solid rgba(25, 103, 210, 0.2);
+.splash-ambassador {
   color: var(--primary);
-  padding: 6px 14px;
-  border-radius: 20px;
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.5px;
-  margin-bottom: 24px;
-  box-shadow: 0 2px 10px rgba(25, 103, 210, 0.08);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  animation: splashFadeDown 0.6s ease;
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
-.splash-logos {
+.splash-story {
+  flex: 1;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 28px;
-}
-
-.splash-ambassador-logo {
-  height: 48px;
-  object-fit: contain;
-  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.06));
-  animation: splashScaleUp 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.splash-gemini-lockup {
-  height: 24px;
-  object-fit: contain;
-  opacity: 0.9;
-  animation: splashScaleUp 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-/* Running Dino Animation */
-.splash-dino-track {
-  width: 140px;
-  height: 90px;
-  position: relative;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
   justify-content: center;
+  text-align: center;
+  position: relative;
 }
 
-.splash-dino-img {
-  width: 72px;
-  height: 72px;
-  object-fit: contain;
-  animation: splashDinoHop 0.45s ease-in-out infinite alternate;
-  filter: drop-shadow(0 6px 12px rgba(25, 103, 210, 0.2));
+.splash-title-group {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  animation: splashTitleShift 2.5s both cubic-bezier(.2,.8,.2,1);
 }
 
-.splash-dino-shadow {
+.splash-main-title {
+  font-size: clamp(34px, 10vw, 46px);
+  line-height: 1.12;
+  letter-spacing: -.045em;
+  color: #202124;
+}
+
+.splash-event-title {
+  color: var(--primary);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.splash-eligibility {
+  font-size: 12px;
+  color: var(--text-sub);
+  font-weight: 600;
+}
+
+.splash-steps {
   position: absolute;
-  bottom: 8px;
-  width: 44px;
-  height: 8px;
-  background: rgba(0, 0, 0, 0.12);
-  border-radius: 50%;
-  animation: splashShadowScale 0.45s ease-in-out infinite alternate;
+  top: 57%;
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  font-size: 17px;
+  font-weight: 750;
+  color: #3c4043;
 }
 
-/* 4-Color Google Progress Bar */
+.splash-steps span,
+.splash-steps strong { opacity: 0; animation: splashStep 2.5s both; }
+.splash-steps span:nth-child(2) { animation-delay: .25s; }
+.splash-steps span:nth-child(3) { animation-delay: .5s; }
+.splash-steps strong { animation-delay: .7s; color: #d93025; font-size: 22px; }
+
+.splash-preview-note { margin: 0 0 12px; color: var(--text-sub); font-size: 10px; text-align: center; }
+.splash-team-logo-wrap { width: 100%; display: flex; justify-content: center; margin-bottom: 14px; }
+.splash-team-logo { width: min(230px, 70vw); height: auto; object-fit: contain; }
+
 .splash-progress-container {
   width: 220px;
   height: 6px;
@@ -481,7 +482,7 @@ body {
   border-radius: 10px;
   overflow: hidden;
   position: relative;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
 }
 
@@ -502,31 +503,24 @@ body {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-main);
-  margin-bottom: 4px;
+  min-height: 20px;
+  text-align: center;
 }
 
-.splash-sub-text {
-  font-size: 11px;
-  color: var(--text-sub);
-  font-weight: 500;
+.splash-retry { margin-top: 8px; width: min(220px, 70vw); }
+
+@keyframes splashTitleShift {
+  0%, 30% { transform: translateY(12%); }
+  48%, 100% { transform: translateY(-35%) scale(.78); }
 }
 
-@keyframes splashFadeDown {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes splashStep {
+  0%, 40% { opacity: 0; transform: translateY(8px); }
+  55%, 100% { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes splashScaleUp {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@keyframes splashDinoHop {
-  0% { transform: translateY(0) rotate(0deg); }
-  100% { transform: translateY(-14px) rotate(-3deg); }
-}
-
-@keyframes splashShadowScale {
-  0% { transform: scale(1); opacity: 0.15; }
-  100% { transform: scale(0.6); opacity: 0.05; }
+@media (prefers-reduced-motion: reduce) {
+  #splash-screen, .splash-title-group, .splash-steps span, .splash-steps strong, .splash-progress-bar { animation: none !important; transition-duration: .01ms !important; }
+  .splash-title-group { transform: translateY(-32%) scale(.82); }
+  .splash-steps span, .splash-steps strong { opacity: 1; transform: none; }
 }

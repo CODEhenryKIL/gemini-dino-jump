@@ -199,7 +199,7 @@ class ClaimMigrationFollowupTest(unittest.TestCase):
             )
 
     def test_migration_backfills_only_unsubmitted_information_received_claims(self):
-        self.assertEqual(config.SCHEMA_VERSION, CLAIM_FIX.name.split("_", 1)[0])
+        self.assertGreaterEqual(config.SCHEMA_VERSION, CLAIM_FIX.name.split("_", 1)[0])
         _apply(self.dsn, CLAIM_FIX)
         _apply(self.dsn, CLAIM_FIX)
 

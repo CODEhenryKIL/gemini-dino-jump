@@ -5,7 +5,7 @@ from urllib.parse import parse_qs,urlencode,urlparse
 import datetime as dt
 import hashlib,hmac,json,os,re,secrets,sys,time,uuid
 sys.path.insert(0,os.path.dirname(__file__))
-import auth,db,game_verifier
+import auth,db,game_verifier,share_page
 from config import CONSTANTS,ROOT,ConfigurationError,Settings
 from operations import DomainError,dispatch
 import psycopg
@@ -74,7 +74,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         self.pending_cookie=f"dj_session={token}; Path=/; Max-Age={settings.participant_cookie_max_age}; HttpOnly; SameSite=Lax{secure}"
     def _context(self,settings,body,path):
         raw_cookie=self._cookie();participant_hash=auth.token_hash(raw_cookie,settings.token_pepper) if raw_cookie else ""
-        ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase1-v1","base_url":settings.base_url,"project_ref":settings.project_ref,"participant_token_hash":participant_hash,"request_id":self.request_id,"invite_active_ms":settings.invite_active_ms,"participant_cookie_max_age":settings.participant_cookie_max_age,"ip_subject":self._ip_subject(settings)}
+        ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"participant_token_hash":participant_hash,"request_id":self.request_id,"invite_active_ms":settings.invite_active_ms,"participant_cookie_max_age":settings.participant_cookie_max_age,"ip_subject":self._ip_subject(settings)}
         idem=self.headers.get("Idempotency-Key","")
         if idem:
             if not re.fullmatch(r"[\x21-\x7e]{8,128}",idem):raise DomainError("INVALID_IDEMPOTENCY_KEY","요청 식별자를 확인해 주세요.")
@@ -116,14 +116,14 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                     campaign=conn.execute("select status,game_version from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();remaining=conn.execute("select count(*)::int n from dino_dev.inventory_item where status='AVAILABLE'").fetchone()["n"]
                     self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":True,"test_seed":guard["test_seed"],"test_inventory_remaining":remaining,"campaign_status":campaign["status"] if campaign else None});return
                 if method=="GET" and path=="/api/config":
-                    campaign=conn.execute("select id,title,status,game_version,opens_at,closes_at from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();data["campaign"].update(dict(campaign) if campaign else {});self.send_json(200,data);return
+                    campaign=conn.execute("select id,title,status,game_version,opens_at,closes_at from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();data["campaign"].update(dict(campaign) if campaign else {});data["campaign"]["game_version"]=settings.game_version;self.send_json(200,data);return
                 if not is_admin:
                     with db.transaction(conn):self._rate(conn,settings,path,ctx.get("participant_token_hash",""))
                 if method=="POST" and re.fullmatch(r"/api/game-sessions/[^/]+/finish",path):
                     sid=path.split("/")[-2];session=conn.execute("select seed,version from dino_dev.game_session where id=%s and participant_id=(select id from dino_dev.participant where token_hash=%s)",(sid,ctx.get("participant_token_hash"))).fetchone()
                     if not session:raise DomainError("SESSION_NOT_FOUND","게임 기록을 찾을 수 없습니다.",404)
                     if body.get("version",session["version"])!=session["version"]:raise DomainError("GAME_VERSION_MISMATCH","게임 버전이 일치하지 않습니다.",409)
-                    try:ctx["verification"]=game_verifier.simulate_and_verify(session["seed"],body.get("jump_ticks",[]),body.get("score"),body.get("ticks",body.get("valid_ticks")))
+                    try:ctx["verification"]=game_verifier.verify_game(session["version"],session["seed"],body.get("jump_ticks",[]),body.get("score"),body.get("ticks",body.get("valid_ticks")))
                     except (TypeError,ValueError,KeyError):raise DomainError("INVALID_GAME_INPUT","게임 기록 형식을 확인해 주세요.") from None
                 with db.transaction(conn):status,response=dispatch(conn,method,path,body,query,ctx)
             cookie=response.pop("_set_cookie_token",None)
@@ -140,27 +140,36 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         except Exception:error_code="INTERNAL_ERROR";self.fail(DomainError(error_code,"요청을 처리하지 못했습니다.",500,True))
         finally:
             sys.stderr.write(json.dumps({"event":"api_request","status":self.response_status,"method":self.command,"route":route_template,"duration_ms":round((time.monotonic()-started)*1000),"request_id":self.request_id,"deployment":deployment,"error_code":error_code,"database_failure":database_failure},separators=(",",":"))+"\n")
+    def _share(self):
+        try:
+            parsed=urlparse(self.path)
+            if len(self.path)>2048:raise ValueError()
+            incoming=parse_qs(parsed.query,max_num_fields=20)
+            code=parsed.path.rsplit("/",1)[-1] if parsed.path.startswith("/invite/") else (incoming.get("code") or [""])[-1]
+            target=share_page.share_target(code,incoming)
+            settings=Settings.from_env()
+            card=share_page.DEFAULT_CARD
+            if target["link"] in {"record_share","prize_share"}:
+                with db.connection(settings) as conn:
+                    with db.transaction(conn):
+                        guard=db.check_environment(conn,settings)
+                        card=share_page.public_card(conn,code,target["link"],settings.game_version,guard["campaign_id"])
+            encoded=share_page.render_share_page(card,settings.base_url,code,target)
+            self.send_response(200);self.send_header("Content-Type","text/html; charset=utf-8");self.send_header("Content-Length",str(len(encoded)))
+            self.send_header("Cache-Control","no-store");self.end_headers()
+            if self.command!="HEAD":self.wfile.write(encoded)
+        except ValueError:self.send_error(404)
+        except (ConfigurationError,db.DatabaseBusy,psycopg.Error):self.send_error(503,"Preview unavailable")
     def _static(self):
         path=urlparse(self.path).path
         if path in LEGACY_PATHS:
-            self.send_response(302)
-            self.send_header('Location', '/')
-            self.send_header("Cache-Control","no-store")
-            self.end_headers()
-            return
-        if path.startswith("/invite/"):
-            code=path.rsplit("/",1)[-1]
-            if not re.fullmatch(r"[A-Za-z0-9_-]{12,64}",code):self.send_error(404);return
-            incoming=parse_qs(urlparse(self.path).query)
-            target={"invite":code}
-            allowed={"link":r"initial|retry_invite|prize_share","share":r"[A-Za-z0-9:_-]{8,128}",
-                     "channel":r"[A-Za-z][A-Za-z0-9_-]{0,31}","campaign":r"[A-Za-z][A-Za-z0-9_-]{0,31}"}
-            for key,pattern in allowed.items():
-                values=incoming.get(key,[])
-                if len(values)==1 and re.fullmatch(pattern,values[0]):target[key]=values[0]
-            self.send_response(302);self.send_header("Location","/?"+urlencode(target));self.send_header("Cache-Control","no-store");self.end_headers();return
+            self.send_response(302);self.send_header('Location', '/');self.send_header("Cache-Control","no-store");self.end_headers();return
+        if path.startswith("/invite/"):return self._share()
         return super().do_HEAD() if self.command=="HEAD" else super().do_GET()
-    def do_GET(self):return self._api() if urlparse(self.path).path.startswith("/api/") else self._static()
+    def do_GET(self):
+        path=urlparse(self.path).path
+        if path=="/api/share" or (path=="/api/index.py" and parse_qs(urlparse(self.path).query).get("share_preview")==["1"]):return self._share()
+        return self._api() if path.startswith("/api/") else self._static()
     def do_HEAD(self):return self.do_GET()
     def do_POST(self):return self._api()
     def do_PATCH(self):return self._api()

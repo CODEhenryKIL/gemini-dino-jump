@@ -9,9 +9,14 @@ import math
 import json
 import os
 
+import game_verifier_v2
+
 CONSTANTS_PATH = os.path.join(os.path.dirname(__file__), '..', 'shared', 'game_constants.json')
+V2_CONSTANTS_PATH = os.path.join(os.path.dirname(__file__), '..', 'shared', 'game_constants_v2.json')
 with open(CONSTANTS_PATH, 'r', encoding='utf-8') as f:
     CONSTANTS = json.load(f)
+with open(V2_CONSTANTS_PATH, 'r', encoding='utf-8') as f:
+    V2_CONSTANTS = json.load(f)
 
 TICK_RATE = CONSTANTS['physics']['tickRate'] # 60
 DT = 1.0 / TICK_RATE
@@ -248,3 +253,20 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
     if tick_diff <= 15 and score_diff <= 5:
         return True, calculated_score, collision_tick, "VERIFIED"
     return False, calculated_score, collision_tick, f"SCORE_MISMATCH: server={calculated_score}, client={submitted_score}"
+
+
+def verify_game(version: str, seed: int, jumps: list, score: int, ticks: int):
+    """Versioned verifier contract. Legacy callers keep using simulate_and_verify()."""
+    if version == "2.0.0":
+        return game_verifier_v2.verify(V2_CONSTANTS, seed, jumps, score, ticks)
+    if version in (None, "", "1.2.0"):
+        valid, verified_score, verified_ticks, reason = simulate_and_verify(seed, jumps, score, ticks)
+        return {
+            "valid": valid,
+            "score": verified_score,
+            "ticks": verified_ticks,
+            "reason": reason,
+            "summary": {"coins": 0, "coin_score": 0, "hearts": 0, "revives": 0},
+            "end_reason": "COLLISION" if reason != "NO_COLLISION" else None,
+        }
+    raise ValueError("UNSUPPORTED_GAME_VERSION")

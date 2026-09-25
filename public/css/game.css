@@ -63,8 +63,28 @@
 .hud-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
+  min-width: 0;
 }
+
+.hud-item {
+  min-height: 25px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(255, 255, 255, .9);
+  border: 1px solid rgba(60, 64, 67, .12);
+  color: #3c4043;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08);
+}
+
+.hud-coin > span { color: #f9ab00; font-size: 18px; line-height: 0; }
+.hud-heart img { width: 16px; height: 16px; object-fit: contain; }
+.hud-revive { color: #1967d2; }
 
 .stage-tag {
   background: rgba(25, 103, 210, 0.9);
@@ -151,6 +171,31 @@
   font-size: 13px;
   font-weight: 500;
   opacity: 0.9;
+}
+
+.revive-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 3px;
+  pointer-events: none;
+  opacity: 0;
+  color: #fff;
+  background: radial-gradient(circle, rgba(234,67,53,.5), rgba(66,133,244,.18) 40%, transparent 68%);
+}
+
+.revive-flash img { width: 52px; filter: drop-shadow(0 4px 12px rgba(234,67,53,.35)); }
+.revive-flash strong { font-size: 28px; text-shadow: 0 2px 8px rgba(0,0,0,.3); }
+.revive-flash span { font-size: 12px; font-weight: 700; text-shadow: 0 1px 6px rgba(0,0,0,.35); }
+.revive-flash.show { animation: revivePulse .65s ease-out both; }
+
+@keyframes revivePulse {
+  0% { opacity: 0; transform: scale(.86); }
+  25%, 68% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.05); }
 }
 
 /* Countdown Overlay */
@@ -248,9 +293,31 @@
   box-shadow: 0 2px 8px rgba(25, 103, 210, 0.05);
 }
 
+.game-session-notice {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: #fef7e0;
+  color: #7a4f01;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+@media (max-width: 370px) {
+  .game-hud { left: 7px; right: 7px; }
+  .hud-left { gap: 3px; }
+  .stage-tag, .hud-item { padding-left: 5px; padding-right: 5px; font-size: 10px; }
+  .hud-right { gap: 5px; }
+  .current-score { font-size: 17px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .revive-flash.show { animation: none; opacity: 1; background: rgba(25, 103, 210, .78); }
+  .countdown-number { animation: none; }
+}
+
 .jump-hint-box strong {
   color: var(--primary);
   font-weight: 800;
 }
-
-

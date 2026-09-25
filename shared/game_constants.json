@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
+  "version": "2.0.0",
   "canvas": {
     "logicalWidth": 960,
     "logicalHeight": 600,
@@ -131,9 +131,19 @@
   "rules": {
     "pointsPerSecond": 10,
     "initialSafeTimeSec": 1.2,
-    "ticketReservationTtlSec": 30,
-    "referralDailyLimit": 3,
-    "referralTotalLimit": 10,
-    "scratchAutoRevealPercent": 0.5
+    "ticketReservationTtlSec": 120,
+    "scratchAutoRevealPercent": 0.7,
+    "maxTicks": 36000,
+    "coinScore": 10,
+    "coinFirstTick": 180,
+    "coinIntervalMinTicks": 120,
+    "coinIntervalMaxTicks": 240,
+    "heartFirstTick": 1200,
+    "heartIntervalMinTicks": 1500,
+    "heartIntervalMaxTicks": 2100,
+    "reviveInvulnerabilityTicks": 90,
+    "reviveOverlayTicks": 24,
+    "maxHearts": 1,
+    "itemObstacleClearancePx": 24
   }
 }

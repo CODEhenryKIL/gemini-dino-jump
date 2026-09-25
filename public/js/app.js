@@ -18,6 +18,13 @@ class AppRouter {
     this.currentView = null;
     this.renderToken = 0;
     this.initialized = false;
+    this.navigationBound = false;
+    this.initialRequest = null;
+    this.introPromise = null;
+    this.refreshInFlight = null;
+    this.activeRenderPromise = null;
+    this.lastResumeRefreshAt = 0;
+    this.loadingState = { intro: false, data: false };
     this.inviteVisit = null;
     this.state = {
       participant: null,
@@ -35,34 +42,69 @@ class AppRouter {
 
   async init() {
     this.bindNavigation();
+    if (!this.initialRequest) this.initialRequest = this.parseInitialRequest();
+    if (!this.introPromise) this.introPromise = this.playInitialIntro();
+    this.setSplashState('loading');
+    try {
+      const dataPromise = this.loadInitialData(this.initialRequest);
+      const [, initialized] = await Promise.all([this.introPromise, dataPromise]);
+      this.installInviteState(initialized, this.initialRequest.inviteCode);
+      const requestedView = this.initialRequest.requestedView;
+      const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit'];
+      const initialView = allowed.includes(requestedView) ? requestedView : (this.state.draw.status === 'DRAWN' && !this.state.draw.draw?.scratch_completed ? 'draw' : 'home');
+      let rendered = await this.navigate(initialView, { replace: true });
+      while (!rendered.current && this.activeRenderPromise) rendered = await this.activeRenderPromise;
+      if (!rendered.ok) throw rendered.error;
+      this.initialized = true;
+      analytics.setLoadingReady();
+      this.hideSplash();
+      if (this.state.tickets.cooldown_notice_pending && this.state.tickets.cooldown_until) this.showCooldownNotice();
+    } catch (error) {
+      await this.introPromise;
+      this.renderInitError(error);
+    }
+  }
+
+  parseInitialRequest() {
     const url = new URL(window.location.href);
     const pathInvite = url.pathname.match(/^\/invite\/([A-Za-z0-9_-]{12,64})$/);
     const inviteCode = url.searchParams.get('invite') || pathInvite?.[1] || null;
-    const requestedView = url.searchParams.get('view');
+    const requestedViewValue = url.searchParams.get('view');
+    const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit'].includes(requestedViewValue) ? requestedViewValue : null;
     const requestedLinkKind = url.searchParams.get('link');
+    const legacyLinkKind = requestedLinkKind === 'prize_share' ? 'prize_share' : 'retry_invite';
     const linkKind = inviteCode
-      ? (requestedLinkKind === 'prize_share' ? 'prize_share' : 'retry_invite')
+      ? (requestedLinkKind === 'record_share' ? 'record_share' : legacyLinkKind)
       : (requestedLinkKind === 'initial' ? 'initial' : 'direct');
     const shareId = (url.searchParams.get('share') || '').match(/^[A-Za-z0-9:_-]{8,128}$/)?.[0] || null;
     const channelCode = (url.searchParams.get('channel') || '').match(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/)?.[0] || null;
     const campaignCode = (url.searchParams.get('campaign') || '').match(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/)?.[0] || null;
-    if (url.pathname !== '/' || url.search) history.replaceState({}, '', '/');
+    history.replaceState({}, '', '/');
+    if (requestedView && requestedView !== 'home') history.replaceState({ view: requestedView }, '', `/?view=${encodeURIComponent(requestedView)}`);
     analytics.setEntryAttribution({ link_kind: linkKind, channel: channelCode || 'unknown', campaign_code: campaignCode || '', share_id: shareId || '' });
-    const observation = {
+    return {
+      inviteCode,
+      requestedView,
+      channelCode,
+      observation: {
       observation_id: analytics.observationId,
       event_id: api.createRequestId('evt'),
       link_kind: linkKind,
       channel_code: channelCode,
       campaign_code: campaignCode,
       share_id: shareId,
+      },
     };
-    try {
+  }
+
+  async loadInitialData(request) {
+      const { inviteCode, channelCode, observation } = request;
       const observationRequest = api.startObservation(observation).then((observed) => {
         analytics.setObservationReady();
         return observed;
       });
-      const [observed, config] = await Promise.all([observationRequest, api.getConfig()]);
-      const initialize = () => api.initParticipant({ inviteCode, observationId: analytics.observationId, bootstrapToken: observed.bootstrap_token || null, linkKind: observation.link_kind, channel: channelCode, shareId });
+      const [observed, config] = await Promise.all([observationRequest, api.getConfig(), this.prepareAssets()]);
+      const initialize = () => api.initParticipant({ inviteCode, observationId: analytics.observationId, bootstrapToken: observed.bootstrap_token || null, linkKind: observation.link_kind, channel: channelCode, shareId: observation.share_id });
       const initialized = navigator.locks?.request
         ? await navigator.locks.request('dino-participant-init', initialize)
         : await initialize();
@@ -73,32 +115,82 @@ class AppRouter {
       this.state.tickets = initialized.tickets || this.state.tickets;
       analytics.setParticipantReady({ is_new: initialized.is_new });
       await this.refreshState({ quiet: true });
-      this.initialized = true;
-      if (this.inviteVisit?.status === 'PENDING' && this.inviteVisit.visit_nonce) this.installInviteQualification(inviteCode, config?.limits?.invite_active_ms || 3000);
+      analytics.setLoadingDataReady();
+      this.loadingState.data = true;
+      this.setSplashState(this.loadingState.intro ? 'ready' : 'data-ready');
+      return initialized;
+  }
+
+  async prepareAssets() {
+    const images = [...document.querySelectorAll('#splash-screen img')];
+    const requiredAssets = ['/assets/icons/Dino-Dark.png', '/assets/icons/Heart-Light.png'];
+    const preload = requiredAssets.map((src) => new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = resolve;
+      image.onerror = () => reject(new Error(`필수 게임 자산을 불러오지 못했습니다: ${src}`));
+      image.src = src;
+    }));
+    await Promise.all([
+      ...images.map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => {
+        image.addEventListener('load', resolve, { once: true });
+        image.addEventListener('error', resolve, { once: true });
+      })),
+      ...preload,
+      document.fonts?.ready || Promise.resolve(),
+    ]);
+  }
+
+  playInitialIntro() {
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    document.getElementById('splash-screen')?.classList.toggle('reduced-motion', reducedMotion);
+    return new Promise((resolve) => setTimeout(() => {
+      analytics.setLoadingIntroCompleted({ reduced_motion: reducedMotion });
+      this.loadingState.intro = true;
+      this.setSplashState(this.loadingState.data ? 'ready' : 'intro-complete');
+      resolve();
+    }, 2500));
+  }
+
+  installInviteState(_initialized, inviteCode) {
+      if (this.inviteVisit?.status === 'PENDING' && this.inviteVisit.visit_nonce) this.installInviteQualification(inviteCode, this.config?.limits?.invite_active_ms || 3000);
       else if (this.inviteVisit) {
         analytics.track('invite_visit_rejected', { status: this.inviteVisit.status || 'REJECTED', reason: this.inviteVisit.reason || 'NOT_ELIGIBLE' });
         ui.showToast(this.inviteVisit.status === 'SELF_INVITE' ? '내 초대 링크에는 초대권이 지급되지 않아요.' : this.inviteVisit.status === 'INVALID_CODE' ? '유효하지 않은 초대 링크예요.' : '현재 이 초대 방문은 게임권 지급 대상이 아니에요.');
       }
-      const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit'];
-      this.navigate(allowed.includes(requestedView) ? requestedView : (this.state.draw.status === 'DRAWN' && !this.state.draw.draw?.scratch_completed ? 'draw' : 'home'));
-      analytics.setLoadingReady();
-      this.hideSplash();
-      if (this.state.tickets.cooldown_notice_pending && this.state.tickets.cooldown_until) this.showCooldownNotice();
-    } catch (error) {
-      this.renderInitError(error);
-    }
   }
 
   bindNavigation() {
+    if (this.navigationBound) return;
+    this.navigationBound = true;
     document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => {
       item.addEventListener('click', (event) => {
         event.preventDefault();
         if (this.initialized) this.navigate(item.dataset.view);
       });
     });
+    window.addEventListener('popstate', (event) => {
+      if (!this.initialized) return;
+      const requested = event.state?.view || new URL(window.location.href).searchParams.get('view') || 'home';
+      const view = ['home', 'ranking', 'claims', 'invite', 'benefit'].includes(requested) ? requested : 'home';
+      if (view !== requested) history.replaceState({ view: 'home' }, '', '/');
+      this.navigate(view, { history: false });
+    });
+    const refreshOnResume = () => {
+      if (!this.initialized || document.hidden || Date.now() - this.lastResumeRefreshAt < 1500) return;
+      this.lastResumeRefreshAt = Date.now();
+      this.refreshState({ quiet: true }).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', refreshOnResume);
+    window.addEventListener('pageshow', refreshOnResume);
   }
 
   async refreshState({ quiet = false } = {}) {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    this.refreshInFlight = this.fetchState(quiet);
+    try { return await this.refreshInFlight; } finally { this.refreshInFlight = null; }
+  }
+
+  async fetchState(quiet) {
     try {
       const me = await api.getMe();
       this.state.participant = me.participant || this.state.participant;
@@ -124,18 +216,37 @@ class AppRouter {
     this.ticketPill.title = `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
   }
 
-  navigate(viewName) {
+  navigate(viewName, { history: writeHistory = true, replace = false } = {}) {
     const next = this.views[viewName] ? viewName : 'home';
     const previousView = this.currentView && this.views[this.currentView];
     previousView?.cleanup?.();
     ui.hideModal();
     this.currentView = next;
-    this.renderToken += 1;
+    const renderToken = ++this.renderToken;
     document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === next));
     this.container.replaceChildren();
     analytics.enterScreen(next);
-    this.views[next].render(this.container, this, this.renderToken);
+    let renderResult;
+    try {
+      renderResult = this.views[next].render(this.container, this, renderToken);
+    } catch (error) {
+      renderResult = Promise.reject(error);
+    }
+    const renderPromise = Promise.resolve(renderResult).then(
+      () => ({ ok: true, current: this.isCurrent(renderToken), error: null }),
+      (error) => {
+        if (this.isCurrent(renderToken) && this.initialized) ui.showToast(error?.message || '화면을 불러오지 못했습니다.');
+        return { ok: false, current: this.isCurrent(renderToken), error };
+      },
+    );
+    if (this.isCurrent(renderToken)) this.activeRenderPromise = renderPromise;
+    if (writeHistory) {
+      const route = next === 'home' ? '/' : `/?view=${encodeURIComponent(next)}`;
+      if (replace) history.replaceState({ view: next }, '', route);
+      else history.pushState({ view: next }, '', route);
+    }
     window.scrollTo({ top: 0, behavior: 'auto' });
+    return renderPromise;
   }
 
   isCurrent(token) { return token === this.renderToken; }
@@ -148,23 +259,27 @@ class AppRouter {
     setTimeout(() => { if (splash) splash.hidden = true; }, 250);
   }
 
+  setSplashState(state) {
+    const splash = document.getElementById('splash-screen');
+    const status = document.getElementById('splash-status-text');
+    const retry = document.getElementById('splash-retry');
+    if (!splash) return;
+    splash.dataset.state = state;
+    if (retry) retry.hidden = state !== 'error';
+    if (status && state === 'loading') status.textContent = '참여 기록과 게임 자산을 준비하는 중...';
+    if (status && state === 'data-ready') status.textContent = '준비 완료 · 브랜드 이야기를 마무리하는 중...';
+    if (status && state === 'intro-complete') status.textContent = '안전하게 연결하는 중...';
+    if (status && state === 'ready') status.textContent = '준비 완료!';
+  }
+
   renderInitError(error) {
-    this.hideSplash();
-    this.container.replaceChildren();
-    const card = document.createElement('section');
-    card.className = 'card empty-state';
-    const title = document.createElement('h1');
-    title.textContent = error.status === 401 ? '참여자 인증을 복원하지 못했어요' : '서비스 연결이 잠시 불안정해요';
-    const detail = document.createElement('p');
-    detail.textContent = error.status === 401
+    this.setSplashState('error');
+    const status = document.getElementById('splash-status-text');
+    if (status) status.textContent = error.status === 401
       ? '잘못되거나 만료된 쿠키로 새 참가자를 자동 생성하지 않았습니다. 운영자에게 문의하거나 쿠키를 직접 지운 뒤 다시 접속해 주세요.'
       : '기존 참여 기록을 보호하기 위해 임시 ID를 만들지 않았습니다. 잠시 후 다시 시도해 주세요.';
-    const retry = document.createElement('button');
-    retry.className = 'btn btn-primary';
-    retry.textContent = '다시 연결';
-    retry.onclick = () => window.location.reload();
-    card.append(title, detail, retry);
-    this.container.appendChild(card);
+    const retry = document.getElementById('splash-retry');
+    if (retry) retry.onclick = () => this.init();
   }
 
   showCooldownNotice() {

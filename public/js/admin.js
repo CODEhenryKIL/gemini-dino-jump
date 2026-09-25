@@ -96,7 +96,7 @@ async function loadMetrics() {
   renderTicketLedger(data.ticket_ledger || []);
   renderClaimSummary(data.claims || []);
   renderOperationalBreakdowns(data);
-  ui.text(document.querySelector('#metrics-scope'), `${data.synthetic_only ? '합성 테스트 데이터만 표시' : '운영 데이터 포함'} · 필터 귀속 ${data.filter_attribution || '미제공'} · 환경 ${data.environment || '현재 환경'}`);
+  ui.text(document.querySelector('#metrics-scope'), `${data.synthetic_only ? '합성 테스트 데이터만 표시' : '운영 데이터 포함'} · 게임 버전 ${data.campaign?.game_version || data.game?.game_version || '미제공'} · 필터 귀속 ${data.filter_attribution || '미제공'} · 환경 ${data.environment || '현재 환경'}`);
   renderDefinitions(data.definitions || {});
 }
 
@@ -186,6 +186,7 @@ function renderSourceFunnel(rows) {
 
 function renderScoreDistribution(rows) {
   renderTable(document.querySelector('#score-distribution'), [
+    { label: '게임 버전', value: (row) => row.game_version || '미제공' },
     { label: '점수 구간', value: (row) => row.score_from != null && row.score_to != null ? `${row.score_from}~${row.score_to}` : (row.bucket || row.range || row.score_bucket) },
     { label: '기록 수', value: (row) => row.games ?? row.count ?? row.sessions ?? row.event_count },
     { label: '고유 참가자', value: (row) => row.participants ?? row.unique_participants },
@@ -194,6 +195,7 @@ function renderScoreDistribution(rows) {
 
 function renderLeaderboard(rows) {
   renderTable(document.querySelector('#leaderboard-summary'), [
+    { label: '게임 버전', value: (row) => row.game_version || '미제공' },
     { label: '현재 순위', value: (row) => row.rank },
     { label: '참가자', value: (row) => row.nickname || '익명 참가자' },
     { label: '최고점', value: (row) => row.best_score },
@@ -255,6 +257,15 @@ function renderOperationalBreakdowns(data) {
     { label: '추정 이탈', value: (row) => row.estimated_exits },
     { label: '추정 이탈률', value: (row) => row.estimated_exit_rate == null ? '계산 대상 없음' : `${(Number(row.estimated_exit_rate) * 100).toFixed(1)}%` },
   ], data.loading?.buckets || [], '조회된 로딩 구간이 없습니다.');
+  const loadingTarget = document.querySelector('#loading-summary');
+  if (data.loading?.milestones?.length) {
+    const milestoneTarget = document.createElement('div'); milestoneTarget.className = 'admin-table-wrap';
+    loadingTarget.appendChild(milestoneTarget);
+    renderTable(milestoneTarget, [
+      { label: '로딩 마일스톤', value: (row) => row.milestone }, { label: '이벤트', value: (row) => row.events },
+      { label: '참가자', value: (row) => row.participants }, { label: '관찰', value: (row) => row.observations },
+    ], data.loading.milestones, '조회된 로딩 마일스톤이 없습니다.');
+  }
   renderTable(document.querySelector('#screen-summary'), [
     { label: '화면', value: (row) => row.screen }, { label: '방문', value: (row) => row.visits },
     { label: '활성 ms', value: (row) => row.active_ms }, { label: '진행 중', value: (row) => row.ongoing },
@@ -308,6 +319,18 @@ function renderOperationalBreakdowns(data) {
       columns: sharingMethodColumns(),
     },
     {
+      title: '재도전 초대 공유 수단과 확인 가능한 상태', rows: data.sharing?.retry_invite_sharing?.by_method_status || [], emptyText: '조회된 재도전 초대 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
+    },
+    {
+      title: '기록 공유 수단과 확인 가능한 상태', rows: data.sharing?.record_share_sharing?.by_method_status || [], emptyText: '조회된 기록 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
+    },
+    {
+      title: '당첨 공유 수단과 확인 가능한 상태', rows: data.sharing?.prize_share_sharing?.by_method_status || [], emptyText: '조회된 당첨 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
+    },
+    {
       title: '초대 공유·전환 요약', rows: [
         ...sharingRows(data.sharing?.invitation_sharing),
         { label: '초대권 지급', value: data.invitation_performance?.grant_events }, { label: '지급 참가자', value: data.invitation_performance?.granted_participants },
@@ -350,7 +373,9 @@ function renderOperationalBreakdowns(data) {
     {
       title: '콘텐츠별 클릭·경유', rows: data.content || [], emptyText: '조회된 승인 콘텐츠 행동이 없습니다.',
       columns: [
-        { label: '콘텐츠', value: (row) => row.content || 'unknown' }, { label: '클릭', value: (row) => row.click_events },
+        { label: '콘텐츠', value: (row) => row.content || 'unknown' }, { label: '노출', value: (row) => row.view_events }, { label: '클릭', value: (row) => row.click_events },
+        { label: '노출 참가자', value: (row) => row.viewed_participants }, { label: '클릭 참가자', value: (row) => row.clicked_participants },
+        { label: '고유 CTR', value: (row) => row.unique_ctr == null ? '계산 대상 없음' : `${(Number(row.unique_ctr) * 100).toFixed(1)}%` },
         { label: '경유 요청', value: (row) => row.outbound_request_events }, { label: '연결 참가자', value: (row) => row.linked_participants },
         { label: '미연결 이벤트', value: (row) => row.unlinked_events },
       ],
