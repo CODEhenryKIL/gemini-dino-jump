@@ -1,8 +1,23 @@
 # Phase 1 준비 상태 보고서
 
-갱신: 2026-09-23 14:07 KST. 브랜치: `codex/phase1-operating-foundation` (`f57c3d1` 기반).
+갱신: 2026-09-25 KST. 브랜치: `codex/phase1-operating-foundation` (`f57c3d1` 기반).
 
-**전체 상태: 미완료.** 코드·로컬 검사·원격 스키마 준비를 진행했으며, DB 전용 계정 접속 승인 뒤 실제 Preview 배포/E2E/원격 부하 측정이 남아 있다. 현재 200명 동시 이용을 검증했다고 판단할 수 없다.
+증거 기준: GitHub PR·브랜치와 로컬 문서는 9월 25일 재확인했다. 아래 Supabase·Vercel·브라우저 결과는 9월 23일 작업에서 마지막으로 확인한 기록이며, 9월 25일 서비스 상태를 다시 조회한 결과가 아니다.
+
+**전체 상태: 미완료 / 새 1차 지시서 대기.** 전용 DB 연결·테스트 데이터·Preview 환경변수까지 준비했으나 Preview 빌드가 실패했다. 실제 Preview E2E와 원격 부하 테스트는 수행하지 않았으며, 200명 동시 이용 성능은 검증되지 않았다.
+
+## 0. 최신 사용자 방향과 복구 상태
+
+사용자는 1차 지시서를 다시 작성하고, **게이트러너 제거가 완료된 공룡 점프 상태에서 Supabase·Vercel 연결을 다시 시작**하려 한다.
+
+- 복구 기준 코드는 `f57c3d123296202bc1ef4360c45427d7df9a33e8`이다. 현재 `main`과 PR base가 이 커밋이다.
+- 로컬 작업 브랜치와 PR에는 아직 기존 Phase 1 구현이 남아 있다. **코드·Supabase·Vercel 복구는 실행하지 않았다.**
+- GitHub 저장소·기존 커밋·작업 브랜치·초안 PR은 유지한다. PR은 open/draft이며 병합하지 않았다.
+- Supabase·Vercel은 이전 작업에서 추가한 설정과 테스트 데이터가 있는 상태로 기록한다. 복구 완료 또는 연결 해제 완료로 간주하면 안 된다.
+- 기존 프로젝트의 원래 데이터와 운영 배포를 보존하면서 Phase 1 추가분만 정리하는 방향을 논의했다. 이 문서는 삭제·배포·재연결 실행 지시가 아니다.
+- 채팅 이미지의 실행 취소는 게이트러너 분리 변경까지 취소할 수 있다. 원격 서비스 설정까지 함께 되돌리는 수단으로 사용하지 않는다.
+
+새 지시서가 확정되기 전에는 아래 기존 계획을 자동으로 재개하지 않는다.
 
 ## 1. 구현 완료
 
@@ -28,7 +43,10 @@
 | 조회 인덱스 migration | 랭킹·READY 수령 만료·행사별 경품 인덱스 3개 적용 및 정의 조회 확인 |
 | 기존 데이터 | public 11개 테이블의 기존 행 수 유지, Storage 객체 47개 유지 |
 | Auth | 기존 3명 유지, 합성 테스트 계정 2개 추가 및 실제 password grant 성공 |
-| DB 전용 계정 | dino_app NOLOGIN 유지; 기존 public 11개 테이블 SELECT/INSERT/UPDATE/DELETE 모두 권한 없음; 환경 guard 0행·참가자 0명 |
+| DB 전용 계정 | 사용자 명시 승인 후 dino_app LOGIN·연결 한도 20 설정; 공식 CA와 verify-full로 실제 pooler 접속 성공; 기존 public 11개 테이블 SELECT/INSERT/UPDATE/DELETE 권한 없음 |
+| 테스트 데이터 | Preview guard·seed 적용, 테스트 재고 25개, 합성 참가자 5,000명·초기 티켓 원장 5,000개(총 15,000장)·page_view 5,000개, 합성 관리자 membership 등록 |
+| Preview 환경변수 | Preview 범위에 8개 등록 완료; 비밀값은 저장소에 포함하지 않음 |
+| Preview 배포 | 1회 시도 후 Python 3.11 인터프리터를 찾지 못해 빌드 실패; READY 배포 미확인 |
 | Web Analytics | 사용자 추가 승인 후 CLI 활성화 성공; 실제 Preview 수집은 아직 미검증 |
 | 백업 | 대시보드의 물리 백업 7개 확인; 실제 복원 미실행 |
 
@@ -57,10 +75,10 @@ Supabase 대시보드 main의 PRODUCTION 표시는 기본 브랜치 명칭이다
 | Python compileall | PASS | api/server/scripts/tests 문법 |
 | `bash -n run.sh` | PASS | shell 구문 |
 | `git diff --check` | PASS | 공백 오류 |
-| 빈 PostgreSQL migration/seed | PASS | 로컬 실제 PostgreSQL; remote seed는 아직 미실행 |
+| 빈 PostgreSQL migration/seed | PASS | 로컬 실제 PostgreSQL; 원격 Preview seed도 이후 별도로 적용 완료 |
 | 부하 full dry-run | PASS | 예상량·안전장치, 실제 부하 결과 아님 |
 
-최초 sandbox 실행에서는 로컬 TCP와 HTTP bind가 차단됐다. 동일 검사에 loopback 접근을 허용해 재실행한 결과가 위 PASS다. DB LOGIN 변경을 우회하지 않았으며 DB 업무 검사에서는 관리 테스트 연결의 SET ROLE로 전용 역할 권한을 검증했다.
+최초 sandbox 실행에서는 로컬 TCP와 HTTP bind가 차단됐다. 동일 검사에 loopback 접근을 허용해 재실행한 결과가 위 PASS다. 당시 DB 업무 검사는 관리 테스트 연결의 SET ROLE로 전용 역할 권한을 검증했다. 이후 사용자 승인에 따라 전용 계정 LOGIN을 설정하고 실제 연결도 확인했다.
 
 Python 구성: load guard 9개, 업무 transaction/권한 통합 검사 2개(다수 assertion), 물리 회귀 3개, config/Auth/HTTP 15개. 물리 fixture 12개는 기존 충돌 결과와 비교한다.
 
@@ -73,7 +91,7 @@ Python 구성: load guard 9개, 업무 transaction/권한 통합 검사 2개(다
 - 잘못된 wall-clock 종료 거부, 비관리자·설정/membership 변경 차단
 - 관리자 보정 idempotency 충돌, 알려진 이벤트 중복·KST 집계 대조
 
-주의: 업무 통합 검사의 일부 유효 게임 fixture는 verification 결과를 직접 주입한다. 이것만으로 실제 플레이 → HTTP 검증 → DB → 브라우저 전체 연결을 증명하지 않는다. 그 연결은 승인 후 E2E에서 별도로 확인한다.
+주의: 업무 통합 검사의 일부 유효 게임 fixture는 verification 결과를 직접 주입한다. 이것만으로 실제 플레이 → HTTP 검증 → DB → 브라우저 전체 연결을 증명하지 않는다. 이후 로컬 브라우저에서 실제 게임 시작 → 자연 충돌 → 검증된 32점 결과 → 티켓 3장 중 1장 차감(잔액 2장)을 확인했다. 추첨·수령·관리자 화면까지의 전체 E2E와 원격 Preview E2E는 미완료다.
 
 5천 행 로컬 EXPLAIN ANALYZE에서 랭킹 조회 2.407ms → 0.474ms, READY 수령 만료 조회 0.947ms → 0.071ms를 관측했다. 이는 해당 로컬 쿼리 측정이며 Vercel/Supabase 응답시간 보장이 아니다.
 
@@ -82,26 +100,36 @@ Python 구성: load guard 9개, 업무 transaction/권한 통합 검사 2개(다
 | 지시서 | 구현/현재 증거 | 남은 증거 |
 |---|---|---|
 | 1 목표·범위 | 테스트 정책 분리·실경품 차단 | 실제 Preview 전체 흐름·원격 성능 |
-| 2 연결 확인 | GitHub/Vercel/Supabase 계정·리전·플랜 확인 | 앱의 전용 DB 로그인·Preview env |
+| 2 연결 확인 | 계정·리전·플랜, 전용 DB 로그인, Preview env 등록 | 배포된 Preview 앱에서 연결 확인 |
 | 3 Dino 전용 | 코드·정적 회귀, legacy redirect | 실제 Preview 화면/라우트 |
-| 4 PostgreSQL·배포 | migration·권한·local DB·배포 구성 | pooler 실접속·Preview READY/health |
+| 4 PostgreSQL·배포 | migration·권한·seed·pooler 실접속·공식 CA 검증 | 실패한 Preview 빌드 해결·READY/health |
 | 5 정합성 | local transaction·동시성·소유권 검사 | Preview에서 유효 플레이와 재전송·재고 경쟁 |
 | 6 보안·복구 | 입력/Origin/권한/장애 HTTP 검사·frontend regression | 실제 Auth→membership, 브라우저 이탈/숨김/재개·응답 유실 |
-| 7 지표 | known-data DB 집계·admin UI·Analytics 활성화 | 실제 Preview 수집/관리자 표시·5천명 집계 |
-| 8 기능·브라우저 | local DB·HTTP 경계 테스트 | Preview E2E, 모바일 에뮬레이션, 실제 휴대폰 미검증 표시 |
+| 7 지표 | known-data 로컬 집계·admin UI·Analytics 활성화·원격 5천명 준비 | 실제 Preview 수집/관리자 표시·원격 5천명 집계 성능 |
+| 8 기능·브라우저 | local DB·HTTP 경계·로컬 실제 게임 결과/티켓 차감 | 추첨·수령·관리자 전체 E2E, Preview E2E, 모바일/실제 휴대폰 |
 | 9 원격 부하 | exact 프로필·안전장치·비용 영향 계산 | 원격 10/50/100/200 VU + burst, p95/실패율/DB 관측 |
-| 10 산출물 | 코드·migration·seed·env·런북·현재 보고서 | PR/commit, Preview URL, 실제 측정 보고 |
+| 10 산출물 | 코드·migration·seed·env·런북·보고서·커밋·초안 PR·실패 배포 기록 | 정상 Preview URL, 실제 원격 측정 보고 |
 | 11 승인 제한 | Production/실경품/DNS/새 유료 프로젝트 미변경 | 종료 시 재확인 |
 
-## 5. 승인·권한 대기
+## 5. 승인 이력과 Preview 실패
 
-자동 승인 검사가 dino_app LOGIN을 영구 활성화하는 권한 변경을 거절했다. 사용자에게 접속 역할·데이터 범위·비밀번호 유출 위험·새 유료 프로젝트가 생기지 않음을 설명했다. 사용자는 추가 설명을 요청했으며 아직 명시적으로 승인하지 않았다.
+DB 전용 계정 LOGIN 변경은 처음에 자동 승인 검사에서 차단됐다. 이후 범위와 위험을 설명했고, 사용자가 **“공룡 점프 전용 계정의 DB 접속 허용”**이라고 명시적으로 승인했다. 그 승인에 따라 전용 계정 비밀번호·LOGIN을 설정했다. 더 이상 LOGIN 승인 대기 상태가 아니다.
 
-따라서 로컬/원격 게임 서버의 전용 계정 LOGIN과 비밀번호 provision, Preview 연결·배포·E2E·부하 테스트가 대기 중이다. 상위 관리 계정이나 service-role로 게임 서버를 우회 실행하지 않는다.
+초기 pooler TLS 인증서 검증 실패는 공식 Supabase CA를 추가하여 해결했다. 수정 커밋은 `1834951af1b6a905789d01910ffa48ee407f688a`이며, 전용 계정으로 실제 원격 접속과 참가자 5,000명·재고 25개·page_view 5,000개 조회를 확인했다.
 
-Vercel Web Analytics는 별도 명시적 승인을 받아 켰다. 추가 Plus 구독·유료 프로젝트·PITR·자동 사양 증설은 하지 않았다.
+Preview 범위에 `APP_ENV`, `SUPABASE_PROJECT_REF`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SESSION_TOKEN_PEPPER`, `WEB_ANALYTICS_ENABLED`, `GEMINI_BENEFIT_URL`을 등록했다. Production 환경변수는 변경하지 않았다.
 
-## 6. 원격 부하 계획과 미측정 항목
+Preview 배포는 `.python-version`의 3.11 지정과 빌드 환경의 인터프리터 지원 불일치로 실패했다. 로그의 핵심 오류는 `No interpreter found for Python 3.11 in managed installations or search path`다. 버전 수정·재배포는 수행하지 않았다.
+
+- [실패한 배포 기록](https://vercel.com/henry-kils-projects/dino-nanobanana/3GsE4tNgifko1J8wBD8iKQf1DGRX)
+- 할당된 주소: `https://dino-nanobanana-3j22nng2u-henry-kils-projects.vercel.app` — 정상 동작하는 Preview로 전달할 수 없음
+- Production 배포·DNS 변경·실경품 발송·새 유료 프로젝트 생성·main 병합은 수행하지 않음
+
+Vercel Web Analytics는 별도 명시적 승인을 받아 켰다. 추가 Plus 구독·PITR·자동 사양 증설은 하지 않았다. 기능 활성화와 실제 수집 검증은 구분한다.
+
+## 6. 기존 원격 부하 계획과 미측정 항목
+
+아래는 기존 지시서의 미실행 계획이다. 새 지시서가 확정되면 범위와 한도를 다시 정한다.
 
 full 프로필: 10 VU/60초, 50/120초, 100/180초, 200/300초, burst 200/30초. 단계 합계 690초, 정리·preflight 안전 예약 780초. 기본 대기 45초.
 
@@ -138,6 +166,18 @@ FK index INFO는 기존 UNIQUE/선두 인덱스 및 실제 조회 경로로 검�
 - 작업 브랜치: codex/phase1-operating-foundation
 - 구현 commit: `0b3ccd03de87671157bb2707eba911095a9ecf0c`
 - 초안 PR: https://github.com/CODEhenryKIL/gemini-dino-jump/pull/1 (병합 안 함)
-- Preview URL/deployment: 아직 없음
+- 마지막 구현 커밋: `1834951af1b6a905789d01910ffa48ee407f688a` (공식 CA 추가)
+- Preview deployment: 1회 빌드 실패; 정상 서비스 URL 없음
 - 원격 실행 보고서: 아직 없음
 - 실행·관리자·백업·복구: [운영 런북](phase1-operations-runbook.md)
+
+## 10. 추후 복구 시 확인할 범위 — 아직 미실행
+
+| 대상 | Phase 1 추가분 / 확인할 항목 |
+|---|---|
+| 로컬 코드 | `f57c3d1` 이후 구현과 로컬 전용 설정·테스트 DB·실행 프로세스. 신규 사용자 변경 확인 후 복구 범위 결정 |
+| Supabase | `dino` 스키마 20개 테이블·테스트 데이터·guard·관리자 membership, 전용 `dino_app` 역할, 이번 합성 Auth 계정 2개, migration 이력 2건 |
+| Vercel | Preview 환경변수 8개, Web Analytics 활성화, 실패한 Preview 배포 기록 |
+| 보존할 것 | 기존 public 11개 테이블·원래 Auth 사용자·Storage, 기존 Production 배포·환경변수, GitHub 저장소·커밋·PR |
+
+삭제 전에 실제 의존성과 그 이후 추가된 데이터를 확인해야 한다. 프로젝트 전체 초기화나 백업 전체 복원은 이 범위를 넘어선다. 아직 연결 정보와 테스트 데이터가 남아 있으므로 기존 migration·seed를 처음부터 재실행하지 않는다.

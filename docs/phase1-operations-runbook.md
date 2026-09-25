@@ -1,6 +1,8 @@
 # Phase 1 운영 런북
 
-기준일: 2026-09-23. 실제 완료 여부는 [준비 상태 보고서](phase1-readiness-report.md)를 확인한다.
+구현 기준일: 2026-09-23. 상태 안내 갱신: 2026-09-25.
+
+**현재 새 1차 지시서 대기 중이며 복구는 미실행이다.** 이 문서는 기존 구현의 실행 절차를 보관한다. 연결·seed·배포를 자동 재개하지 않는다. 실제 완료 여부와 변경 이력은 [준비 상태 보고서](phase1-readiness-report.md)를 확인한다.
 
 ## 1. 환경과 범위
 
@@ -56,7 +58,7 @@ Vercel Function은 psycopg의 짧은 연결로 Supabase transaction pooler에 �
 4. 승인된 전용 역할 LOGIN과 강한 비밀번호를 설정하고 서버용 비밀 설정에 저장한다.
 5. 전용 계정 업무 접근과 설정·관리자 membership 변경 거부를 확인한다.
 
-현재 LOGIN 변경은 자동 승인 검사로 차단됐고 사용자가 설명을 요청한 상태다. 명시적인 추가 승인 전에는 접속을 켜거나 다른 계정으로 게임 서버를 우회 연결하지 않는다.
+사용자의 명시적 승인 후 전용 계정 LOGIN·비밀번호 설정, Preview guard·seed·5,000명 합성 데이터 준비 및 실제 pooler 접속을 완료했다. 아래 SQL과 seed 절차는 신규 환경용 예시이며, 기존 연결 대상에 중복 실행하지 않는다. 현재는 새 지시서를 기다리며 기존 자원을 복구하거나 재설정하지 않았다.
 
 ```sql
 -- Preview에서만 실행. local/test는 환경값과 ref를 각각 local로 변경.
@@ -110,6 +112,8 @@ DB 시각은 UTC, 조회 날짜와 화면은 Asia/Seoul을 사용한다. 정상 
 Vercel Web Analytics는 2026-09-23 사용자 추가 승인을 받아 프로젝트에서 켰다. 자동 pageview를 끄고 allowlist 논리 화면만 수동 전송한다. 초대 코드·query·hash·referrer·개인정보·게임 토큰을 전달하지 않는다. 실제 수집은 Preview 배포 후 확인한다. Plus 추가 기능은 켜지 않았다. 승인 당시 Pro 사용량 가격은 1,000건당 $0.03이며 청구·크레딧은 실제 사용량에 따른다. [공식 가격](https://vercel.com/docs/analytics/limits-and-pricing).
 
 ## 6. 테스트와 Preview 배포
+
+마지막 Preview 배포는 Python 3.11 인터프리터를 찾지 못해 빌드 실패했다. 현재 `.python-version`은 여전히 3.11이다. 아래 절차는 배포 성공 기록이 아니며, 재개 시 새 지시서와 지원 런타임을 확인해야 한다.
 
 ```bash
 .venv/bin/python test_suite.py

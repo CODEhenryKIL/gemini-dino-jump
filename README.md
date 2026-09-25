@@ -1,7 +1,19 @@
 # Team Gemini 공룡 점프
 
 Python API·JavaScript 게임·Supabase PostgreSQL로 구성한 이벤트 사이트입니다.
-현재 Phase 1 개발 중이며 합성 데이터와 테스트 경품만 사용합니다.
+현재 작업 브랜치는 기존 Phase 1 구현을 보관하고 있으며, 합성 데이터와 테스트 경품만 사용합니다.
+
+## 현재 상태 — 2026-09-25
+
+**새 1차 지시서 대기 중이며, 복구는 아직 실행하지 않았습니다.**
+
+- 사용자는 게이트러너 제거 완료 시점(`f57c3d1`)을 기준으로 Supabase·Vercel 연결 작업을 다시 시작할 예정입니다.
+- 기존 Phase 1에서는 DB 연결·테스트 데이터·Preview 환경변수까지 준비했습니다. Preview 배포는 Python 3.11 빌드 오류로 실패했습니다.
+- 정상 Preview·전체 E2E·원격 동시 접속 성능은 미검증입니다. Production 배포와 main 병합은 하지 않았습니다.
+- [초안 PR #1](https://github.com/CODEhenryKIL/gemini-dino-jump/pull/1)과 작업 브랜치를 유지합니다.
+- 서비스 상태는 9월 23일 마지막 확인 기록입니다. 세부 내역과 복구 대상은 [최신 상태 보고서](docs/phase1-readiness-report.md)를 확인하세요.
+
+아래 실행 안내는 보관 중인 기존 구현 기준입니다. 새 지시서 없이 기존 연결·배포 작업을 재개하지 않습니다.
 
 ## 로컬 실행
 
