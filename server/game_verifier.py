@@ -80,11 +80,10 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
     """
     Simulates game deterministically. jump_ticks can be either [tick, ...] or [{'tick': t, 'high': bool}, ...]
     """
-    if not isinstance(seed, int) or not isinstance(jump_ticks, list):
+    if type(seed) is not int or not isinstance(jump_ticks, list):
         raise ValueError('INVALID_GAME_INPUT')
-    if isinstance(submitted_score, bool) or isinstance(submitted_ticks, bool):
+    if type(submitted_score) is not int or type(submitted_ticks) is not int:
         raise ValueError('INVALID_GAME_INPUT')
-    submitted_score, submitted_ticks = int(submitted_score), int(submitted_ticks)
     if not 0 <= submitted_score <= 6000 or not 0 <= submitted_ticks <= 36000 or len(jump_ticks) > 2048:
         raise ValueError('GAME_INPUT_OUT_OF_BOUNDS')
     prng = PRNG(seed)
@@ -103,7 +102,10 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
             tick = item['tick']
             if isinstance(tick, bool) or not isinstance(tick, int) or not 0 <= tick <= submitted_ticks:
                 raise ValueError('INVALID_JUMP_TICK')
-            jump_map[tick] = bool(item.get('high', False))
+            high = item.get('high', False)
+            if not isinstance(high, bool):
+                raise ValueError('INVALID_JUMP_FLAG')
+            jump_map[tick] = high
         elif isinstance(item, int) and not isinstance(item, bool):
             if not 0 <= item <= submitted_ticks:
                 raise ValueError('INVALID_JUMP_TICK')
@@ -235,7 +237,8 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
             break
 
     if collision_tick < 0:
-        collision_tick = submitted_ticks
+        # An unfinished replay cannot prove a game-over or award ranking/draw rights.
+        return False, 0, 0, 'NO_COLLISION'
 
     calculated_score = int(math.floor((collision_tick / TICK_RATE) * CONSTANTS['rules']['pointsPerSecond']))
 

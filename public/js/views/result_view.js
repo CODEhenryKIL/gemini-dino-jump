@@ -36,7 +36,7 @@ export const ResultView = {
         const nickname = field.input.value.trim();
         if (nickname.length < 2) { ui.showToast('닉네임은 2자 이상 입력해 주세요.'); return false; }
         try {
-          const participant = await api.updateProfile({ nickname, is_public: true });
+          const participant = await api.updateProfile({ nickname });
           router.state.participant = participant.participant || participant;
           api.participant = router.state.participant;
           router.navigate('result');

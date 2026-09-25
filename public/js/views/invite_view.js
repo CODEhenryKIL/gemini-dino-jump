@@ -29,14 +29,15 @@ export const InviteView = {
       const share = async (method) => {
         const shareId = api.createRequestId('share');
         const inviteUrl = buildInviteUrl(shareId);
-        analytics.track('share_attempted', { share_method: method, share_id: shareId, link_kind: shareKind, status: 'attempted' });
-        if (method === 'native' && navigator.share) {
+        const actualMethod = method === 'native' && typeof navigator.share === 'function' ? 'native' : 'copy';
+        analytics.track('share_attempted', { share_method: actualMethod, share_id: shareId, link_kind: shareKind, status: 'attempted' });
+        if (actualMethod === 'native') {
           try {
             await navigator.share({ title: '공룡 점프 챌린지', text: `내 기록 ${router.state.bestScore}점에 도전해 봐!`, url: inviteUrl });
-            analytics.track('share_attempted', { share_method: method, share_id: shareId, link_kind: shareKind, status: 'share_sheet_closed' });
+            analytics.track('share_attempted', { share_method: actualMethod, share_id: shareId, link_kind: shareKind, status: 'share_sheet_closed' });
             ui.showToast('공유 창을 닫았어요. 전송 여부는 기기에서 확인해 주세요.');
           } catch (error) {
-            analytics.track('share_attempted', { share_method: method, share_id: shareId, link_kind: shareKind, status: error?.name === 'AbortError' ? 'cancelled' : 'failed' });
+            analytics.track('share_attempted', { share_method: actualMethod, share_id: shareId, link_kind: shareKind, status: error?.name === 'AbortError' ? 'cancelled' : 'failed' });
           }
         } else {
           try {

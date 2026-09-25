@@ -51,7 +51,7 @@ Returns participant, ticket balances, `best_score`, `rank`, `pending_game_sessio
 
 ### `PATCH /api/me/profile`
 
-Body `{nickname,is_public}`. Returns the updated public participant. This is unrelated to private TOP3 or claim contact data.
+Body `{nickname,is_public?}`. Omitting `is_public` preserves the current database value; an explicit value must be a boolean. Returns the updated public participant. This is unrelated to private TOP3 or claim contact data.
 
 ## Invitations
 
