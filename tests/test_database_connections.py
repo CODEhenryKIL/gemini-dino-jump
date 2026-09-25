@@ -26,14 +26,16 @@ class ConnectionTest(unittest.TestCase):
         self.settings=SimpleNamespace(database_url="test-dsn",environment="test")
     def tearDown(self): db.close_idle_connections()
 
-    def test_clean_connection_is_reused_without_reopening_tls(self):
+    def test_sequential_connections_close_at_quiescence_and_reopen_tls(self):
         with patch.object(db.psycopg,"connect",side_effect=lambda *a,**k:FakeConnection()) as connect:
             with db.connection(self.settings) as first: pass
             with db.connection(self.settings) as second: pass
-        self.assertIs(first,second)
-        self.assertEqual(connect.call_count,1)
+        self.assertIsNot(first,second)
+        self.assertTrue(first.closed)
+        self.assertTrue(second.closed)
+        self.assertEqual(connect.call_count,2)
 
-    def test_completed_concurrent_wave_retains_only_one_idle_connection_without_checkout(self):
+    def test_completed_concurrent_wave_leaves_no_idle_connection_without_checkout(self):
         entered=threading.Barrier(9)
         release=threading.Event()
         connections=[]
@@ -56,8 +58,56 @@ class ConnectionTest(unittest.TestCase):
                 for future in futures:future.result(timeout=5)
 
         self.assertEqual(len(connections),8)
-        self.assertEqual(len(db._idle),1)
-        self.assertEqual(sum(not connection.closed for connection in connections),1)
+        self.assertEqual(len(db._idle),0)
+        self.assertEqual(sum(not connection.closed for connection in connections),0)
+
+    def test_waiting_borrower_reuses_returned_connection_during_overlap(self):
+        entered=threading.Barrier(9)
+        release_first=threading.Event()
+        release_rest=threading.Event()
+        ninth_done=threading.Event()
+        connections=[]
+
+        def create(*_args,**_kwargs):
+            connection=FakeConnection()
+            connections.append(connection)
+            return connection
+
+        def holder(index):
+            with db.connection(self.settings):
+                entered.wait(timeout=5)
+                (release_first if index==0 else release_rest).wait(timeout=5)
+
+        def ninth():
+            with db.connection(self.settings):pass
+            ninth_done.set()
+
+        with patch.object(db.psycopg,"connect",side_effect=create):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=9) as executor:
+                holders=[executor.submit(holder,index) for index in range(8)]
+                entered.wait(timeout=5)
+                waiting=executor.submit(ninth)
+                deadline=time.monotonic()+5
+                while db._borrowers<9 and time.monotonic()<deadline:time.sleep(.001)
+                self.assertEqual(db._borrowers,9)
+                release_first.set()
+                self.assertTrue(ninth_done.wait(timeout=5))
+                release_rest.set()
+                waiting.result(timeout=5)
+                for future in holders:future.result(timeout=5)
+
+        self.assertEqual(len(connections),8)
+        self.assertEqual((db._borrowers,len(db._idle)),(0,0))
+        self.assertTrue(all(connection.closed for connection in connections))
+
+    def test_failed_semaphore_acquire_drains_idle_and_borrower_count(self):
+        idle=FakeConnection()
+        db._idle.append((("test-dsn","test"),idle,time.monotonic(),time.monotonic()))
+        with patch.object(db._slots,"acquire",return_value=False):
+            with self.assertRaises(db.DatabaseBusy):
+                with db.connection(self.settings):pass
+        self.assertTrue(idle.closed)
+        self.assertEqual((db._borrowers,len(db._idle)),(0,0))
 
     def test_failure_is_not_replayed_and_discards_connection(self):
         with patch.object(db.psycopg,"connect",side_effect=lambda *a,**k:FakeConnection()) as connect:
@@ -128,7 +178,7 @@ class ConnectionTest(unittest.TestCase):
         self.assertGreater(maximum,2)
         self.assertLessEqual(maximum,8)
         self.assertLessEqual(peak_live,8)
-        self.assertEqual((live,len(db._idle)),(1,1))
+        self.assertEqual((live,len(db._idle)),(0,0))
 
     def test_failed_connect_releases_capacity_for_later_requests(self):
         with patch.object(db.psycopg,"connect",side_effect=db.psycopg.OperationalError("unavailable")):

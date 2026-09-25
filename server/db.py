@@ -12,6 +12,7 @@ _slots=BoundedSemaphore(8)
 _idle=[]
 _idle_lock=Lock()
 MAX_IDLE_CONNECTIONS=1
+_borrowers=0
 
 def close_idle_connections():
     with _idle_lock:
@@ -24,10 +25,13 @@ atexit.register(close_idle_connections)
 class DatabaseBusy(RuntimeError): pass
 @contextmanager
 def connection(settings):
-    if not _slots.acquire(timeout=3): raise DatabaseBusy()
-    conn=None
-    key=(settings.database_url,settings.environment)
+    global _borrowers
+    with _idle_lock:_borrowers+=1
+    acquired=False;conn=None
     try:
+        if not _slots.acquire(timeout=3): raise DatabaseBusy()
+        acquired=True
+        key=(settings.database_url,settings.environment)
         now=monotonic()
         with _idle_lock:
             while _idle:
@@ -52,12 +56,17 @@ def connection(settings):
         # Only clean autocommit connections can cross request boundaries.
         if not conn.closed and conn.info.transaction_status==TransactionStatus.IDLE:
             with _idle_lock:
-                if len(_idle)<MAX_IDLE_CONNECTIONS:
+                if _borrowers>1 and len(_idle)<MAX_IDLE_CONNECTIONS:
                     _idle.append((key,conn,created,monotonic()))
                     conn=None
     finally:
+        with _idle_lock:
+            _borrowers-=1
+            idle=list(_idle) if _borrowers==0 else []
+            if idle:_idle.clear()
+        for _,idle_conn,_,_ in idle:idle_conn.close()
         if conn is not None: conn.close()
-        _slots.release()
+        if acquired:_slots.release()
 @contextmanager
 def transaction(conn):
     with conn.transaction():

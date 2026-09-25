@@ -32,3 +32,10 @@
 - Official-link copy displayed `공식 혜택 링크를 복사했어요.`.
 - Read-only database inspection confirmed `loading_ready` on loading, `gemini_cta_viewed`, and `share_attempted` with source=gemini and statuses attempted/copied.
 - These are local UI/event checks, separate from remote load results.
+
+## User co-test on 78ce9be Preview
+
+- The 200-VU burst was gated until the start announcement was sent.
+- User explicitly reported: “화면과 게임이 정상으로 보였어.”
+- Load runner separately observed 17 HTTP 503 responses at game creation/start and stopped after 2.45 seconds of the burst.
+- A normal user observation does not override the load failure; see phase1-remote-load-burst-pool.json.

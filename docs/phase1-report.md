@@ -58,7 +58,7 @@
 
 | 항목 | 최종 확인 결과 |
 | --- | --- |
-| Python 전체 검사 | **108개 통과** |
+| Python 전체 검사 | **110개 통과** |
 | Node 프론트 회귀 검사 | **28개 통과** |
 | JavaScript 구문 검사 | 통과 |
 | Python compileall | 임시 pycache 경로에서 통과 |
@@ -68,7 +68,7 @@ Python 검사에는 PostgreSQL 기능·동시성·권한, 5,000명 합성 데이
 
 - [Python 검사 원본](evidence/phase1-local-python.txt)
 - [Node 검사 원본](evidence/phase1-local-node.txt)
-- 최신 기능 수정 전체에 대해 Python 108개, Node 28개를 다시 실행했다. 쿠키/관리자 권한 취소 뒤 캐시 재생 차단, 환급 거절 상태 보존, 동일 참가자 동시 추첨, 쿨다운 경계, 실제 빈 DB migration 및 지표 필터 검사를 포함한다.
+- 최신 기능 수정 전체에 대해 Python 110개, Node 28개를 다시 실행했다. 쿠키/관리자 권한 취소 뒤 캐시 재생 차단, 환급 거절 상태 보존, 동일 참가자 동시 추첨, 쿨다운 경계, 실제 빈 DB migration 및 지표 필터 검사를 포함한다.
 - 로딩 완료와 이번 방문의 게임 시작 귀속, Gemini 복사·공유 관측, 관리자 순위·이탈 체류 표시를 보완했다. 게임 물리 엔진은 `f57c3d1`과 diff가 없다.
 
 ## 4. 실제 브라우저 검증
@@ -212,8 +212,18 @@ Vercel의 연결 오류 분류와 같은 시간대 Supavisor handshake/connectin
 ### 7.5 연결 반환 개선 후보
 
 - 프로세스당 동시 연결 8개는 유지하고, 성공 요청 뒤 유휴 연결은 1개까지만 보유한다. 나머지는 즉시 닫는다. 다음 요청이나 백그라운드 타이머를 기다리지 않는다.
-- 로컬 검사에서 8개 동시 요청 완료 후 후속 checkout 없이 열린 연결 1개, 순차 요청 TLS 재사용, 동시 활성/실제 열린 연결 8개 이하를 검증했다. Python 전체 108개 통과.
+- 로컬 검사에서 8개 동시 요청 완료 후 후속 checkout 없이 열린 연결 1개, 순차 요청 TLS 재사용, 동시 활성/실제 열린 연결 8개 이하를 검증했다. Python 전체 110개 통과.
 - 이는 유휴 연결 누적을 줄이는 후보이며, 전체 배포의 동시 client 200개 미만을 보장하는 전역 제한은 아니다. 원격 성능은 다음 실행 결과로 판정한다.
+
+### 7.6 78ce9be 공동 시험 및 후속 후보
+
+- 사용자에게 시작을 알린 뒤 200명을 동시에 투입했다. 사용자는 “화면과 게임이 정상으로 보였어”라고 직접 확인했다.
+- 별도 부하 도구는 383호출 중 503 17건, timeout 0건, 완료 흐름 0건으로 중단됐다. 입장 200건은 성공했지만 게임 생성/시작에서 실패했다. 누적 22,746호출·1,964초 예약이며 확대 승인 한도는 40분이다.
+- 같은 시간대 Supavisor client 한도 로그 38건을 확인했다. 유휴 1개 보유만으로 전체 접속 한도 문제가 해결되지 않았다.
+- 후속 후보는 실행·대기 요청이 겹칠 때만 연결을 재사용하고 마지막 요청 종료 시 열린 유휴 연결을 모두 닫는다. 완전 순차 요청은 TLS를 다시 연결하므로 원격 지연도 재확인해야 한다.
+- 로컬 11개 연결 검사: 9개 겹친 요청이 연결 8개만 사용하고 마지막에 0개로 정리됨; 실패 시 슬롯·borrower 회복; 후속 checkout/백그라운드 타이머 불필요.
+
+[공동 시험 원본](evidence/phase1-remote-load-burst-pool.json)
 
 ## 8. 배포·주소 상태
 
@@ -256,7 +266,7 @@ Vercel의 연결 오류 분류와 같은 시간대 Supavisor handshake/connectin
 
 | 산출물 | 위치 |
 | --- | --- |
-| Python 108개 검사 | [phase1-local-python.txt](evidence/phase1-local-python.txt) |
+| Python 110개 검사 | [phase1-local-python.txt](evidence/phase1-local-python.txt) |
 | Node 28개 검사 | [phase1-local-node.txt](evidence/phase1-local-node.txt) |
 | 최초 부하 실패 | [phase1-remote-load-initial.json](evidence/phase1-remote-load-initial.json) |
 | 최종 Preview smoke | [phase1-final-preview-smoke.json](evidence/phase1-final-preview-smoke.json) |

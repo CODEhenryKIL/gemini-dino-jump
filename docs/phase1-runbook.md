@@ -60,9 +60,11 @@ Vercel 보호 설정은 유지합니다. 자동 검증에는 승인된 임시 �
 
 ## DB 연결 재사용과 503 진단
 
-- 서버 프로세스별 동시 DB 연결은 최대 8개이며 Supabase transaction pooler를 사용한다. 성공 후 트랜잭션이 종료된 연결만 재사용하며, 유휴 연결은 프로세스당 1개만 남기고 나머지를 즉시 닫는다. 순차 요청은 남긴 연결을 재사용한다.
-- 연결 수명 300초·유휴 60초는 다음 checkout 때 검사한다. 시간만 흐르거나 서버리스 프로세스가 동결되면 정리된다고 보장하지 않는다. 따라서 후속 요청 없이도 유휴 연결이 1개를 넘지 않도록 반환 시점의 상한으로 보호한다. 5초 넘게 유휴 상태였던 연결은 업무 처리 전에 확인한다. 업무 처리 도중 오류가 나면 연결을 폐기하며 변경 요청을 자동 재실행하지 않는다.
+- 서버 프로세스별 동시 DB 연결은 최대 8개이며 Supabase transaction pooler를 사용한다. 성공 후 트랜잭션이 종료된 연결만 재사용한다. 실행·대기 요청이 겹치는 동안만 유휴 연결 1개를 잠시 보유하고, 마지막 요청이 끝나면 모든 유휴 연결을 즉시 닫는다. 겹친 요청은 TLS 연결을 재사용하지만 완전히 순차적인 요청은 다시 연결한다.
+- 연결 수명 300초·유휴 60초는 다음 checkout 때 검사한다. 시간만 흐르거나 서버리스 프로세스가 동결되면 정리된다고 보장하지 않는다. 따라서 후속 요청 없이도 실행·대기 요청이 0개가 되는 시점에 유휴 연결도 0개가 되도록 반환 경로에서 정리한다. 5초 넘게 유휴 상태였던 연결은 업무 처리 전에 확인한다. 업무 처리 도중 오류가 나면 연결을 폐기하며 변경 요청을 자동 재실행하지 않는다.
 - statement/lock/idle transaction 제한은 `SET LOCAL`로 요청 트랜잭션에만 적용한다. 환경·스키마 버전·전용 역할 검사는 매 요청 수행한다.
 - 안전한 요청 로그의 `database_failure`는 연결 대기 초과일 때 `pool_wait`, 설정 오류는 `configuration`, PostgreSQL 오류는 SQLSTATE 또는 `connection`이다. 비밀번호·SQL 원문·연락처는 로그에 넣지 않는다.
 - 503이나 지연이 증가하면 Preview 요청 로그와 `pg_stat_activity`의 연결·잠금 대기를 함께 확인한다. 역할 연결 한도 또는 DB 규모를 자동 확대하지 않는다.
 - Supavisor의 client 접속 수와 실제 Postgres backend 연결 수는 다르다. `pg_stat_activity`가 적어도 pooler client 한도에 도달할 수 있다. 관측된 `EMAXCONN limit: 200`과 프로세스별 유휴 보유량을 함께 검사한다. 프로세스당 상한은 전체 배포의 동시 연결 200개를 보장하는 전역 제한이 아니다.
+
+공식 연결 한도 참고: [Supabase pooling limits](https://supabase.com/docs/guides/database/connecting-to-postgres/pooling-and-limits), [Vercel connection pooling and suspension](https://vercel.com/kb/guide/connection-pooling-with-functions). Postgres backend 연결과 Supavisor client 연결은 구분하며, Python에서 동결 후 백그라운드 정리가 실행된다고 가정하지 않는다.
