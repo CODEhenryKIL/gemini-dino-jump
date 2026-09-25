@@ -210,10 +210,15 @@ function renderTicketLedger(rows) {
   ], rows, '조회된 게임권 원장 집계가 없습니다.');
 }
 
+const CLAIM_STATUS_LABELS = {
+  AWAITING_INFORMATION: '정보 입력 대기', INFORMATION_RECEIVED: '정보 접수', PENDING_REVIEW: '확인 대기',
+  CONTACTED: '연락 완료', PAID: '지급 완료', ON_HOLD: '보류', INELIGIBLE: '대상 아님', NO_RESPONSE: '응답 없음',
+};
+
 function renderClaimSummary(rows) {
   renderTable(document.querySelector('#claim-summary'), [
     { label: '수령 유형', value: (row) => row.claim_type },
-    { label: '상태', value: (row) => row.status },
+    { label: '상태', value: (row) => CLAIM_STATUS_LABELS[row.status] || row.status },
     { label: '건수', value: (row) => row.claims },
     { label: '고유 참가자', value: (row) => row.participants },
   ], rows, '조회된 수령 상태 집계가 없습니다.');
@@ -221,6 +226,23 @@ function renderClaimSummary(rows) {
 
 function objectRows(value) {
   return Object.entries(value || {}).map(([key, count]) => ({ key, count }));
+}
+
+function sharingRows(sharing) {
+  return [
+    { label: '공유 시도', value: sharing?.attempt_events }, { label: '복사 성공', value: sharing?.copy_success_events },
+    { label: '공유창 종료', value: sharing?.share_sheet_closed_events }, { label: '공유 취소', value: sharing?.cancelled_events },
+    { label: '공유 실패', value: sharing?.failed_events }, { label: '실제 전송 완료', value: sharing?.actual_delivery || 'unknown' },
+    { label: '공유 고유 참가자', value: sharing?.linked_participants }, { label: '공유 미연결 이벤트', value: sharing?.unlinked_events },
+  ];
+}
+
+function sharingMethodColumns() {
+  return [
+    { label: '공유 수단', value: (row) => row.share_method || 'unknown' }, { label: '확인 상태', value: (row) => row.status || 'unknown' },
+    { label: '이벤트', value: (row) => row.events }, { label: '고유 참가자', value: (row) => row.linked_participants },
+    { label: '미연결 이벤트', value: (row) => row.unlinked_events },
+  ];
 }
 
 function renderOperationalBreakdowns(data) {
@@ -282,19 +304,12 @@ function renderOperationalBreakdowns(data) {
       ],
     },
     {
-      title: '공유 수단과 확인 가능한 상태', rows: data.sharing?.by_method_status || [], emptyText: '조회된 공유 시도가 없습니다.',
-      columns: [
-        { label: '공유 수단', value: (row) => row.share_method || 'unknown' }, { label: '확인 상태', value: (row) => row.status || 'unknown' },
-        { label: '이벤트', value: (row) => row.events }, { label: '연결 참가자', value: (row) => row.linked_participants },
-        { label: '미연결 이벤트', value: (row) => row.unlinked_events },
-      ],
+      title: '초대 공유 수단과 확인 가능한 상태', rows: data.sharing?.invitation_sharing?.by_method_status || [], emptyText: '조회된 초대 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
     },
     {
-      title: '공유·초대 전환 요약', rows: [
-        { label: '공유 시도', value: data.sharing?.attempt_events }, { label: '복사 성공', value: data.sharing?.copy_success_events },
-        { label: '공유창 종료', value: data.sharing?.share_sheet_closed_events }, { label: '공유 취소', value: data.sharing?.cancelled_events },
-        { label: '공유 실패', value: data.sharing?.failed_events }, { label: '실제 전송 완료', value: data.sharing?.actual_delivery || 'unknown' },
-        { label: '공유 연결 참가자', value: data.sharing?.linked_participants }, { label: '공유 미연결 이벤트', value: data.sharing?.unlinked_events },
+      title: '초대 공유·전환 요약', rows: [
+        ...sharingRows(data.sharing?.invitation_sharing),
         { label: '초대권 지급', value: data.invitation_performance?.grant_events }, { label: '지급 참가자', value: data.invitation_performance?.granted_participants },
         { label: '초대권 사용', value: data.invitation_performance?.use_events }, { label: '사용 참가자', value: data.invitation_performance?.using_participants },
         { label: '기간 내 사용/지급 비율', value: data.invitation_performance?.period_use_to_grant_ratio == null ? '계산 대상 없음' : `${(Number(data.invitation_performance.period_use_to_grant_ratio) * 100).toFixed(1)}%` },
@@ -308,14 +323,29 @@ function renderOperationalBreakdowns(data) {
     },
   ]);
   const gemini = objectRows(data.gemini_conversion).concat([
-    { key: '노출 후 클릭 분자', count: data.gemini_ctr?.numerator },
-    { key: '노출 분모', count: data.gemini_ctr?.denominator },
-    { key: 'CTR', count: data.gemini_ctr?.rate == null ? '계산 대상 없음' : `${(Number(data.gemini_ctr.rate) * 100).toFixed(1)}%` },
+    { key: '관찰 완료 후 클릭 참가자', count: data.gemini_ctr?.numerator },
+    { key: '관찰 완료 노출 참가자 (분모)', count: data.gemini_ctr?.denominator },
+    { key: '관찰 완료 후 미클릭 참가자', count: data.gemini_ctr ? data.gemini_ctr.denominator - data.gemini_ctr.numerator : null },
+    { key: '관찰 중 참가자 (확정 집계 제외)', count: data.gemini_ctr?.pending_participants },
+    { key: '관찰 중 참가자의 노출 이벤트', count: data.gemini_ctr?.pending_exposure_events },
+    { key: '관찰 완료 CTR', count: data.gemini_ctr?.rate == null ? '계산 대상 없음' : `${(Number(data.gemini_ctr.rate) * 100).toFixed(1)}%` },
   ]);
   renderTableGroup(document.querySelector('#gemini-summary'), [
     {
       title: 'Gemini 전환', rows: gemini, emptyText: '조회된 Gemini 전환이 없습니다.',
       columns: [{ label: 'Gemini 항목', value: (row) => row.key }, { label: '값', value: (row) => row.count }],
+    },
+    {
+      title: 'Gemini 링크 복사·공유 요약', rows: sharingRows(data.sharing?.gemini_sharing), emptyText: '조회된 Gemini 공유 시도가 없습니다.',
+      columns: [{ label: '항목', value: (row) => row.label }, { label: '값', value: (row) => row.value }],
+    },
+    {
+      title: 'Gemini 공유 수단과 확인 가능한 상태', rows: data.sharing?.gemini_sharing?.by_method_status || [], emptyText: '조회된 Gemini 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
+    },
+    {
+      title: '목적 미확인 공유 (초대·Gemini 합계 제외)', rows: sharingRows(data.sharing?.unknown_sharing), emptyText: '목적 미확인 공유가 없습니다.',
+      columns: [{ label: '항목', value: (row) => row.label }, { label: '값', value: (row) => row.value }],
     },
     {
       title: '콘텐츠별 클릭·경유', rows: data.content || [], emptyText: '조회된 승인 콘텐츠 행동이 없습니다.',
@@ -396,7 +426,7 @@ function claimEditor(claim) {
   const item = document.createElement('article'); item.className = 'admin-claim-row';
   const info = document.createElement('div');
   const claimTitle = claim.claim_type === 'RANKING' ? '잠정 TOP3 연락 접수' : (claim.prize_name || '경품 수령 요청');
-  const title = document.createElement('strong'); title.textContent = `${claimTitle} · ${claim.status}`;
+  const title = document.createElement('strong'); title.textContent = `${claimTitle} · ${CLAIM_STATUS_LABELS[claim.status] || claim.status}`;
   const meta = document.createElement('p'); meta.textContent = `담당 ${claim.assignee_display_name || claim.assignee_user_id || '미지정'} · 버전 ${claim.version}`;
   const privateInfo = document.createElement('p'); privateInfo.className = 'private-contact';
   privateInfo.textContent = `연락 정보: ${claim.recipient_name || '미접수'} · ${claim.contact || '-'} · ${claim.school || '-'} · ${claim.address || '-'}`;
@@ -406,14 +436,27 @@ function claimEditor(claim) {
     rankingRestriction.textContent = '잠정 TOP3는 최종 수상 확정 전이므로 지급 완료로 변경할 수 없습니다.';
     info.appendChild(rankingRestriction);
   }
+  const awaitingInformation = claim.status === 'AWAITING_INFORMATION';
+  const needsContact = !claim.contact_submitted_at || !claim.recipient_name || !claim.contact;
+  if (awaitingInformation || needsContact) {
+    const note = document.createElement('p'); note.className = 'status-note';
+    note.textContent = '참가자가 수령 정보를 제출한 뒤 확인·연락·지급 상태로 변경할 수 있습니다.';
+    info.appendChild(note);
+  }
   const state = document.createElement('select');
-  for (const status of ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID', 'ON_HOLD', 'INELIGIBLE', 'NO_RESPONSE']) { const option = document.createElement('option'); option.value = status; option.textContent = status; option.selected = claim.status === status; option.disabled = claim.claim_type === 'RANKING' && status === 'PAID'; state.appendChild(option); }
+  for (const [status, label] of Object.entries(CLAIM_STATUS_LABELS)) {
+    const option = document.createElement('option'); option.value = status; option.textContent = label; option.selected = claim.status === status;
+    option.disabled = (claim.claim_type === 'RANKING' && status === 'PAID')
+      || (awaitingInformation ? status !== 'AWAITING_INFORMATION' : status === 'AWAITING_INFORMATION');
+    state.appendChild(option);
+  }
   const assignee = document.createElement('input'); assignee.placeholder = '담당자 user id'; assignee.value = claim.assignee_user_id || ''; assignee.maxLength = 80;
   const reason = document.createElement('input'); reason.placeholder = '변경 사유'; reason.maxLength = 160;
-  const external = document.createElement('label'); const externalBox = document.createElement('input'); externalBox.type = 'checkbox'; externalBox.checked = Boolean(claim.external_delivery); const externalText = document.createElement('span'); externalText.textContent = '외부 전달 완료'; external.append(externalBox, externalText);
+  const external = document.createElement('label'); const externalBox = document.createElement('input'); externalBox.type = 'checkbox'; externalBox.checked = Boolean(claim.external_delivery); externalBox.disabled = awaitingInformation || needsContact; const externalText = document.createElement('span'); externalText.textContent = '외부 전달 완료'; external.append(externalBox, externalText);
   const save = document.createElement('button'); save.className = 'btn btn-primary btn-sm'; save.textContent = '상태 저장';
-  if (!adminPermissions.has('claims:write')) {
-    state.disabled = true; assignee.disabled = true; reason.disabled = true; externalBox.disabled = true; save.disabled = true; save.textContent = '읽기 전용';
+  if (!adminPermissions.has('claims:write') || awaitingInformation || needsContact) {
+    state.disabled = true; assignee.disabled = true; reason.disabled = true; externalBox.disabled = true; save.disabled = true;
+    save.textContent = awaitingInformation ? '수령 정보 입력 대기' : needsContact ? '수령 정보 확인 필요' : '읽기 전용';
   }
   save.onclick = async () => {
     save.disabled = true;

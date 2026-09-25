@@ -347,6 +347,10 @@ def ranking_profile_post(conn,body,ctx):
     claim_id=existing["id"] if existing else _id("claim")
     if not existing:conn.execute("insert into dino_dev.claim(id,campaign_id,participant_id,claim_type) values(%s,%s,%s,'RANKING')",(claim_id,p["campaign_id"],p["id"]))
     conn.execute("insert into dino_dev.claim_contact(claim_id,recipient_name,contact,school) values(%s,%s,%s,%s) on conflict(claim_id) do nothing",(claim_id,name[:80],contact[:32],school[:120]))
+    conn.execute("""update dino_dev.claim set
+      status=case when status='AWAITING_INFORMATION' then 'INFORMATION_RECEIVED' else status end,
+      contact_submitted_at=coalesce(contact_submitted_at,clock_timestamp()),updated_at=clock_timestamp()
+      where id=%s""",(claim_id,))
     row=_one(conn,"update dino_dev.ranking_contact set status='SUBMITTED',recipient_name=null,contact=null,school=null,submitted_at=coalesce(submitted_at,clock_timestamp()),updated_at=clock_timestamp() where participant_id=%s returning *",(p["id"],))
     return 200,{"status":"SUBMITTED","submitted_at":_iso(row["submitted_at"]),"claim_id":claim_id}
 
@@ -398,7 +402,7 @@ def scratch_complete(conn,did,ctx):
 def claims(conn,ctx):
     p=_participant(conn,ctx); rows=_all(conn,"""select c.id,c.claim_type,c.status,c.created_at,c.contact_submitted_at,p.name prize_name,p.category
       from dino_dev.claim c left join dino_dev.prize p on p.id=c.prize_id where c.participant_id=%s order by c.created_at desc""",(p["id"],))
-    return 200,{"claims":[{"id":r["id"],"type":r["claim_type"],"prize_name":r["prize_name"],"category":r["category"],"status":r["status"],"created_at":_iso(r["created_at"]),"contact_submitted":bool(r["contact_submitted_at"])} for r in rows]}
+    return 200,{"claims":[{"id":r["id"],"type":r["claim_type"],"claim_type":r["claim_type"],"prize_name":r["prize_name"],"category":r["category"],"status":r["status"],"created_at":_iso(r["created_at"]),"contact_submitted":bool(r["contact_submitted_at"])} for r in rows]}
 def submit_claim(conn,cid,body,ctx):
     p=_participant(conn,ctx,active=True); claim=_one(conn,"select * from dino_dev.claim where id=%s and participant_id=%s for update",(cid,p["id"]))
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
@@ -407,9 +411,12 @@ def submit_claim(conn,cid,body,ctx):
     name,contact,school,address=(str(body.get(k) or "").strip() for k in ("name","contact","school","address"))
     if not name.startswith("TEST_") or contact!="01000000000" or (school and not school.startswith("TEST_")) or (address and not address.startswith("TEST_")): raise DomainError("SYNTHETIC_DATA_REQUIRED","개발 환경에서는 합성 정보만 입력할 수 있습니다.")
     conn.execute("insert into dino_dev.claim_contact(claim_id,recipient_name,contact,school,address) values(%s,%s,%s,%s,%s)",(cid,name[:80],contact[:32],school[:120] or None,address[:300] or None))
-    claim=_one(conn,"update dino_dev.claim set status='INFORMATION_RECEIVED',contact_submitted_at=clock_timestamp(),updated_at=clock_timestamp() where id=%s returning *",(cid,))
+    claim=_one(conn,"""update dino_dev.claim set
+      status=case when status='AWAITING_INFORMATION' then 'INFORMATION_RECEIVED' else status end,
+      contact_submitted_at=coalesce(contact_submitted_at,clock_timestamp()),updated_at=clock_timestamp()
+      where id=%s returning *""",(cid,))
     _event(conn,"claim_information_received",ctx,p["id"],"claim_submit:"+cid,dimensions={"claim_type":claim["claim_type"]})
-    return 200,{"id":cid,"status":"INFORMATION_RECEIVED","submitted_at":_iso(claim["contact_submitted_at"])}
+    return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
 
 CLIENT_EVENTS={"entry_viewed","participant_ready","loading_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","notion_redirect_requested","page_view"}
 SCREENS={"loading","home","game","result","draw","claim","claims","invite","benefit","ranking","content","admin"}
@@ -502,8 +509,10 @@ def admin_claim_patch(conn,cid,body,ctx):
     try:expected=int(body.get("expected_version"))
     except (TypeError,ValueError):expected=-1
     if expected!=claim["version"]:raise DomainError("VERSION_CONFLICT","다른 관리자가 먼저 변경했습니다.",409)
+    contact=_one(conn,"select claim_id from dino_dev.claim_contact where claim_id=%s",(cid,))
+    if not claim["contact_submitted_at"] or not contact:raise DomainError("CLAIM_INFORMATION_REQUIRED","당첨자가 수령 정보를 입력한 뒤에 처리할 수 있습니다.",409)
     status=str(body.get("status") or claim["status"]); changing_status=status!=claim["status"]
-    transitions={"INFORMATION_RECEIVED":{"PENDING_REVIEW","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"PENDING_REVIEW":{"CONTACTED","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"CONTACTED":{"PAID","ON_HOLD","NO_RESPONSE"},"ON_HOLD":{"PENDING_REVIEW","INELIGIBLE","NO_RESPONSE"},"NO_RESPONSE":{"PENDING_REVIEW","INELIGIBLE"},"PAID":set(),"INELIGIBLE":set()}
+    transitions={"AWAITING_INFORMATION":set(),"INFORMATION_RECEIVED":{"PENDING_REVIEW","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"PENDING_REVIEW":{"CONTACTED","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"CONTACTED":{"PAID","ON_HOLD","NO_RESPONSE"},"ON_HOLD":{"PENDING_REVIEW","INELIGIBLE","NO_RESPONSE"},"NO_RESPONSE":{"PENDING_REVIEW","INELIGIBLE"},"PAID":set(),"INELIGIBLE":set()}
     if changing_status and status not in transitions.get(claim["status"],set()):raise DomainError("INVALID_CLAIM_TRANSITION","현재 상태에서 해당 처리로 변경할 수 없습니다.",409)
     if changing_status and claim["claim_type"]=="RANKING" and status=="PAID":raise DomainError("FINAL_RANKING_UNDECIDED","최종 순위·동점 정책 확정 전에는 랭킹 선물을 지급 완료로 처리할 수 없습니다.",409)
     reason=str(body.get("reason") or "").strip()

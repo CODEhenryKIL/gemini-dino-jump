@@ -1,6 +1,6 @@
 # Phase 1 policy decisions
 
-Effective 2026-09-25. The user's latest annotations and follow-up answers override older draft/common/phase2/phase3 wording. The supplied original planning file source_user_plan.md is unavailable; no invented original is created.
+Effective 2026-09-25. The user's latest annotations and follow-up answers override older draft/common/phase2/phase3 wording. The previously missing source_user_plan.md was supplied and saved on 2026-09-25. The user reconfirmed that a new invitation reward bringing the balance to 3 starts the cooldown; the supplied plan now reflects this correction.
 
 ## Fixed for implementation
 

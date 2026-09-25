@@ -186,9 +186,16 @@ class AcceptanceRegressionTest(unittest.TestCase):
         admin_id = self.admin(["claims:read", "claims:write"])
         with psycopg.connect(DSN) as conn:
             conn.execute(
-                "insert into dino_dev.claim(id,campaign_id,participant_id,claim_type,status) "
-                "values(%s,%s,%s,'DRAW','PENDING_REVIEW')",
+                "insert into dino_dev.claim"
+                "(id,campaign_id,participant_id,claim_type,status,contact_submitted_at) "
+                "values(%s,%s,%s,'DRAW','PENDING_REVIEW',clock_timestamp())",
                 (claim_id, CAMPAIGN_ID, participant["id"]),
+            )
+            conn.execute(
+                "insert into dino_dev.claim_contact"
+                "(claim_id,recipient_name,contact,school) "
+                "values(%s,'TEST_claimant','01000000000','TEST_school')",
+                (claim_id,),
             )
         body = {
             "status": "CONTACTED",

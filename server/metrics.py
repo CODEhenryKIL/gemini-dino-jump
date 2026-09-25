@@ -114,14 +114,50 @@ def build_overview(conn, query, ctx):
     for row in loading:
         decided = row['observations'] - row['pending']
         row['estimated_exit_rate'] = row['estimated_exits'] / decided if decided else None
-    # Every click must follow an exposure at the SAME location, within the
-    # observation window AND selected report period/environment/campaign.
-    ctr = one('''select count(distinct v.person_id)::int exposed,count(*)::int exposure_events,
-      count(distinct v.person_id) filter(where exists(select 1 from events c where c.source='client'
-        and c.event_name='gemini_cta_clicked' and c.person_id=v.person_id
-        and coalesce(c.dimensions->>'position','unknown')=coalesce(v.dimensions->>'position','unknown')
-        and c.occurred_at>=v.occurred_at and c.occurred_at<=v.occurred_at+make_interval(secs=>%s)))::int clicked
-      from events v where v.source='client' and v.person_id is not null and v.event_name='gemini_cta_viewed' ''', (window,))
+    # CTR is final only when the complete observation window ends strictly
+    # before the report end. Events are scoped with received_at < report end,
+    # so an exposure ending exactly there must remain pending until a later report.
+    # Reduce repeated exposures to participant+position first, then de-duplicate
+    # participants again for the overall rate. A newer open exposure must never
+    # erase an older, closed conversion for the same participant.
+    ctr_scope = ''' , exposure_status as (
+      select v.person_id,coalesce(v.dimensions->>'position','unknown') position,v.occurred_at,
+        v.occurred_at<%s-make_interval(secs=>%s) closed,
+        exists(select 1 from events c where c.source='client'
+          and c.event_name='gemini_cta_clicked' and c.person_id=v.person_id
+          and coalesce(c.dimensions->>'position','unknown')=coalesce(v.dimensions->>'position','unknown')
+          and c.occurred_at>=v.occurred_at
+          and c.occurred_at<=v.occurred_at+make_interval(secs=>%s)) clicked
+      from events v where v.source='client' and v.person_id is not null
+        and v.event_name='gemini_cta_viewed'
+    ), participant_position as (
+      select person_id,position,bool_or(closed) closed,
+        bool_or(closed and clicked) clicked,
+        count(*) filter(where closed)::int exposure_events,
+        count(*) filter(where not closed)::int pending_exposure_events
+      from exposure_status group by person_id,position
+    ), participant_ctr as (
+      select person_id,bool_or(closed) closed,bool_or(clicked) clicked,
+        sum(exposure_events)::int exposure_events,
+        sum(pending_exposure_events)::int pending_exposure_events
+      from participant_position group by person_id
+    ) '''
+    ctr_args = (end, window, window)
+    ctr = one(ctr_scope + '''select count(*) filter(where closed)::int exposed,
+      coalesce(sum(exposure_events),0)::int exposure_events,
+      count(*) filter(where clicked)::int clicked,
+      count(*) filter(where not closed)::int pending_participants,
+      coalesce(sum(pending_exposure_events) filter(where not closed),0)::int pending_exposure_events
+      from participant_ctr''', ctr_args)
+    ctr_by_position = rows(ctr_scope + '''select position,
+      count(*) filter(where closed)::int denominator,
+      count(*) filter(where clicked)::int numerator,
+      count(*) filter(where not closed)::int pending_participants,
+      coalesce(sum(exposure_events),0)::int exposure_events,
+      coalesce(sum(pending_exposure_events) filter(where not closed),0)::int pending_exposure_events
+      from participant_position group by position order by position''', ctr_args)
+    for row in ctr_by_position:
+        row['rate'] = row['numerator'] / row['denominator'] if row['denominator'] else None
     conversion = one('''select count(distinct person_id) filter(where event_name='gemini_cta_clicked')::int direct,
       count(*) filter(where event_name='gemini_cta_clicked')::int direct_events,
       0::int via_notion,
@@ -237,6 +273,11 @@ def build_overview(conn, query, ctx):
     invitation = rows("""select v.status,coalesce(v.reason,'unknown') reason,count(*)::int visits,
       count(distinct v.visitor_id)::int visitors from dino_dev.invitation_visit v join people p on p.id=v.inviter_id
       where v.created_at>=%s and v.created_at<%s group by 1,2 order by 1,2""", (start,end))
+    sharing_purpose_case = """case
+      when dimensions->>'source'='gemini' then 'gemini'
+      when screen='invite' or dimensions ? 'share_id'
+        or dimensions->>'link_kind' in ('invite','retry_invite','prize_share') then 'invitation'
+      else 'unknown' end"""
     sharing = rows("""select coalesce(dimensions->>'share_method','unknown') share_method,
       coalesce(dimensions->>'status','unknown') status,count(*)::int events,
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
@@ -246,15 +287,46 @@ def build_overview(conn, query, ctx):
     sharing_totals = one("""select count(distinct person_id) filter(where person_id is not null)::int linked_participants,
       count(*) filter(where person_id is null)::int unlinked_events
       from events where source='client' and event_name='share_attempted'""")
-    sharing_summary = {
-      **sharing_totals,
-      'attempt_events': sum(r['events'] for r in sharing if r['status'] == 'attempted'),
-      'copy_success_events': sum(r['events'] for r in sharing if r['share_method'] == 'copy' and r['status'] == 'copied'),
-      'share_sheet_closed_events': sum(r['events'] for r in sharing if r['status'] == 'share_sheet_closed'),
-      'cancelled_events': sum(r['events'] for r in sharing if r['status'] == 'cancelled'),
-      'failed_events': sum(r['events'] for r in sharing if r['status'] == 'failed'),
-      'actual_delivery': 'unknown',
-    }
+    sharing_by_purpose = rows(f"""select purpose,share_method,status,count(*)::int events,
+      count(distinct person_id) filter(where person_id is not null)::int linked_participants,
+      count(*) filter(where person_id is null)::int unlinked_events
+      from (select {sharing_purpose_case} purpose,
+        coalesce(dimensions->>'share_method','unknown') share_method,
+        coalesce(dimensions->>'status','unknown') status,person_id
+        from events where source='client' and event_name='share_attempted') s
+      group by 1,2,3 order by 1,2,3""")
+    sharing_purpose_totals = rows(f"""select purpose,
+      count(distinct person_id) filter(where person_id is not null)::int linked_participants,
+      count(*) filter(where person_id is null)::int unlinked_events
+      from (select {sharing_purpose_case} purpose,person_id
+        from events where source='client' and event_name='share_attempted') s
+      group by 1 order by 1""")
+
+    def sharing_summary(grouped, totals):
+        return {
+          **totals,
+          'event_count': sum(r['events'] for r in grouped),
+          'unique_participants': totals['linked_participants'],
+          'by_method_status': grouped,
+          'attempt_events': sum(r['events'] for r in grouped if r['status'] == 'attempted'),
+          'copy_success_events': sum(r['events'] for r in grouped if r['share_method'] == 'copy' and r['status'] == 'copied'),
+          'share_sheet_closed_events': sum(r['events'] for r in grouped if r['status'] == 'share_sheet_closed'),
+          'cancelled_events': sum(r['events'] for r in grouped if r['status'] == 'cancelled'),
+          'failed_events': sum(r['events'] for r in grouped if r['status'] == 'failed'),
+          'actual_delivery': 'unknown',
+        }
+
+    sharing_summary_all = sharing_summary(sharing, sharing_totals)
+    purpose_summaries = {}
+    purpose_totals = {row['purpose']: row for row in sharing_purpose_totals}
+    for purpose in ('gemini', 'invitation', 'unknown'):
+        grouped = [{k: v for k, v in row.items() if k != 'purpose'}
+                   for row in sharing_by_purpose if row['purpose'] == purpose]
+        purpose_total = purpose_totals.get(purpose, {'linked_participants': 0, 'unlinked_events': 0})
+        purpose_summaries[purpose] = sharing_summary(grouped, {
+          'linked_participants': purpose_total['linked_participants'],
+          'unlinked_events': purpose_total['unlinked_events'],
+        })
     invitation_performance = one(""", grants as (
       select l.* from dino_dev.ticket_ledger l join people p on p.id=l.participant_id
       where l.ticket_kind='INVITATION' and l.source_type='INVITATION_GRANT'
@@ -330,8 +402,9 @@ def build_overview(conn, query, ctx):
       _metric('game.pending','진행 중 게임',game['ongoing'],unique=game['ongoing_participants'],events=game['ongoing'],window=window),
       _metric('game.fault_review','장애 판정 대기',game['needs_review'],unique=game['needs_review_participants'],events=game['needs_review'],window=window),
       _metric('ranking.registration','잠정 TOP3 정보 등록',ranking['submitted'],ranking['requested'],unique=ranking['submitted'],events=ranking['requested'],definition='최종 수상 확정·지급과 별도',window=window),
-      _metric('gemini.ctr','Gemini 노출 후 클릭',ctr['clicked'],ctr['exposed'],unique=ctr['clicked'],events=ctr['exposure_events'],definition='같은 참가자·위치의 노출 이후 관측창 내 클릭 교집합',window=window),
-      _metric('gemini.nonclick','Gemini 노출 후 미클릭',ctr['exposed']-ctr['clicked'],ctr['exposed'],unique=ctr['exposed']-ctr['clicked'],events=ctr['exposure_events'],window=window),
+      _metric('gemini.ctr','Gemini 노출 후 클릭',ctr['clicked'],ctr['exposed'],unique=ctr['clicked'],events=ctr['exposure_events'],definition='관측창이 닫힌 노출 중 같은 참가자·위치에서 노출 이후 창 안에 클릭한 고유 참가자',window=window),
+      _metric('gemini.nonclick','Gemini 노출 후 미클릭',ctr['exposed']-ctr['clicked'],ctr['exposed'],unique=ctr['exposed']-ctr['clicked'],events=ctr['exposure_events'],definition='관측창이 닫힌 노출만 확정 미클릭으로 집계; 열린 노출은 pending',window=window),
+      _metric('gemini.pending','Gemini 클릭 관측 대기',ctr['pending_participants'],unique=ctr['pending_participants'],events=ctr['pending_exposure_events'],definition='닫힌 노출 없이 아직 열린 관측창의 노출만 있는 고유 참가자',window=window),
       _metric('gemini.union','현재 활성 경로의 Gemini 클릭 고유 참가자',conversion['union_participants'],unique=conversion['union_participants'],events=conversion['direct_events'],window=window),
       _metric('loading.unlinked','참가자 미연결 초기 관측',totals['unlinked_observations'],events=totals['unlinked_observations'],window=window),
     ])
@@ -344,19 +417,28 @@ def build_overview(conn, query, ctx):
       loading={'buckets':loading,'estimated':True}, screens=screens, game=game, score_distribution=score_distribution, leaderboard=leaderboard,
       source_funnel=source_funnel, ticket_ledger=ledger, claims=claims, ranking=ranking,
       stages=stages,result_dwell=result_dwell,invitation=invitation,
-      sharing={'by_method_status':sharing, **sharing_summary}, invitation_performance=invitation_performance,
+      sharing={'by_purpose':sharing_by_purpose,
+        'gemini_sharing':purpose_summaries['gemini'],
+        'invitation_sharing':purpose_summaries['invitation'],
+        'unknown_sharing':purpose_summaries['unknown'],
+        **sharing_summary_all}, invitation_performance=invitation_performance,
       game_progress={'by_last_stage':game_progress_rows,'unlinked_checkpoint_events':unlinked_game_progress},
       content=content,claim_conversion=claim_conversion,
-      gemini_ctr={'numerator':ctr['clicked'],'denominator':ctr['exposed'],'rate':ctr['clicked']/ctr['exposed'] if ctr['exposed'] else None},
+      gemini_ctr={'numerator':ctr['clicked'],'denominator':ctr['exposed'],
+        'rate':ctr['clicked']/ctr['exposed'] if ctr['exposed'] else None,
+        'exposure_events':ctr['exposure_events'],
+        'pending_participants':ctr['pending_participants'],
+        'pending_exposure_events':ctr['pending_exposure_events'],
+        'by_position':ctr_by_position},
       gemini_conversion=conversion, definitions={
         'scope':'합성 테스트 데이터만 포함; 운영 통계로 사용 금지',
         'source_funnel':'최초 유입과 이번 방문을 별도 표시. 신규는 조회 기간 중 생성된 참가자, 재방문은 기간 이전 생성 참가자. 전환율 분모는 해당 행의 연결된 고유 참가자. 이번 방문의 서버 이벤트 연결이 없으면 0이며 인과를 추정하지 않음.',
         'loading':'준비 완료 전 마지막 관측 기반 추정. 관측창 진행 중은 이탈 제외. unknown은 활성 시간 미관측.',
         'active_ms':'누적 체크포인트 합산이 아닌 방문·화면별 최대값 합계',
         'stage_active_dwell':'같은 화면 진입에서 후속 단계까지 관측된 누적 활성 시간 차이. 신호가 없으면 active_dwell_unknown이며 wall clock으로 대체하지 않음.',
-        'sharing':'클라이언트가 관측한 공유 수단 호출·복사 성공·취소·실패. 실제 전송·수신·도착 여부는 unknown.',
+        'sharing':'클라이언트가 관측한 공유 수단 호출·복사 성공·취소·실패. Gemini·초대·근거 없는 unknown 목적을 분리하며 실제 전송·수신·도착 여부는 unknown.',
         'invitation_performance':'지급·사용은 서버 티켓 원장. 쿨다운 후 재획득은 과거 cooldown_until 종료 뒤 발생한 새 지급이며, 재참여는 그 뒤의 초대권 소비.',
         'game_progress':'서버 승인 게임별 마지막 연결된 클라이언트 체크포인트. 연결되지 않은 체크포인트와 활성 시간 미관측은 별도 unknown.',
         'content':'콘텐츠별 클라이언트 클릭 및 승인된 Notion 이동 요청. linked_participants는 중복 제거, unlinked_events는 별도.',
-        'gemini':'클릭은 도착·인증·가입 완료가 아님; 0분모는 계산 대상 없음',
+        'gemini':'CTR은 보고 종료 시점에 관측창이 닫힌 노출만 확정 분모로 사용. 열린 노출만 있는 참가자는 pending이며 클릭은 도착·인증·가입 완료가 아님; 0분모는 계산 대상 없음',
       })

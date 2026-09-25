@@ -1,6 +1,6 @@
 # Dino Jump Phase 1 API contract
 
-This contract is the frontend/backend boundary for `codex/phase1-clean-start`. All JSON responses use UTF-8. Private responses send `Cache-Control: no-store`. Timestamps are ISO 8601 UTC strings. IDs are opaque strings.
+This contract is the frontend/backend boundary for `codex/phase1-followup-fixes` (based on `codex/phase1-clean-start`). All JSON responses use UTF-8. Private responses send `Cache-Control: no-store`. Timestamps are ISO 8601 UTC strings. IDs are opaque strings.
 
 ## Common rules
 
@@ -143,9 +143,9 @@ Returns participant-owned claim summaries only: `{claims:[{id,type:"DRAW|RANKING
 
 ### `POST /api/claims/{id}/submit`
 
-Body `{name,contact,school?,address?,event_id}`. Stores private contact separately from analytics and returns `{id,status:"INFORMATION_RECEIVED",submitted_at}`.
+Body `{name,contact,school?,address?,event_id}`. A new winning `DRAW` claim starts as `AWAITING_INFORMATION`. The first actual submission stores private contact separately from analytics and moves it to `INFORMATION_RECEIVED`. Submitting an already-submitted claim returns its current status/timestamp without overwriting contact or rolling back administrator progress. A first-time late contact submission on a legacy claim preserves its existing workflow state, including terminal states; the participant UI offers the missing-contact entry form for every nonterminal state, including hold/no-response/contacted, and hides it only for `PAID` or `INELIGIBLE`. A `RANKING` claim is created with submitted contact and starts as `INFORMATION_RECEIVED`.
 
-Manual states are `INFORMATION_RECEIVED`, `PENDING_REVIEW`, `CONTACTED`, `PAID`, `ON_HOLD`, `INELIGIBLE`, `NO_RESPONSE`. Contact and actual payment are distinct transitions.
+Claim states are `AWAITING_INFORMATION`, `INFORMATION_RECEIVED`, `PENDING_REVIEW`, `CONTACTED`, `PAID`, `ON_HOLD`, `INELIGIBLE`, `NO_RESPONSE`. Contact and actual payment are distinct transitions.
 
 ## Analytics
 
@@ -165,7 +165,11 @@ Returns `{authenticated:true,admin:{user_id,display_name,permissions}}` after Au
 
 ### `GET /api/admin/overview?from=&to=&environment=&link_kind=&channel=&content=&won=`
 
-Returns refreshed-at/observation-window metadata, numerator, denominator, unique participants, event count and `estimated` flags for each metric. Includes loading pre-auth/unlinked cohorts, game/referral/draw/claim funnels, active-time buckets, and ordered exposure CTR. CTR is `|V∩C_after_exposure| / |V|`; zero exposure returns `rate:null`.
+Returns refreshed-at/observation-window metadata, numerator, denominator, unique participants, event count and `estimated` flags for each metric. Includes loading pre-auth/unlinked cohorts, game/referral/draw/claim funnels, active-time buckets, and ordered exposure CTR. CTR uses only participants with an exposure whose observation-window endpoint is strictly before the exclusive report end. Clicks must occur at the same position, after the exposure and within that exposure's window. Overall numerator and denominator deduplicate participants across repeated exposures and positions; zero closed exposure returns `rate:null`.
+
+`gemini_ctr` contains `numerator`, `denominator`, `rate`, `exposure_events`, `pending_participants`, `pending_exposure_events`, and `by_position`. Pending participants have open exposures but no closed exposure in scope. Pending event counts count their open exposures; a new exposure never removes an older closed conversion. `by_position` applies the same rule within each position, so its unique counts must not be summed to obtain the overall count. The `gemini.nonclick` metric counts closed-cohort participants without a qualifying click, and `gemini.pending` is displayed separately.
+
+`sharing` keeps its legacy all-purpose totals and adds `by_purpose`, `gemini_sharing`, `invitation_sharing`, and `unknown_sharing`. Each purpose summary includes `event_count`, `unique_participants`, `linked_participants`, `unlinked_events`, `by_method_status` and the observed method/status counters. `source=gemini` takes priority; invite screen, an opaque share ID or invitation link kind is invitation evidence; remaining observations are unknown. The dashboard uses purpose-specific summaries, never all-purpose totals as invitation totals.
 
 ### `GET /api/admin/claims?status=&type=&assignee=&limit=&cursor=`
 
@@ -173,7 +177,7 @@ Returns private claim work items only to `claims:read` members, including assign
 
 ### `PATCH /api/admin/claims/{id}`
 
-Body `{status?,assignee_user_id?,reason?,external_delivery?,verification_status?,verification_reference?,expected_version,event_id}`. `verification_reference` is an opaque synthetic `TEST_REF_*` reference only; Phase 1 accepts no real proof upload. Claim, inventory and audit updates are atomic. Version mismatch returns `409 VERSION_CONFLICT`; replay never increments payout/inventory counts twice.
+Body `{status?,assignee_user_id?,reason?,external_delivery?,verification_status?,verification_reference?,expected_version,event_id}`. `verification_reference` is an opaque synthetic `TEST_REF_*` reference only; Phase 1 accepts no real proof upload. Claim, inventory and audit updates are atomic. Version mismatch returns `409 VERSION_CONFLICT`; replay never increments payout/inventory counts twice. `AWAITING_INFORMATION` claims cannot be processed by an administrator before participant submission. Every administrator patch also requires both a submission timestamp and a private contact record for preserved legacy records; manually changing a status cannot fabricate a submission.
 
 `RANKING` claims may progress through review and contact, but `PAID` returns `409 FINAL_RANKING_UNDECIDED` while the only available ranking snapshot is `DRAFT` with `tie_policy:"UNDECIDED"`. `DRAW` claims keep the normal manual payment transition.
 

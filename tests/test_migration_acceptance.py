@@ -18,6 +18,7 @@ ADMIN_DSN = os.getenv(
 )
 FOUNDATION = ROOT / "supabase/migrations/20260925083548_phase1_dino_dev_foundation.sql"
 ADDITIONS = ROOT / "supabase/migrations/20260925092759_phase1_acceptance_additions.sql"
+CLAIM_FIX = ROOT / "supabase/migrations/20260925125939_add_awaiting_claim_information_status.sql"
 
 
 def _guard_admin_dsn():
@@ -120,6 +121,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
     def test_full_migration_stack_applies_to_database_without_dino_schema(self):
         self.database.apply(FOUNDATION)
         self.database.apply(ADDITIONS)
+        self.database.apply(CLAIM_FIX)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -134,7 +136,10 @@ class MigrationAcceptanceTest(unittest.TestCase):
                 "where n.nspname='dino_dev' and c.relname='participant'"
             ).fetchone()
 
-        self.assertEqual(versions, [("20260925083548",), ("20260925092759",)])
+        self.assertEqual(
+            versions,
+            [("20260925083548",), ("20260925092759",), ("20260925125939",)],
+        )
         self.assertTrue(
             {"participant", "game_session", "ranking_snapshot"}.issubset(
                 {row[0] for row in required_tables}
@@ -147,6 +152,8 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(FOUNDATION)
         self.database.apply(ADDITIONS)
         self.database.apply(ADDITIONS)
+        self.database.apply(CLAIM_FIX)
+        self.database.apply(CLAIM_FIX)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -164,7 +171,11 @@ class MigrationAcceptanceTest(unittest.TestCase):
 
         self.assertEqual(
             versions,
-            [("20260925083548", 1), ("20260925092759", 1)],
+            [
+                ("20260925083548", 1),
+                ("20260925092759", 1),
+                ("20260925125939", 1),
+            ],
         )
         self.assertIn(("fault_review_status",), columns)
         self.assertEqual(len(policies), 4)

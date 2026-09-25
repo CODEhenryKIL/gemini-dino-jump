@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 ROOT=Path(__file__).resolve().parent.parent
 CONSTANTS=json.loads((ROOT/"shared/game_constants.json").read_text(encoding="utf-8"))
-SCHEMA_VERSION="20260925092759"; SCHEMA_NAME="dino_dev"; APP_ROLE="dino_dev_app"
+SCHEMA_VERSION="20260925125939"; SCHEMA_NAME="dino_dev"; APP_ROLE="dino_dev_app"
 APPROVED_PREVIEW_PROJECT_REF="igfrnexknwtiljdqjrbp"
 class ConfigurationError(RuntimeError): pass
 def _origin(value,local=False):

@@ -54,9 +54,9 @@ class MetricsTest(unittest.TestCase):
           (session_id,pid,self.campaign,self.prefix+suffix,self.base,self.base+dt.timedelta(hours=1)))
         return session_id
 
-    def report(self):
+    def report(self, **query):
         self.conn.execute('set local role dino_dev_app')
-        status, data = metrics.build_overview(self.conn,self.query,{'environment':'local'})
+        status, data = metrics.build_overview(self.conn,{**self.query,**query},{'environment':'local'})
         self.assertEqual(status,200)
         return data
 
@@ -70,9 +70,59 @@ class MetricsTest(unittest.TestCase):
         self.event('gemini_cta_clicked',p3,11,{'position':'primary'},environment='test')
         self.event('gemini_cta_clicked',p4,41,{'position':'primary'})
         data=self.report()
-        self.assertEqual(data['gemini_ctr'],{'numerator':1,'denominator':4,'rate':0.25})
+        self.assertEqual((data['gemini_ctr']['numerator'],data['gemini_ctr']['denominator'],data['gemini_ctr']['rate']),(1,4,0.25))
+        self.assertEqual((data['gemini_ctr']['exposure_events'],data['gemini_ctr']['pending_participants']),(4,0))
         self.assertEqual(data['gemini_conversion']['direct'],4)
         self.assertEqual(data['gemini_conversion']['union_participants'],4)
+
+    def test_ctr_closes_windows_deduplicates_and_keeps_pending_separate(self):
+        recent,old_success,wrong_position,before,duplicate,cutoff,exact_window = [
+            self.person(name) for name in ('recent','oldsuccess','wrongposition','before','duplicate','cutoff','exactwindow')
+        ]
+        self.event('gemini_cta_viewed',recent,691,{'position':'primary'})
+        self.event('gemini_cta_viewed',recent,692,{'position':'primary'})
+
+        self.event('gemini_cta_viewed',old_success,100,{'position':'primary'})
+        self.event('gemini_cta_clicked',old_success,130,{'position':'primary'})
+        self.event('gemini_cta_viewed',old_success,691,{'position':'primary'})
+
+        self.event('gemini_cta_viewed',wrong_position,200,{'position':'primary'})
+        self.event('gemini_cta_clicked',wrong_position,201,{'position':'footer'})
+        self.event('gemini_cta_clicked',before,299,{'position':'primary'})
+        self.event('gemini_cta_viewed',before,300,{'position':'primary'})
+
+        self.event('gemini_cta_viewed',duplicate,400,{'position':'primary'})
+        self.event('gemini_cta_viewed',duplicate,401,{'position':'primary'})
+        self.event('gemini_cta_clicked',duplicate,402,{'position':'primary'})
+
+        self.event('gemini_cta_viewed',cutoff,690,{'position':'primary'})
+        self.event('gemini_cta_clicked',cutoff,719,{'position':'primary'})
+        self.event('gemini_cta_viewed',exact_window,500,{'position':'footer'})
+        self.event('gemini_cta_clicked',exact_window,530,{'position':'footer'})
+
+        ctr = self.report()['gemini_ctr']
+        self.assertEqual((ctr['numerator'],ctr['denominator'],ctr['rate']),(3,5,3/5))
+        self.assertEqual((ctr['exposure_events'],ctr['pending_participants'],ctr['pending_exposure_events']),(6,2,3))
+        by_position={row['position']:row for row in ctr['by_position']}
+        self.assertEqual((by_position['primary']['numerator'],by_position['primary']['denominator'],
+                          by_position['primary']['pending_participants'],by_position['primary']['exposure_events']),
+                         (2,4,2,5))
+        self.assertEqual((by_position['footer']['numerator'],by_position['footer']['denominator']), (1,1))
+        pending_metric=next(row for row in self.report()['metrics'] if row['key']=='gemini.pending')
+        self.assertEqual((pending_metric['value'],pending_metric['event_count']),(2,3))
+
+    def test_ctr_window_ending_at_report_end_stays_pending_until_next_report(self):
+        participant=self.person('reportend')
+        self.event('gemini_cta_viewed',participant,690,{'position':'primary'})
+        self.event('gemini_cta_clicked',participant,720,{'position':'primary'})
+
+        at_boundary=self.report()['gemini_ctr']
+        self.assertEqual((at_boundary['numerator'],at_boundary['denominator'],at_boundary['rate']),(0,0,None))
+        self.assertEqual((at_boundary['pending_participants'],at_boundary['pending_exposure_events']),(1,1))
+
+        after_boundary=self.report(to='2026-01-02T00:01:00Z')['gemini_ctr']
+        self.assertEqual((after_boundary['numerator'],after_boundary['denominator'],after_boundary['rate']),(1,1,1))
+        self.assertEqual((after_boundary['pending_participants'],after_boundary['pending_exposure_events']),(0,0))
 
     def test_loading_last_active_no_checkpoint_double_count_and_unknown(self):
         p=self.person('loading');o=self.observation(p);self.observation()
@@ -151,10 +201,12 @@ class MetricsTest(unittest.TestCase):
     def test_sharing_and_content_report_observed_actions_without_delivery_inference(self):
         linked = self.person('sharing')
         unlinked_observation = self.observation()
-        self.event('share_attempted',linked,1,{'share_method':'native','status':'attempted'})
-        self.event('share_attempted',linked,2,{'share_method':'native','status':'share_sheet_closed'})
-        self.event('share_attempted',linked,3,{'share_method':'copy','status':'copied'})
-        self.event('share_attempted',linked,4,{'share_method':'native','status':'cancelled'})
+        self.event('share_attempted',linked,1,{'source':'gemini','share_method':'native','status':'attempted'},screen='invite')
+        self.event('share_attempted',linked,2,{'source':'gemini','share_method':'copy','status':'copied'})
+        self.event('share_attempted',linked,3,{'share_method':'native','status':'attempted'},screen='invite')
+        self.event('share_attempted',linked,4,{'share_method':'native','status':'share_sheet_closed'},screen='invite')
+        self.event('share_attempted',linked,5,{'source':'home','share_method':'native','status':'cancelled'})
+        self.event('share_attempted',None,6,{'share_method':'copy','status':'copied','share_id':'safe_share'},observation=unlinked_observation,screen='invite')
         self.event('content_clicked',linked,5,{'content':'study'})
         self.event('content_clicked',linked,6,{'content':'study'})
         self.event('notion_redirect_requested',linked,7,{'content':'study'})
@@ -163,8 +215,17 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(data['sharing']['actual_delivery'],'unknown')
         self.assertEqual((data['sharing']['attempt_events'],data['sharing']['copy_success_events'],
                           data['sharing']['share_sheet_closed_events'],data['sharing']['cancelled_events']),
-                         (1,1,1,1))
-        self.assertEqual((data['sharing']['linked_participants'],data['sharing']['unlinked_events']), (1,0))
+                         (2,2,1,1))
+        self.assertEqual((data['sharing']['linked_participants'],data['sharing']['unlinked_events']), (1,1))
+        self.assertEqual((data['sharing']['gemini_sharing']['linked_participants'],
+                          data['sharing']['gemini_sharing']['copy_success_events']), (1,1))
+        self.assertEqual((data['sharing']['invitation_sharing']['linked_participants'],
+                          data['sharing']['invitation_sharing']['unlinked_events'],
+                          data['sharing']['invitation_sharing']['copy_success_events']), (1,1,1))
+        self.assertEqual((data['sharing']['unknown_sharing']['linked_participants'],
+                          data['sharing']['unknown_sharing']['cancelled_events']), (1,1))
+        self.assertEqual({row['purpose'] for row in data['sharing']['by_purpose']},
+                         {'gemini','invitation','unknown'})
         study = next(row for row in data['content'] if row['content']=='study')
         photo = next(row for row in data['content'] if row['content']=='photo')
         self.assertEqual((study['click_events'],study['outbound_request_events'],study['linked_participants']), (2,1,1))

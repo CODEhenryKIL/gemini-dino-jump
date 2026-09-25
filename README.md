@@ -4,8 +4,10 @@
 
 ## 기준과 범위
 
-- `main`: 게이트러너 제거 완료 기준 `f57c3d1`.
-- 개발 브랜치: `codex/phase1-clean-start`.
+- 최초 개발 기준: 게이트러너 제거 완료 커밋 `f57c3d1`.
+- 이번 코드 기준: 1차 운영 기반과 F1–F3 보완 완료. 사용자 요청에 따라 PR을 통해 `main`에 반영하는 대상입니다. 원격 DB·Preview 배포 상태는 아래 보고서와 별개로 확인합니다.
+- 최초 1차 개발 브랜치: `codex/phase1-clean-start`.
+- 현재 보완 브랜치: `codex/phase1-followup-fixes` (`e84ec67`에서 분기). 보완 코드는 로컬 검증 범위이며 원격 DB·Preview에는 아직 반영하지 않았습니다.
 - 요구사항: [1차 지시서](docs/phase1-work-instructions.md).
 - 확정 규칙과 운영 미정값: [정책 결정표](docs/phase1-policy-decisions.md).
 - 정적 화면: Vercel. API: Python 3.12 Vercel Functions. 데이터: PostgreSQL.
@@ -45,6 +47,9 @@ DB 소유자 계정으로 migration을 적용하고 환경 보호 행을 로컬 
 ## 검증과 문서
 
 - [1차 완료 결과·속도 미달 및 후속 개선](docs/phase1-report.md)
+- [사용자 제공 기획안·쿨다운 확정 정정](docs/source_user_plan.md)
+- [기획안 복원 후 1차 누락·정합성 검토](docs/phase1-source-plan-review.md)
+- [1차 보완 구현·검증](docs/phase1-followup-report.md)
 - [첨부 0차 공통 원문](docs/00_scope_and_decisions.md): 보존용 사본. 충돌하는 규칙은 2026-09-25 개정 1차 지시서와 정책 결정표가 우선합니다.
 - [구현·검증 계획](docs/phase1-implementation-plan.md)
 - [API 계약](docs/phase1-api-contract.md)

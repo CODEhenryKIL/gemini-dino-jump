@@ -3,6 +3,7 @@ import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 
 const STATUS_LABELS = {
+  AWAITING_INFORMATION: '정보 입력 대기',
   INFORMATION_RECEIVED: '정보 접수', PENDING_REVIEW: '확인 대기', CONTACTED: '연락 완료',
   PAID: '지급 완료', ON_HOLD: '보류', INELIGIBLE: '부적격', NO_RESPONSE: '미응답', READY: '정보 입력 대기',
 };
@@ -44,7 +45,7 @@ export const PrizeView = {
     const claimType = claim.claim_type || claim.type || 'DRAW';
     const type = document.createElement('p'); type.textContent = claimType === 'RANKING' ? '랭킹 경품' : '복주머니 경품';
     card.append(header, type);
-    if (!claim.contact_submitted && !['PAID', 'CONTACTED'].includes(claim.status)) {
+    if (!claim.contact_submitted && !['PAID', 'INELIGIBLE'].includes(claim.status)) {
       const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = '합성 테스트 수령 정보 입력';
       button.onclick = () => this.claimModal(claim, router); card.appendChild(button);
     }

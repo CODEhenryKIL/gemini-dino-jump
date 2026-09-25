@@ -1,0 +1,43 @@
+✔ home presents only Dino Jump and starts it after the guide (3.958459ms)
+✔ returning players start Dino Jump directly (1.280625ms)
+✔ Dino Jump runtime has no Gate Runner navigation or port dependency (5.145708ms)
+✔ participant API uses HttpOnly cookie transport and never browser token storage (5.419375ms)
+✔ analytics batch transport retries a lost request with the exact generated idempotency key (0.745667ms)
+✔ rebatching the same first event gets a fresh request key and relies on event IDs for deduplication (0.857208ms)
+✔ lost finish retries retain an exact key and a PII-free payload (0.8365ms)
+✔ verified finish clears only its pending reservation and accepts authoritative ticket state (3.014209ms)
+✔ invite qualification requires both active time and interaction and GET cannot reward (0.949417ms)
+✔ draw is participant-scoped, resumes from server, and scratch listeners are cleaned up (0.85025ms)
+✔ claim UI uses the server claim_type field for DRAW and RANKING records (0.17ms)
+✔ admin uses real Supabase Auth and optimistic manual claim transitions (0.88575ms)
+✔ client event envelope is allowlisted and excludes private arbitrary payloads (1.226375ms)
+✔ blocked web storage cannot crash participant or game bootstrap (1.163708ms)
+✔ a consumed ticket does not block access to an existing game or fault recovery (0.620167ms)
+✔ fault recovery persists only non-PII evidence and reconciles rejected checkpoints (0.769958ms)
+✔ scratch completion keeps a stable retry key and does not claim completion after failure (0.245625ms)
+✔ share attribution uses an opaque approved parameter and records outcomes separately (1.477584ms)
+✔ admin isolates contact operations and renders metric definitions and full breakdowns (1.131375ms)
+✔ hidden views leave the accessibility tree and Gemini exposure requires visibility (1.764667ms)
+✔ a persistent TOP3 request remains actionable after result state is gone (0.702042ms)
+✔ submitted TOP3 state wins over a stale requested result when result screen rerenders (2.109833ms)
+✔ public metadata uses the deployment site name while retaining Dino Jump (0.539167ms)
+✔ unsubmitted winner sees information waiting and the administrator cannot process it (4.537583ms)
+✔ submitted claims remove the entry form and preserve ranking and read-only restrictions (1.048958ms)
+✔ legacy claim without real contact cannot be processed even if its status progressed (2.659167ms)
+✔ claim forms are not offered for finalized claims with missing legacy contact information (2.089917ms)
+✔ legacy nonterminal claims can submit missing contact without showing an incorrect new status (1.665791ms)
+✔ dashboard renders invitation, Gemini and unknown shares from separate purpose totals (4.096375ms)
+✔ dashboard keeps open observations out of final nonclick counts and handles no closed cohort (2.623292ms)
+✔ game session creation carries the exact observation and visit context (43.973917ms)
+✔ loading ready remains attached to the loading view after the first screen renders (8.198375ms)
+✔ Gemini benefit copy and native share record observable outcomes only (1.019542ms)
+✔ Vercel pageviews remove invite codes, query strings, fragments and extra payload (1.201375ms)
+✔ Vercel rejects private/unknown routes, offsite URLs and custom events (0.377334ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 131.839167
