@@ -63,12 +63,60 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             with self.assertRaises(operations.DomainError) as caught:operations.participant_init(conn,{},context(participant_token_hash=h("invalid"),invite_nonce="x",invite_nonce_hash=h("x")))
         self.assertEqual(caught.exception.code,"SESSION_INVALID")
-    def test_allowlisted_participant_can_replay_without_ticket_or_ledger_changes(self):
+    def test_old_top3_request_requires_current_rank_before_collection(self):
+        entries=[]
+        for score in (400,300,200,100):
+            raw,_,created=self.make_participant();pid=created['participant']['id']
+            ctx=context(participant_token_hash=h(raw),game_version='2.1.0',idempotency_key=secrets.token_urlsafe(24))
+            with app_tx() as conn:
+                _,session=operations.create_session(conn,{},ctx);sid=session['session_id']
+                conn.execute("update dino_dev.game_session set status='FINISHED',score=%s,valid_ticks=%s,verification_result='VERIFIED',finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s",(score,score*6,sid))
+                conn.execute("insert into dino_dev.versioned_best_score(participant_id,game_version,session_id,score,achieved_at) values(%s,'2.1.0',%s,%s,clock_timestamp())",(pid,sid,score))
+            entries.append((pid,sid,ctx))
+        pid,sid,ctx=entries[-1]
+        with app_tx() as conn:
+            conn.execute("insert into dino_dev.ranking_contact(participant_id,game_version) values(%s,'2.1.0')",(pid,))
+            me=operations.get_me(conn,ctx)[1]
+            self.assertEqual(me['rank'],4)
+            self.assertEqual(me['top3_profile']['status'],'NOT_REQUIRED')
+            self.assertFalse(operations.ranking_profile_get(conn,ctx)[1]['required'])
+            session=conn.execute('select * from dino_dev.game_session where id=%s',(sid,)).fetchone()
+            self.assertFalse(operations.finish_response(conn,session)['top3_profile']['required'])
+            with self.assertRaises(operations.DomainError) as caught:operations.ranking_profile_post(conn,{},ctx)
+            self.assertEqual(caught.exception.code,'TOP3_PROFILE_NOT_REQUIRED')
+            self.assertEqual(conn.execute('select count(*) n from dino_dev.claim_contact').fetchone()['n'],0)
+            conn.execute('update dino_dev.game_session set score=500 where id=%s',(sid,))
+            conn.execute("update dino_dev.versioned_best_score set score=500 where participant_id=%s",(pid,))
+            self.assertTrue(operations.get_me(conn,ctx)[1]['top3_profile']['required'])
+            _,submitted=operations.ranking_profile_post(conn,{'name':'TEST_ranker','contact':'01000000000','school':'TEST_school','consent':True,'notice_version':'top3-contact-v1'},ctx)
+            self.assertEqual(submitted['status'],'SUBMITTED')
+    def test_reset_cookie_recovers_with_fresh_bootstrap_only(self):
+        eid="event_"+secrets.token_hex(8);oid="obs_"+secrets.token_hex(8)
+        bootstrap=secrets.token_urlsafe(32);raw=auth.deterministic_participant_token(bootstrap,PEPPER)
+        ctx=context(idempotency_key=secrets.token_urlsafe(32),bootstrap_token=bootstrap,bootstrap_token_hash=h(bootstrap),new_participant_token=raw,new_participant_token_hash=h(raw),participant_token_hash=h("deleted-participant-cookie"),invite_nonce="unused",invite_nonce_hash=h("unused"))
+        body={"bootstrap_token":bootstrap,"observation_id":oid}
+        with app_tx() as conn:
+            operations.create_observation(conn,{"event_id":eid,"observation_id":oid},ctx)
+            status,result=operations.participant_init(conn,body,ctx)
+            replay_status,replay=operations.participant_init(conn,body,ctx)
+            count=conn.execute("select count(*) n from dino_dev.ticket_ledger").fetchone()["n"]
+        self.assertEqual((status,replay_status,count),(201,200,1))
+        self.assertEqual(result["_set_cookie_token"],raw)
+        self.assertEqual(result["participant"]["id"],replay["participant"]["id"])
+    def test_fresh_bootstrap_does_not_replace_blocked_or_expired_account(self):
+        raw,_,result=self.make_participant();pid=result["participant"]["id"]
+        for expired,expected in ((False,"PARTICIPANT_BLOCKED"),(True,"SESSION_INVALID")):
+            with psycopg.connect(DSN) as conn:
+                conn.execute("update dino_dev.participant set status='BLOCKED',token_expires_at=clock_timestamp()+make_interval(secs=>%s) where id=%s",(-60 if expired else 3600,pid))
+            with app_tx() as conn:
+                with self.assertRaises(operations.DomainError) as caught:
+                    operations.participant_init(conn,{"bootstrap_token":"fresh"},context(participant_token_hash=h(raw),bootstrap_token_hash=h("fresh")))
+            self.assertEqual(caught.exception.code,expected)
+    def test_all_participants_can_replay_without_ticket_or_ledger_changes(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
         with app_tx() as conn:conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
-        allowlist=frozenset({pid})
         for index in range(2):
-            ctx=context(participant_token_hash=h(raw),idempotency_key=f"unlimited-{index}-{secrets.token_hex(8)}",preview_unlimited_participant_ids=allowlist)
+            ctx=context(participant_token_hash=h(raw),idempotency_key=f"unlimited-{index}-{secrets.token_hex(8)}",preview_unlimited_play=True)
             with app_tx() as conn:
                 _,me=operations.get_me(conn,ctx);self.assertTrue(me["tickets"]["unlimited_play"]);self.assertEqual(me["tickets"]["available_total"],0)
                 status,session=operations.create_session(conn,{},ctx);self.assertEqual(status,201)
@@ -79,7 +127,20 @@ class BackendPhase1Test(unittest.TestCase):
             participant=conn.execute("select initial_balance,invitation_balance,invitation_refund_pending from dino_dev.participant where id=%s",(pid,)).fetchone()
             charged=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME'",(pid,)).fetchone()["n"]
         self.assertEqual((participant["initial_balance"],participant["invitation_balance"],participant["invitation_refund_pending"],charged),(0,0,0,0))
-    def test_unlisted_participant_cannot_spoof_unlimited_play_in_request_body(self):
+    def test_preview_unlimited_applies_to_multiple_unlisted_participants_only_in_test_environments(self):
+        for _ in range(2):
+            raw,_,created=self.make_participant();pid=created["participant"]["id"]
+            ctx=context(participant_token_hash=h(raw),idempotency_key=secrets.token_urlsafe(32),preview_unlimited_play=True)
+            with app_tx() as conn:
+                conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
+                self.assertTrue(operations.get_me(conn,ctx)[1]["tickets"]["unlimited_play"])
+                self.assertEqual(operations.create_session(conn,{},ctx)[0],201)
+        row={"id":"p_anyone","status":"ACTIVE","synthetic":True}
+        self.assertFalse(operations._unlimited_play(row,{"environment":"production","preview_unlimited_play":True}))
+        self.assertFalse(operations._unlimited_play(dict(row,synthetic=False),ctx))
+        self.assertFalse(operations._unlimited_play(dict(row,status="BLOCKED"),ctx))
+        self.assertFalse(operations._unlimited_play(row,dict(ctx,preview_unlimited_play="true")))
+    def test_disabled_preview_cannot_spoof_unlimited_play_in_request_body(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
         with app_tx() as conn:
             conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
@@ -89,7 +150,7 @@ class BackendPhase1Test(unittest.TestCase):
         self.assertEqual(caught.exception.code,"NO_TICKETS")
     def test_free_session_fault_review_does_not_mint_ticket_or_refund_ledger(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
-        ctx=context(participant_token_hash=h(raw),idempotency_key=secrets.token_urlsafe(32),preview_unlimited_participant_ids=frozenset({pid}))
+        ctx=context(participant_token_hash=h(raw),idempotency_key=secrets.token_urlsafe(32),preview_unlimited_play=True)
         with app_tx() as conn:
             conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
             _,created_session=operations.create_session(conn,{},ctx);sid=created_session["session_id"]
@@ -102,10 +163,10 @@ class BackendPhase1Test(unittest.TestCase):
             refunds=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where participant_id=%s and source_type='FAULT_REFUND'",(pid,)).fetchone()["n"]
         self.assertEqual((reviewed["status"],reviewed["refund"]["status"],reviewed["fault_review"]["status"]),("ABORTED","NOT_DUE","AUTO_APPROVED"))
         self.assertEqual((participant["initial_balance"],participant["invitation_balance"],refunds),(0,0,0))
-    def test_allowlist_revocation_keeps_reserved_session_but_blocks_next_free_session(self):
+    def test_disabling_unlimited_keeps_reserved_session_but_blocks_next_free_session(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"];key=secrets.token_urlsafe(32)
-        allowed=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_participant_ids=frozenset({pid}))
-        revoked=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_participant_ids=frozenset())
+        allowed=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_play=True)
+        revoked=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_play=False)
         with app_tx() as conn:
             conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
             first_status,first=operations.create_session(conn,{},allowed)
@@ -259,7 +320,7 @@ class BackendPhase1Test(unittest.TestCase):
             first_pid=conn.execute("select id from dino_dev.participant where token_hash=%s",(h(players[0]),)).fetchone()[0];conn.execute("insert into dino_dev.ranking_contact(participant_id) values(%s)",(first_pid,))
         profile_ctx=context(participant_token_hash=h(players[0]),idempotency_key="top3-profile")
         with app_tx() as conn:
-            _,submitted=operations.ranking_profile_post(conn,{"name":"TEST_ranker","contact":"01000000000","school":"TEST_school"},profile_ctx);_,public=operations.ranking_profile_get(conn,profile_ctx)
+            _,submitted=operations.ranking_profile_post(conn,{"name":"TEST_ranker","contact":"01000000000","school":"TEST_school","consent":True,"notice_version":"top3-contact-v1"},profile_ctx);_,public=operations.ranking_profile_get(conn,profile_ctx)
         self.assertEqual(public["status"],"SUBMITTED");self.assertNotIn("contact",public)
         admin=self.make_admin(["claims:read","claims:write","ranking:read","ranking:write"])
         with app_tx() as conn:

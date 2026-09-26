@@ -19,14 +19,13 @@ const slides = [
   {
     title: '하트는 한 번 더 살아날 기회',
     description: '하트가 있으면 부딪혀도 다시 달려요.',
-    detail: '최대 1개 보관 · 쓰고 다시 얻을 수 있어요.',
+    detail: '부활할 때마다 −100점 · 하트는 최대 1개 보관해요.',
     scene: `<div class="guide-item-demo guide-heart-demo" aria-hidden="true"><img class="guide-item-dino" src="/assets/icons/Dino-Dark.png" alt=""><img class="guide-pickup" src="/assets/icons/Heart-Light.png" alt=""><span class="guide-pickup-result">부활 +1</span><span class="guide-revive-ring"></span><span class="guide-demo-ground"></span></div>`,
     className: 'guide-slide-heart',
   },
   {
     title: '랭킹 TOP3에 도전하세요',
     description: '행사 종료 시 최종 순위에 따라 선물을 드려요.',
-    detail: '동점자는 같은 순위로 표시하며, 최종 동점 수상 기준은 추후 안내해요.',
     scene: `<div class="guide-rank-rewards"><div><span>1위</span><strong>5만원</strong></div><div><span>2위</span><strong>3만원</strong></div><div><span>3위</span><strong>1만원</strong></div></div><section class="guide-live-ranking" aria-label="현재 랭킹"><h4>현재 TOP3</h4><div class="guide-rank-content" aria-live="polite"></div></section>`,
     className: 'guide-slide-ranking',
   },
@@ -44,7 +43,6 @@ export function showGameGuide(router, autoStart = true) {
   let skip;
   let overlay;
   const finish = () => {
-    try { localStorage.setItem('gemini_dino_guide_seen', 'true'); } catch (_) {}
     ui.hideModal();
     if (autoStart) router.navigate('game');
   };

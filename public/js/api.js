@@ -96,6 +96,11 @@ export const api = {
     return request(`/api/draws/${encodeURIComponent(drawId)}/scratch-complete`, { method: 'PATCH', idempotent: true, idempotencyKey: eventId, body: JSON.stringify({ event_id: eventId }) });
   },
   getClaims() { return request('/api/claims'); },
+  getClaimDraft(claimId) { return request(`/api/claims/${encodeURIComponent(claimId)}/draft`); },
+  saveClaimDraft(claimId, payload) {
+    const eventId = createRequestId('evt');
+    return request(`/api/claims/${encodeURIComponent(claimId)}/draft`, { method: 'POST', idempotent: true, idempotencyKey: eventId, body: JSON.stringify(payload) });
+  },
   submitClaim(claimId, payload) {
     const eventId = createRequestId('evt');
     return request(`/api/claims/${encodeURIComponent(claimId)}/submit`, { method: 'POST', idempotent: true, idempotencyKey: eventId, body: JSON.stringify({ ...payload, event_id: eventId }) });

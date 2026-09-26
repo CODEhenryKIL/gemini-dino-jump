@@ -28,7 +28,7 @@ function node(tag = 'div', textContent = '') {
 }
 
 function loadView(file, exportName, globals) {
-  const context = { console, URL, ...globals };
+  const context = { console, URL, loadKakaoSdk: async () => null, ...globals };
   context.globalThis = context;
   const source = fs.readFileSync(path.join(root, file), 'utf8')
     .replace(/^import .*;$/gm, '')
@@ -69,8 +69,30 @@ function createInviteHarness(navigatorMock) {
     },
     createRequestId() { requestIndex += 1; return `share_${requestIndex}`; },
   };
+  const prepareResultReferralShare = async (_router, { kind }) => {
+    const trackingContext = { screen: analytics.screen, screenViewId: analytics.screenViewId, activeMs: analytics.currentActiveMs() };
+    let pending = false;
+    return { async share() {
+      if (pending) return { status: 'pending' };
+      pending = true;
+      const shareId = api.createRequestId();
+      const url = `https://example.test/invite/abcdefghijkl?link=${kind}&share=${shareId}`;
+      const method = typeof navigatorMock.share === 'function' ? 'native' : 'copy';
+      const track = (status) => analytics.track('share_attempted', { share_method: method, share_id: shareId, link_kind: kind, status }, trackingContext);
+      track('attempted');
+      try {
+        if (method === 'native') await navigatorMock.share({ url });
+        else await navigatorMock.clipboard.writeText(url);
+        track(method === 'native' ? 'share_sheet_closed' : 'copied');
+        return { method, status: method === 'native' ? 'share_sheet_closed' : 'copied' };
+      } catch (error) {
+        const status = error?.name === 'AbortError' ? 'cancelled' : 'failed';
+        track(status); return { method, status };
+      } finally { pending = false; }
+    } };
+  };
   const view = loadView('public/js/views/invite_view.js', 'InviteView', {
-    api, analytics, navigator: navigatorMock,
+    api, analytics, navigator: navigatorMock, prepareResultReferralShare,
     ui: { text(target, value) { target.textContent = String(value); }, showToast(message) { toasts.push(message); } },
     window: { location: { origin: 'https://example.test' } },
     document: { createElement: (tag) => node(tag) },
@@ -85,6 +107,8 @@ function createInviteHarness(navigatorMock) {
 function benefitNodes() {
   return new Map([
     ['#btn-go-benefit', node('a')], ['#btn-copy-benefit', node('button')], ['#btn-share-benefit', node('button')],
+    ['#btn-kakao-benefit', node('button')],
+    ['#benefit-official-url', node('p')],
     ['#benefit-fallback', node('p', 'fresh benefit help')], ['#content-guide-list', node('div')],
   ]);
 }
@@ -122,9 +146,9 @@ test('invite deferred copy keeps its originating context, ignores duplicates, an
   let copyCalls = 0;
   const harness = createInviteHarness({ clipboard: { writeText() { copyCalls += 1; return copy.promise; } } });
   await harness.view.render(harness.container, harness.router, 'same-token');
-  const oldCopyButton = harness.getNodes().get('#btn-copy-link');
-  const first = oldCopyButton.onclick();
-  const duplicate = oldCopyButton.onclick();
+  const oldShareButton = harness.getNodes().get('#btn-share-native');
+  const first = oldShareButton.onclick();
+  const duplicate = oldShareButton.onclick();
   assert.equal(copyCalls, 1);
 
   harness.analytics.screen = 'home';

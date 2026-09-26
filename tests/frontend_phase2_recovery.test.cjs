@@ -37,10 +37,10 @@ function loadEngine() {
   return runtime;
 }
 
-test('v2 resume replay restores the actual deterministic score, items, held heart, and revives', () => {
+for (const version of ['2.0.0', '2.1.0']) test(`${version} resume replay restores deterministic score, items, held heart, and revival penalties`, () => {
   const directContext = {};
   vm.runInNewContext(`${simulationSource}\nglobalThis.Simulation = V2GameSimulation;`, directContext);
-  const simulation = new directContext.Simulation(41);
+  const simulation = new directContext.Simulation(41, version);
   while (!simulation.ended && simulation.currentTick < 2200) {
     const jump = simulation.isGrounded && simulation.obstacles.some((obstacle) => obstacle.x < 260 && obstacle.x > 100);
     simulation.step(jump ? { jump: true, high: true } : {});
@@ -51,8 +51,8 @@ test('v2 resume replay restores the actual deterministic score, items, held hear
   assert.ok(simulation.revives > 0);
 
   const runtime = loadEngine();
-  const engine = new runtime.DinoGameEngine({ getContext: () => canvasContext() }, { version: '2.0.0' });
-  const snapshot = { version: '2.0.0', seed: 41, tick: simulation.currentTick, jumpTicks: simulation.jumpTicks.map((jump) => ({ ...jump })) };
+  const engine = new runtime.DinoGameEngine({ getContext: () => canvasContext() }, { version });
+  const snapshot = { version, seed: 41, tick: simulation.currentTick, jumpTicks: simulation.jumpTicks.map((jump) => ({ ...jump })) };
   const restored = engine.restoreSnapshot(snapshot);
   assert.equal(engine.currentTick, simulation.currentTick);
   assert.equal(engine.score, simulation.score);
@@ -115,4 +115,19 @@ test('cleanup persists a PII-free active snapshot for the same session', () => {
   const snapshot = JSON.parse(loaded.stored.get('dino_snapshot_session-2'));
   assert.deepEqual(snapshot, { sessionId: 'session-2', version: '2.0.0', seed: 9, tick: 420, jumpTicks: [{ tick: 120, high: true }] });
   assert.doesNotMatch(JSON.stringify(snapshot), /token|contact|participant|phone/i);
+});
+
+ test('new game engine shows ten stages and caps the final speed', () => {
+  const runtime = loadEngine();
+  const engine = new runtime.DinoGameEngine({ getContext: () => canvasContext() }, { version: '2.1.0' });
+  assert.equal(engine.stages.length, 10);
+  assert.equal(engine.canvas.width, 960);
+  assert.equal(engine.canvas.height, 900);
+  assert.equal(engine.height, 600);
+  assert.equal(engine.groundY, 490);
+  assert.equal(engine.getSpeed(105), 940);
+  assert.equal(engine.getSpeed(120), 1080);
+  assert.equal(engine.getSpeed(135), 1200);
+  assert.equal(engine.getSpeed(150), 1320);
+  assert.equal(engine.getSpeed(500), 1320);
 });

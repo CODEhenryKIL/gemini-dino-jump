@@ -21,6 +21,9 @@ ADDITIONS = ROOT / "supabase/migrations/20260925092759_phase1_acceptance_additio
 CLAIM_FIX = ROOT / "supabase/migrations/20260925125939_add_awaiting_claim_information_status.sql"
 
 PHASE2 = ROOT / "supabase/migrations/20260925140902_phase2_game_versions_and_tracking.sql"
+GAME_V21 = ROOT / "supabase/migrations/20260926093414_game_rules_v21.sql"
+REAL_TOP3_CONTACT = ROOT / "supabase/migrations/20260926103809_allow_real_top3_contact.sql"
+CLAIM_DRAFT = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
 
 def _guard_admin_dsn():
     parsed = urlsplit(ADMIN_DSN)
@@ -124,6 +127,9 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(ADDITIONS)
         self.database.apply(CLAIM_FIX)
         self.database.apply(PHASE2)
+        self.database.apply(GAME_V21)
+        self.database.apply(REAL_TOP3_CONTACT)
+        self.database.apply(CLAIM_DRAFT)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -140,7 +146,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
 
         self.assertEqual(
             versions,
-            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",)],
+            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",), ("20260926215000",)],
         )
         self.assertTrue(
             {"participant", "game_session", "ranking_snapshot"}.issubset(
@@ -156,8 +162,14 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(ADDITIONS)
         self.database.apply(CLAIM_FIX)
         self.database.apply(PHASE2)
+        self.database.apply(GAME_V21)
+        self.database.apply(REAL_TOP3_CONTACT)
+        self.database.apply(CLAIM_DRAFT)
         self.database.apply(CLAIM_FIX)
         self.database.apply(PHASE2)
+        self.database.apply(GAME_V21)
+        self.database.apply(REAL_TOP3_CONTACT)
+        self.database.apply(CLAIM_DRAFT)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -180,10 +192,64 @@ class MigrationAcceptanceTest(unittest.TestCase):
                 ("20260925092759", 1),
                 ("20260925125939", 1),
                 ("20260925140902", 1),
+                ("20260926093414", 1),
+                ("20260926103809", 1),
+                ("20260926215000", 1),
             ],
         )
         self.assertIn(("fault_review_status",), columns)
         self.assertEqual(len(policies), 4)
+        self.assert_sentinel_preserved()
+
+    def test_v21_extends_version_constraints_without_mixing_v2_scores(self):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT):
+            self.database.apply(migration)
+        with psycopg.connect(self.database.dsn) as conn:
+            conn.execute("""insert into dino_dev.campaign(id,title,game_version,benefit_url,probability_version)
+              values('v21-test','v21','2.1.0','https://gemini.google.com/students','test')""")
+            conn.execute("""insert into dino_dev.participant
+              (id,campaign_id,token_hash,token_expires_at,nickname,referral_code,environment)
+              values('p_v21migration000000000000000000','v21-test',repeat('a',64),clock_timestamp()+interval '1 day','v21','V21migration1','test')""")
+            for version, suffix, score in (("2.0.0", "v20", 800), ("2.1.0", "v21", 700)):
+                session_id = "gs_" + suffix
+                conn.execute("""insert into dino_dev.game_session
+                  (id,participant_id,campaign_id,idempotency_key,seed,version,status,ticket_kind,
+                   ticket_refund_status,expires_at,score,valid_ticks,verification_result,end_reason,finished_at,environment)
+                  values(%s,'p_v21migration000000000000000000','v21-test',%s,1,%s,'FINISHED','INITIAL',
+                   'NOT_DUE',clock_timestamp()+interval '1 minute',%s,600,'VERIFIED','COLLISION',clock_timestamp(),'test')""",
+                  (session_id, "key_" + suffix, version, score))
+                conn.execute("""insert into dino_dev.versioned_best_score
+                  (participant_id,game_version,session_id,score,achieved_at)
+                  values('p_v21migration000000000000000000',%s,%s,%s,clock_timestamp())""",
+                  (version, session_id, score))
+            scores = conn.execute("""select game_version,score from dino_dev.versioned_best_score
+              where participant_id='p_v21migration000000000000000000' order by game_version""").fetchall()
+        self.assertEqual(scores, [("2.0.0", 800), ("2.1.0", 700)])
+        self.assert_sentinel_preserved()
+
+    def test_real_top3_contact_requires_consent_metadata_but_keeps_synthetic_rows_compatible(self):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT):
+            self.database.apply(migration)
+        with psycopg.connect(self.database.dsn) as conn:
+            conn.execute("""insert into dino_dev.campaign(id,title,game_version,benefit_url,probability_version)
+              values('contact-test','contact','2.1.0','https://gemini.google.com/students','test')""")
+            conn.execute("""insert into dino_dev.participant
+              (id,campaign_id,token_hash,token_expires_at,nickname,referral_code,environment)
+              values('p_contactmigration000000000000000','contact-test',repeat('b',64),clock_timestamp()+interval '1 day','contact','ContactTest1','test')""")
+            conn.execute("""insert into dino_dev.claim(id,campaign_id,participant_id,claim_type)
+              values('claim_contact_real','contact-test','p_contactmigration000000000000000','RANKING'),
+                    ('claim_contact_synthetic','contact-test','p_contactmigration000000000000000','DRAW')""")
+            conn.execute("""insert into dino_dev.claim_contact
+              (claim_id,recipient_name,contact,school,synthetic,consent_at,consent_version)
+              values('claim_contact_real','김제미','010-1234-5678','한국대학교',false,clock_timestamp(),'top3-contact-v1')""")
+            conn.execute("""insert into dino_dev.claim_contact
+              (claim_id,recipient_name,contact,school)
+              values('claim_contact_synthetic','TEST_user','01000000000','TEST_school')""")
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                conn.execute("""insert into dino_dev.claim_contact
+                  (claim_id,recipient_name,contact,school,synthetic)
+                  values('claim_contact_real','김제미','010-1234-5678','한국대학교',false)
+                  on conflict(claim_id) do update set consent_at=null,consent_version=null""")
         self.assert_sentinel_preserved()
 
     def test_foundation_reapply_fails_without_damaging_existing_data(self):

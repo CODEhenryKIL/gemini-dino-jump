@@ -78,6 +78,47 @@ class BackendPhase2Test(unittest.TestCase):
             again=operations.finish_session(conn,s['session_id'],{},dict(ctx,verification=self.verification))[1]
             self.assertEqual(result,again)
 
+    def test_v21_finish_uses_penalized_score_and_separate_leaderboard(self):
+        play = json.loads(subprocess.check_output([
+            'node', str(ROOT/'tests/js_v2_fixture_runner.cjs'),
+            json.dumps({'mode':'bot','seed':4,'target_revives':2,'version':'2.1.0'}),
+        ], text=True, cwd=ROOT))
+        verification = game_verifier.verify_game(
+            '2.1.0', 4, play['jump_ticks'], play['score'], play['ticks'],
+        )
+        self.assertTrue(verification['valid'])
+        self.assertEqual(verification['summary']['revive_penalty'], verification['summary']['revives'] * 100)
+        raw,_,participant = self.make_participant()
+        ctx = fixtures.context(
+            participant_token_hash=fixtures.h(raw), game_version='2.1.0',
+            idempotency_key=secrets.token_urlsafe(24),
+        )
+        with fixtures.app_tx() as conn:
+            empty = operations.leaderboard(conn,{},ctx)[1]
+            self.assertEqual(empty['rank_targets'],[])
+            _,reserved = operations.create_session(conn,{},ctx)
+            _,started = operations.start_session(conn,reserved['session_id'],ctx)
+            conn.execute(
+                "update dino_dev.game_session set seed=4,started_at=clock_timestamp()-make_interval(secs=>%s) where id=%s",
+                (play['ticks']/60+1, started['session_id']),
+            )
+            _,finished = operations.finish_session(
+                conn, started['session_id'], {}, dict(ctx,verification=verification),
+            )
+            self.assertEqual((started['version'],finished['game_version']), ('2.1.0','2.1.0'))
+            self.assertEqual((finished['score'],finished['summary']), (play['score'],play['summary']))
+            stored = conn.execute(
+                "select game_version,score from dino_dev.versioned_best_score where participant_id=%s",
+                (participant['participant']['id'],),
+            ).fetchone()
+            self.assertEqual(dict(stored), {'game_version':'2.1.0','score':play['score']})
+            old = operations.get_me(conn,dict(ctx,game_version='2.0.0'))[1]
+            self.assertEqual((old['best_score'],old['rank']), (0,None))
+            current = operations.leaderboard(conn,{},ctx)[1]
+            previous = operations.leaderboard(conn,{},dict(ctx,game_version='2.0.0'))[1]
+            self.assertEqual(current['rank_targets'],[{'rank':1,'score':play['score']}])
+            self.assertEqual(previous['rank_targets'],[])
+
     def test_expired_active_game_cannot_submit_or_rank(self):
         raw,_,_=self.make_participant();ctx,s=self.started(raw)
         with fixtures.app_tx() as conn:
@@ -105,7 +146,8 @@ class BackendPhase2Test(unittest.TestCase):
             result = operations.finish_session(conn, first['session_id'], {}, dict(ctx, verification=verified_short))[1]
             self.assertEqual((result['rank'], result['top3_profile']['status']), (1, 'REQUESTED'))
             submitted = operations.ranking_profile_post(conn, {
-                'name': 'TEST_REENTRY', 'contact': '01000000000', 'school': 'TEST_SCHOOL',
+                'name': '김제미', 'contact': '010-1234-5678', 'school': '한국대학교',
+                'consent': True, 'notice_version': 'top3-contact-v1',
             }, ctx)[1]
 
         with fixtures.psycopg.connect(fixtures.DSN) as conn:
@@ -137,39 +179,75 @@ class BackendPhase2Test(unittest.TestCase):
             self.assertEqual((reentry['rank'], reentry['top3_gap']['status']), (1, 'IN_TOP3'))
             self.assertEqual((reentry['top3_profile']['status'], reentry['top3_profile']['required']), ('SUBMITTED', False))
             replay = operations.ranking_profile_post(conn, {
-                'name': 'TEST_OTHER', 'contact': '01000000001', 'school': 'TEST_OTHER',
+                'name': '다른사용자', 'contact': '010-9999-9999', 'school': '다른대학교',
+                'consent': True, 'notice_version': 'top3-contact-v1',
             }, retry_ctx)[1]
             self.assertEqual(replay['claim_id'], submitted['claim_id'])
             contact = conn.execute('select count(*) n from dino_dev.ranking_contact where participant_id=%s', (pid,)).fetchone()
             claims = conn.execute("select count(*) n from dino_dev.claim where participant_id=%s and claim_type='RANKING'", (pid,)).fetchone()
-            saved = conn.execute('select recipient_name,school from dino_dev.claim_contact where claim_id=%s', (submitted['claim_id'],)).fetchone()
+            saved = conn.execute('select recipient_name,contact,school,synthetic,consent_at,consent_version from dino_dev.claim_contact where claim_id=%s', (submitted['claim_id'],)).fetchone()
             self.assertEqual((contact['n'], claims['n']), (1, 1))
-            self.assertEqual((saved['recipient_name'], saved['school']), ('TEST_REENTRY', 'TEST_SCHOOL'))
+            self.assertEqual((saved['recipient_name'],saved['contact'],saved['school']), ('김제미','010-1234-5678','한국대학교'))
+            self.assertFalse(saved['synthetic'])
+            self.assertIsNotNone(saved['consent_at'])
+            self.assertEqual(saved['consent_version'],'top3-contact-v1')
             self.assertEqual(reentry['draw']['status'], 'AVAILABLE')
+
+    def test_top3_contact_rejects_missing_consent_invalid_phone_controls_and_oversize_values(self):
+        valid={'name':'김제미','contact':'010-1234-5678','school':'한국대학교',
+               'consent':True,'notice_version':'top3-contact-v1'}
+        cases=(
+            ({**valid,'consent':False},'CONSENT_REQUIRED'),
+            ({**valid,'notice_version':'unknown'},'CONSENT_REQUIRED'),
+            ({**valid,'contact':'phone'},'VALIDATION_ERROR'),
+            ({**valid,'contact':'123456'},'VALIDATION_ERROR'),
+            ({**valid,'name':'김\n제미'},'VALIDATION_ERROR'),
+            ({**valid,'name':'가'*81},'VALIDATION_ERROR'),
+            ({**valid,'contact':'0'*33},'VALIDATION_ERROR'),
+            ({**valid,'school':'가'*121},'VALIDATION_ERROR'),
+        )
+        for body,code in cases:
+            with self.subTest(code=code,body=body):
+                with self.assertRaises(operations.DomainError) as caught:
+                    operations._ranking_contact_values(body)
+                self.assertEqual(caught.exception.code,code)
 
     def test_dense_rank_ties_private_name_and_gap_use_same_rules(self):
         participants=[]
-        for score in (500,500,400,300,200):
+        scores=(500,500,400,300,300,200)
+        elapsed_ticks=(600,540,480,720,180,360)
+        for index,(score,ticks) in enumerate(zip(scores,elapsed_ticks)):
             raw,_,p=self.make_participant();pid=p['participant']['id'];ctx,s=self.started(raw)
             with fixtures.app_tx() as conn:
-                conn.execute("update dino_dev.game_session set status='FINISHED',score=%s,valid_ticks=600,finished_at=clock_timestamp() where id=%s",(score,s['session_id']))
-                conn.execute('insert into dino_dev.versioned_best_score values(%s,%s,%s,%s,clock_timestamp())',(pid,'2.0.0',s['session_id'],score))
+                conn.execute("update dino_dev.game_session set status='FINISHED',score=%s,valid_ticks=%s,finished_at=clock_timestamp() where id=%s",(score,ticks,s['session_id']))
+                conn.execute("insert into dino_dev.versioned_best_score values(%s,%s,%s,%s,timestamptz '2026-01-01 00:00:00+00'+make_interval(secs=>%s))",(pid,'2.0.0',s['session_id'],score,index))
             participants.append((raw,pid))
         with fixtures.app_tx() as conn:
             conn.execute('update dino_dev.participant set is_public=false where id=%s',(participants[0][1],))
             ctx=self.ctx(participants[-1][0]);data=operations.leaderboard(conn,{},ctx)[1]
             self.assertEqual(data['me']['rank'],4)
+            self.assertEqual(data['me']['best_elapsed_seconds'],6.0)
             self.assertEqual(data['top3_gap']['third_score'],300)
+            self.assertEqual(data['top3_gap']['third_elapsed_seconds'],12.0)
             self.assertEqual(data['top3_gap']['score_needed'],100)
             self.assertEqual(data['top3_gap']['status'],'CHASING')
+            conn.execute("update dino_dev.versioned_best_score set achieved_at=timestamptz '2026-01-01 00:00:03+00' where score=300")
+            tied_third=operations.leaderboard(conn,{},ctx)[1]['top3_gap']
+            expected_tied_seconds=12.0 if participants[3][1]<participants[4][1] else 3.0
+            self.assertEqual(tied_third['third_elapsed_seconds'],expected_tied_seconds)
             top=operations.get_me(conn,self.ctx(participants[1][0]))[1]
             self.assertEqual(top['rank'],1);self.assertTrue(top['top3_gap']['tied'])
-            self.assertEqual(len(data['leaderboard']),4)
+            self.assertEqual(len(data['leaderboard']),5)
             self.assertEqual(sum(x['score']==500 for x in data['leaderboard']),1)
+            self.assertEqual(data['rank_targets'],[
+                {'rank':1,'score':500},
+                {'rank':2,'score':400},
+                {'rank':3,'score':300},
+            ])
         admin=self.make_admin(['ranking:write']);admin['game_version']='2.0.0'
         with fixtures.app_tx() as conn:
             _,snapshot=operations.create_admin_ranking_snapshot(conn,{'event_id':'evt_snapshot_v2'},admin)
-            self.assertEqual(snapshot['game_version'],'2.0.0');self.assertEqual(snapshot['entry_count'],5)
+            self.assertEqual(snapshot['game_version'],'2.0.0');self.assertEqual(snapshot['entry_count'],6)
 
     def test_old_top3_request_provenance_preserved_and_upgraded_without_reset(self):
         raw,_,p=self.make_participant();pid=p['participant']['id'];ctx,s=self.started(raw)
@@ -177,7 +255,10 @@ class BackendPhase2Test(unittest.TestCase):
         with fixtures.app_tx() as conn:
             conn.execute("insert into dino_dev.ranking_contact(participant_id,status,game_version,submitted_at) values(%s,'SUBMITTED','1.2.0',clock_timestamp())",(pid,))
             before=operations.get_me(conn,ctx)[1]['top3_profile']
-            self.assertEqual(before,{'status':'SUBMITTED','game_version':'1.2.0'})
+            self.assertEqual(before,{
+                'required':False,'eligible':False,
+                'status':'SUBMITTED','game_version':'1.2.0',
+            })
             _,finished=operations.finish_session(conn,s['session_id'],{},dict(ctx,verification=self.verification))
             self.assertEqual(finished['top3_profile']['status'],'SUBMITTED')
             self.assertEqual(finished['top3_profile']['game_version'],'2.0.0')

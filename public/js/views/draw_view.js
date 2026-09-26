@@ -47,7 +47,7 @@ export const DrawView = {
       <section class="card pouch-selection-container">
         <span class="sticker-badge badge-yellow">행사당 한 번</span>
         <h2>복주머니 하나를 골라주세요</h2>
-        <p>하나를 고르면 결과가 정해져요. 정해진 결과는 새로고침해도 같아요.</p>
+        <p class="pouch-selection-description">하나를 고르면 결과가 정해져요.<br>정해진 결과는 새로고침해도 같아요.</p>
         <div class="pouch-grid">
           <button class="pouch-item wiggle" data-index="0"><span class="pouch-icon">🧧</span><span class="pouch-label">1번</span></button>
           <button class="pouch-item wiggle" data-index="1"><span class="pouch-icon">🧧</span><span class="pouch-label">2번</span></button>
@@ -115,22 +115,19 @@ export const DrawView = {
     scratchCanvas.tabIndex = 0;
     const img = container.querySelector('#result-prize-img');
     img.src = prize.image_url || (draw.is_won ? '/assets/icons/Heart-Dark.png' : '/assets/icons/Rocket-Dark.png');
-    img.alt = draw.is_won ? '당첨 경품' : '혜택 안내';
-    ui.text(container.querySelector('#result-prize-title'), draw.is_won ? prize.name : '이번 복주머니는 미당첨이에요');
-    ui.text(container.querySelector('#result-prize-sub'), draw.is_won ? '운영자가 정보를 확인하고 직접 연락해 지급합니다.' : '게임 기록과 초대 도전은 계속 이용할 수 있어요.');
+    img.alt = draw.is_won ? '당첨 경품' : 'Gemini 1년 무료 혜택';
+    ui.text(container.querySelector('#result-prize-title'), draw.is_won ? prize.name : '축하드려요!');
+    ui.text(container.querySelector('#result-prize-sub'), draw.is_won ? '운영자가 정보를 확인하고 직접 연락해 지급합니다.' : 'Gemini 1년 무료 당첨');
     if (Number.isInteger(draw.pouch_index)) ui.text(container.querySelector('#restored-pouch'), `${draw.pouch_index + 1}번 주머니에서 정해진 결과예요. 새로고침해도 같아요.`);
     const after = container.querySelector('#btn-after-draw');
-    after.textContent = draw.is_won ? '수령함에서 확인하기' : '혜택 안내 보기';
+    after.textContent = draw.is_won ? '수령함에서 확인하기' : '혜택 적용하기';
     after.onclick = () => router.navigate(draw.is_won ? 'claims' : 'benefit');
     const showResult = () => {
       if (!router.isCurrent(renderToken)) return;
       ui.text(container.querySelector('#scratch-title'), '복주머니 결과를 확인하세요');
-      ui.text(
-        container.querySelector('#scratch-instruction'),
-        draw.is_won
-          ? '이미 정해진 결과예요. 수령함에서 접수·진행 상태를 확인할 수 있어요.'
-          : '이미 정해진 결과예요. 게임 기록과 Gemini 혜택은 계속 확인할 수 있어요.',
-      );
+      const instruction = container.querySelector('#scratch-instruction');
+      ui.text(instruction, '');
+      instruction.hidden = true;
       resultContent.inert = false;
       resultContent.removeAttribute('inert');
       resultContent.setAttribute('aria-hidden', 'false');

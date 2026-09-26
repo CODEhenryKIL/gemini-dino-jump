@@ -1,8 +1,10 @@
 import { api } from '../api.js';
 import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
+import { prepareResultReferralShare } from '../referral_share.js';
 
 const resultGapRequests = new WeakMap();
+const contactForms = new WeakMap();
 
 export const ResultView = {
   render(container, router, renderToken) {
@@ -11,30 +13,53 @@ export const ResultView = {
     if (!result) { router.navigate('home'); return; }
     container.innerHTML = `
       <section class="card result-card">
-        <span class="sticker-badge badge-green">기록 검증 완료</span>
+        <div class="home-event-badges"><span class="home-event-badge home-event-badge-team">#TeamGemini</span><span class="home-event-badge home-event-badge-campus">2026 캠퍼스 챌린지</span></div>
         <h1>게임 종료</h1>
         <div class="score-panel"><small>이번 판</small><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
-        <p id="result-top3-gap" class="result-gap" role="status"></p>
         <div class="profile-row"><div><small>랭킹 닉네임</small><strong id="result-nickname"></strong></div><button id="btn-edit-nick" class="btn btn-secondary btn-sm">수정</button></div>
-        <div id="top3-request"></div>
+        <p id="result-top3-gap" class="result-gap" role="status"></p>
         <button id="btn-go-pouch" class="btn btn-primary">복주머니 확인하기</button>
-        <button id="btn-share-record" class="btn btn-outline btn-sm">기록 공유하고 친구 초대하기</button>
+        <div id="top3-request"></div>
+        <div class="result-retry">
+          <button id="btn-share-record" class="btn btn-share-retry" aria-label="카카오톡으로 친구한테 공유하고 한 판 더 하기" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.45 2 10.7c0 2.76 1.89 5.18 4.72 6.54l-.93 3.38c-.08.29.25.52.5.36l3.97-2.61c.57.08 1.15.12 1.74.12 5.52 0 10-3.46 10-7.79C22 6.45 17.52 3 12 3Z"/></svg><span>친구한테 공유하고 한 판 더 하기</span></button>
+          <p id="result-share-status" class="result-share-status" role="status"></p>
+        </div>
       </section>`;
     ui.text(container.querySelector('#result-score'), `${result.score}점`);
     ui.text(container.querySelector('#result-best'), `최고 ${result.bestScore}점`);
     ui.text(container.querySelector('#result-rank'), result.rank ? `현재 ${result.rank}위` : '순위 집계 중');
     const gapNode = container.querySelector('#result-top3-gap');
-    if (gapNode) ui.text(gapNode, this.top3GapMessage(result));
+    if (gapNode) this.renderGap(gapNode, result);
     ui.text(container.querySelector('#result-nickname'), router.state.participant?.nickname || '익명 러너');
     container.querySelector('#btn-go-pouch').onclick = () => {
       analytics.track('draw_cta_clicked', { source: 'result', draw_status: router.state.draw?.status || 'LOCKED' });
       router.navigate('draw');
     };
-    container.querySelector('#btn-share-record').onclick = () => { router.shareContext = 'record_share'; router.navigate('invite'); };
+    this.prepareShare(container, router, renderToken);
     container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router, renderToken);
     this.updateState(container, router, renderToken);
     if (result.top3_gap == null && typeof api !== 'undefined' && typeof api.getLeaderboard === 'function') {
       this.loadTop3Gap(container, router, renderToken, result);
+    }
+  },
+
+  async prepareShare(container, router, renderToken) {
+    const button = container.querySelector('#btn-share-record');
+    const status = container.querySelector('#result-share-status');
+    const isCurrent = () => !router.isCurrent || router.isCurrent(renderToken);
+    button.disabled = true;
+    if (status) ui.text(status, '초대 링크 준비 중…');
+    try {
+      const prepared = await prepareResultReferralShare(router);
+      if (!isCurrent()) return;
+      button.disabled = false;
+      if (status) ui.text(status, prepared.mode === 'native' ? '' : prepared.mode === 'copy' ? '초대 링크를 복사해 카카오톡으로 보낼 수 있어요.' : '친구가 방문하면 재도전권이 쌓여요.');
+      button.onclick = () => { if (isCurrent()) return prepared.share(); };
+    } catch (_) {
+      if (!isCurrent()) return;
+      button.disabled = false;
+      if (status) ui.text(status, '초대 링크를 불러오지 못했어요. 버튼을 눌러 다시 준비해 주세요.');
+      button.onclick = () => { if (isCurrent()) return this.prepareShare(container, router, renderToken); };
     }
   },
 
@@ -53,7 +78,8 @@ export const ResultView = {
       }
       result.top3_gap = data.top3_gap ?? data.me?.top3_gap ?? null;
       const currentGapNode = container.querySelector('#result-top3-gap');
-      if (currentGapNode) ui.text(currentGapNode, this.top3GapMessage(result));
+      if (currentGapNode) this.renderGap(currentGapNode, result);
+      this.updateState(container, router, renderToken);
     } catch (_error) {
       if ((router.isCurrent && !router.isCurrent(renderToken)) || resultGapRequests.get(container) !== request) return;
       const currentGapNode = container.querySelector('#result-top3-gap');
@@ -84,21 +110,30 @@ export const ResultView = {
       if (status === 'NO_SCORE') return '검증된 점수가 생기면 TOP3와의 차이를 보여드려요.';
       if (status === 'TOO_FEW') return `현재 참가자는 ${Number(gap.participant_count) || 0}명이에요. 3위 점수가 생기면 차이를 보여드려요.`;
       if (status === 'IN_TOP3') {
-        const tie = gap.tied ? ' 현재 같은 순위의 동점 기록이 있어요.' : '';
-        return `현재 ${Number(gap.rank) || Number(result.rank) || 3}위로 TOP3예요.${tie} 최종 경품 지급 순위와 동점 수상 기준은 이벤트 종료 시점에 확정돼요.`;
+        return `현재 ${Number(gap.rank) || Number(result.rank) || 3}위로 TOP3예요.\n최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.`;
       }
       if (status === 'CHASING') {
         const points = Number(gap.score_needed);
         if (gap.tied && points === 0) return '현재 3위 점수와 동점이에요. 최종 동점 수상 기준은 이벤트 종료 시점에 확정돼요.';
-        return Number.isFinite(points) && points > 0 ? `현재 3위까지 ${points}점이 더 필요해요.${gap.tied ? ' 내 점수와 동점인 참가자가 있어요.' : ''}` : 'TOP3 기준을 계산하는 중이에요.';
+        return Number.isFinite(points) && points > 0 ? this.retryGapCopy(points) : 'TOP3 기준을 계산하는 중이에요.';
       }
       return 'TOP3 기준을 계산하는 중이에요.';
     }
-    if (result.rank && result.rank <= 3) return '현재 TOP3예요. 최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.';
+    if (result.rank && result.rank <= 3) return `현재 ${result.rank}위로 TOP3예요.\n최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.`;
     const points = Number(gap);
-    if (Number.isFinite(points) && points > 0) return `현재 3위까지 ${points}점 차이예요.`;
+    if (Number.isFinite(points) && points > 0) return this.retryGapCopy(points);
     if (points === 0) return '현재 3위 점수와 동점이에요. 최종 동점 수상 기준은 이벤트 종료 시점에 확정돼요.';
     return 'TOP3 기준을 계산하는 중이에요.';
+  },
+
+  renderGap(node, result) {
+    ui.text(node, this.top3GapMessage(result));
+    node.classList?.toggle('is-chasing', result.top3_gap?.status === 'CHASING' && Number(result.top3_gap.score_needed) > 0);
+  },
+
+  retryGapCopy(points) {
+    // Current game rules award 10 time points per second; coins and revivals also affect ranking.
+    return `TOP3까지 약 ${Math.ceil(points / 10)}초만 더!`;
   },
 
   nicknameModal(router, renderToken) {
@@ -124,77 +159,84 @@ export const ResultView = {
   },
 
   renderTop3Request(target, router, profile) {
+    const result = router.state?.lastResult || {};
+    const rank = result.top3_gap?.rank ?? result.rank;
+    const eligible = profile?.eligible !== false && result.top3_gap?.status !== 'CHASING' && (Number.isInteger(rank) ? rank >= 1 && rank <= 3 : profile?.eligible === true);
+    const previous = contactForms.get(target);
+    if (previous?.router === router && previous.status === profile?.status && previous.version === profile?.game_version && previous.eligible === eligible) return;
+    contactForms.set(target, { router, status: profile?.status, version: profile?.game_version, eligible });
     target.replaceChildren();
-    target.hidden = !['REQUESTED', 'SUBMITTED'].includes(profile?.status);
+    target.hidden = !eligible || !['REQUESTED', 'SUBMITTED'].includes(profile?.status);
     if (target.hidden) return;
     const card = document.createElement('section');
-    card.className = 'inline-notice';
-    const copy = this.top3RequestCopy(profile, router.config);
-    const title = document.createElement('strong'); title.textContent = copy.title;
-    const text = document.createElement('p'); text.textContent = copy.description;
-    const button = document.createElement('button'); button.className = 'btn btn-secondary btn-sm';
-    button.textContent = profile.status === 'SUBMITTED' ? '정보 접수 완료' : '합성 테스트 정보 입력';
-    button.disabled = profile.status === 'SUBMITTED';
-    button.onclick = () => this.top3Modal(router, router.renderToken);
-    card.append(title, text, button); target.appendChild(card);
+    card.className = 'result-contact';
+    const title = document.createElement('strong');
+    title.textContent = profile.status === 'SUBMITTED' ? 'TOP3 정보 접수 완료' : '수령 정보를 등록해 주세요';
+    card.appendChild(title);
+    if (profile.status === 'REQUESTED') {
+      const intro = document.createElement('p'); intro.className = 'result-contact-intro';
+      intro.textContent = 'TOP3에 진입한 참가자에게는 경품 안내를 위해 수령 정보를 미리 받고 있어요.';
+      card.append(intro, this.top3Form(router));
+    } else {
+      const text = document.createElement('p'); text.textContent = '수령함에서 접수 상태를 확인할 수 있어요.';
+      card.appendChild(text);
+    }
+    target.appendChild(card);
   },
 
-  top3RequestCopy(profile, config) {
-    if (profile?.status === 'SUBMITTED') {
-      return {
-        title: 'TOP3 정보 접수 완료',
-        description: '이미 등록한 정보가 저장되어 있어 다시 입력하지 않아도 돼요. 수령함에서 접수 상태를 확인할 수 있어요. 최종 수상과 지급 여부는 이벤트 종료 후 운영팀이 확인해요.',
-      };
-    }
-    const requestVersion = profile?.game_version;
-    const currentVersion = config?.campaign?.game_version;
-    if (requestVersion && currentVersion && requestVersion !== currentVersion) {
-      return {
-        title: '이전 게임 규칙에서 생성된 수령 정보 요청',
-        description: `게임 규칙 ${requestVersion} 기록에서 생성된 요청이에요. 접수 요청은 유지되지만 현재 ${currentVersion} 규칙의 TOP3라는 뜻은 아니며, 최종 수상 확정은 운영 마감 뒤 별도예요.`,
-      };
-    }
-    return {
-      title: '잠정 TOP3 수령 정보를 등록해 주세요',
-      description: '현재 순위가 내려가더라도 이 요청 상태는 보존됩니다. 최종 수상 확정은 운영 마감 뒤 별도입니다.',
-    };
-  },
-
-  top3Modal(router, renderToken = router.renderToken) {
-    const returnView = router.currentView === 'ranking' ? 'ranking' : 'result';
-    analytics.track('top3_profile_started');
+  top3Form(router, renderToken = router.renderToken) {
     const form = document.createElement('form'); form.className = 'stack-form';
     const fields = [
-      ui.formField('이름 (테스트 정보)', 'text', 'name', { maxlength: 30, autocomplete: 'name' }),
-      ui.formField('연락처 (테스트 정보)', 'text', 'contact', { maxlength: 60, autocomplete: 'off' }),
-      ui.formField('학교 (테스트 정보)', 'text', 'school', { maxlength: 60, autocomplete: 'organization' }),
+      ui.formField('이름', 'text', 'name', { maxlength: 80, autocomplete: 'name', required: true }),
+      ui.formField('연락처', 'tel', 'contact', { maxlength: 32, autocomplete: 'tel', required: true }),
+      ui.formField('학교', 'text', 'school', { maxlength: 120, autocomplete: 'organization', required: true }),
     ];
-    fields[0].input.value = 'TEST_사용자';
-    fields[1].input.value = '01000000000';
-    fields[2].input.value = 'TEST_학교';
     fields.forEach(({ label }) => form.appendChild(label));
     const consent = document.createElement('label'); consent.className = 'consent-row';
-    const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
-    const consentText = document.createElement('span'); consentText.textContent = 'Preview에서는 실제 개인정보가 아닌 합성 테스트 정보만 입력합니다.';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.required = true;
+    const consentText = document.createElement('span'); consentText.textContent = '경품 안내와 수령 확인을 위한\n이름·연락처·학교 수집에 동의합니다.';
     consent.append(checkbox, consentText); form.appendChild(consent);
-    ui.showModal({
-      title: '잠정 TOP3 정보 접수', content: form, confirmText: '접수', cancelText: '취소',
-      onConfirm: async () => {
-        if (!checkbox.checked || fields.some(({ input }) => !input.value.trim())) { ui.showToast('모든 항목과 테스트 정보 확인을 완료해 주세요.'); return false; }
-        try {
-          const submitted = await api.submitTop3Profile(Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])));
-          const previousProfile = router.state.top3Profile || {};
-          router.state.top3Profile = { ...previousProfile, required: false, status: submitted.status || 'SUBMITTED', submitted_at: submitted.submitted_at || previousProfile.submitted_at };
-          if (router.state.lastResult) router.state.lastResult.top3Profile = router.state.top3Profile;
-          router.announceStateChange?.();
-          analytics.track('top3_profile_submitted');
-          if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
-          await router.navigate(returnView, { replace: true });
-        } catch (error) {
-          if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return true;
-          ui.showToast(error.message); return false;
-        }
-      },
-    });
+    const accuracyNote = document.createElement('p'); accuracyNote.className = 'result-contact-accuracy';
+    accuracyNote.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';
+    form.appendChild(accuracyNote);
+    const feedback = document.createElement('p'); feedback.className = 'result-form-status'; feedback.setAttribute('role', 'status');
+    const button = document.createElement('button'); button.type = 'submit'; button.className = 'btn btn-secondary'; button.textContent = '수령 정보 등록';
+    form.append(feedback, button);
+    let started = false;
+    let pending = false;
+    form.onfocusin = () => {
+      if (started) return;
+      started = true;
+      analytics.track('top3_profile_started');
+    };
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      if (pending || (renderToken != null && router.isCurrent && !router.isCurrent(renderToken))) return;
+      if (!checkbox.checked || fields.some(({ input }) => !input.value.trim())) {
+        feedback.textContent = '모든 항목을 입력하고 수집에 동의해 주세요.';
+        return;
+      }
+      form.onfocusin();
+      pending = true; button.disabled = true; button.textContent = '등록 중…'; feedback.textContent = '';
+      try {
+        const submitted = await api.submitTop3Profile({ ...Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])), consent: true, notice_version: 'top3-contact-v1' });
+        const previousProfile = router.state.top3Profile || {};
+        router.state.top3Profile = { ...previousProfile, required: false, status: submitted.status || 'SUBMITTED', submitted_at: submitted.submitted_at || previousProfile.submitted_at };
+        if (router.state.lastResult) router.state.lastResult.top3Profile = router.state.top3Profile;
+        router.announceStateChange?.();
+        analytics.track('top3_profile_submitted');
+        if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return;
+        // Replace only this form, keeping score/share controls and scroll position intact.
+        form.replaceChildren();
+        const done = document.createElement('p'); done.className = 'result-form-status'; done.setAttribute('role', 'status'); done.textContent = '정보 접수 완료';
+        form.appendChild(done);
+      } catch (error) {
+        if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return;
+        feedback.textContent = error.message || '등록하지 못했어요. 다시 시도해 주세요.';
+      } finally {
+        pending = false; button.disabled = false; button.textContent = '수령 정보 등록';
+      }
+    };
+    return form;
   },
 };

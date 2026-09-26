@@ -66,18 +66,47 @@ export const GameView = {
           <div class="game-viewport-container">
             <canvas id="game-canvas"></canvas>
             <div class="game-hud">
-              <div class="hud-left"><span id="hud-stage-badge" class="stage-tag">STAGE 1</span><span class="hud-item hud-coin" aria-label="획득 코인"><img src="/assets/icons/Smile-Light.png" alt=""><strong id="hud-coin-count">0</strong></span><span class="hud-item hud-heart" aria-label="보유 부활권"><img src="/assets/icons/Heart-Light.png" alt=""><strong id="hud-heart-count">0</strong></span><span class="hud-item hud-revive" aria-label="이번 판 부활 횟수">↻ <strong id="hud-revive-count">0</strong></span></div>
-              <div class="hud-right"><strong id="hud-current-score" class="current-score">0</strong><button id="btn-toggle-sound" class="sound-toggle-btn" aria-label="소리 켜기 또는 끄기">🔊</button></div>
+              <div class="hud-left"><span id="hud-stage-badge" class="stage-tag">STAGE 1</span><span class="hud-items"><span class="hud-item hud-coin" aria-label="획득 코인"><img src="/assets/icons/Smile-Light.png" alt=""><strong id="hud-coin-count">0</strong></span><span class="hud-item hud-heart" aria-label="보유 부활권"><img src="/assets/icons/Heart-Light.png" alt=""><strong id="hud-heart-count">0</strong></span><span class="hud-item hud-revive" aria-label="이번 판 부활 횟수">↻ <strong id="hud-revive-count">0</strong></span></span></div>
+              <div class="hud-right"><strong id="hud-current-score" class="current-score">0</strong><span id="hud-rank-target" class="hud-rank-target" title="게임 시작 시 랭킹 기준 · 최종 순위는 종료 후 확정" hidden></span><button id="btn-toggle-sound" class="sound-toggle-btn" aria-label="소리 켜기 또는 끄기">🔊</button></div>
             </div>
             <div id="stage-flash-badge"><div class="stage-name">STAGE 1</div><div class="stage-sub">가볍게 시작!</div></div>
-            <div id="revive-flash" class="revive-flash" role="status" aria-live="polite"><img src="/assets/icons/Heart-Light.png" alt=""><strong>부활!</strong><span>보호막이 잠시 유지돼요</span></div>
+            <div id="revive-flash" class="revive-flash" role="status" aria-live="polite"><img src="/assets/icons/Heart-Light.png" alt=""><strong>부활!</strong><span id="revive-penalty-note">보호막이 잠시 유지돼요</span></div>
             <div id="countdown-overlay" class="countdown-overlay active"><div id="countdown-num" class="countdown-number">3</div><div>탭하여 점프하세요!</div></div>
           </div>
-          <div class="jump-hint-box">탭: 낮게 점프 · 꾹 누르기: 높게 점프 · 높은 새: 점프 금지</div>
+          <div class="game-built-with"><span>Built with</span><img src="/assets/logos/antigravity-icon-full-color.png" alt="" width="18" height="18"><strong>Google Antigravity</strong></div>
+          <div class="jump-hint-box" aria-label="점프 조작 안내"><div class="jump-control-guide"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 17V7a2 2 0 0 1 4 0v7l1-1a2 2 0 0 1 3 1 2 2 0 0 1 3 1 2 2 0 0 1 3 2v4c0 5-3 8-8 8h-2c-3 0-5-2-7-5l-3-5a2 2 0 0 1 3-3l3 3"/><path class="gesture-ring" d="M7 7a7 7 0 0 1 14 0"/></svg><div><span>탭</span><strong>점프 <b aria-hidden="true">↑</b></strong></div></div><div class="jump-control-guide jump-control-super"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 17V7a2 2 0 0 1 4 0v7l1-1a2 2 0 0 1 3 1 2 2 0 0 1 3 1 2 2 0 0 1 3 2v4c0 5-3 8-8 8h-2c-3 0-5-2-7-5l-3-5a2 2 0 0 1 3-3l3 3"/><path class="gesture-ring" d="M7 7a7 7 0 0 1 14 0"/></svg><div><span>꾹 누르기</span><strong>수퍼 점프 <b aria-hidden="true">↑↑</b></strong></div></div></div>
           <div id="game-session-notice" class="game-session-notice" role="status" hidden></div>
         </div>
         <div class="jump-bottom-dock"><button id="btn-jump" class="big-jump-btn">🚀 점프</button></div>
       </section>`;
+  },
+
+  updateRankTarget(container, score) {
+    const label = container.querySelector('#hud-rank-target');
+    if (!label || !this.rankTargets) return;
+    label.hidden = false;
+    const value = Math.max(0, Number(score) || 0);
+    const target = [...this.rankTargets].reverse().find((entry) => value < entry.score);
+    const text = target
+      ? `${['', '🥇', '🥈', '🥉'][target.rank]}까지 ${(target.score - value).toLocaleString('ko-KR')}점`
+      : this.rankTargets.length ? '🥇 목표 달성!' : '첫 기록에 도전!';
+    if (label.textContent !== text) ui.text(label, text);
+  },
+
+  async loadRankTargets(container, router, renderToken) {
+    const lifecycleId = this.lifecycleId;
+    const sessionId = this.sessionId;
+    try {
+      const data = await api.getLeaderboard();
+      if (!router.isCurrent(renderToken) || !this.isOperationCurrent(lifecycleId, sessionId)) return;
+      if (data.game_version !== this.gameVersion || !Array.isArray(data.rank_targets)) return;
+      this.rankTargets = data.rank_targets
+        .filter((entry) => Number.isInteger(entry.rank) && entry.rank >= 1 && entry.rank <= 3 && Number.isInteger(entry.score) && entry.score >= 0)
+        .sort((a, b) => a.rank - b.rank);
+      this.updateRankTarget(container, this.engine?.score || 0);
+    } catch (_) {
+      // Ranking is optional; a failed request must never interrupt play.
+    }
   },
 
   async recoverPendingResult(router, renderToken) {
@@ -187,7 +216,7 @@ export const GameView = {
   validateResumeSnapshot(snapshot, state) {
     if (!snapshot) return '이 브라우저에 저장된 진행 데이터가 없습니다.';
     if (state?.status !== 'ACTIVE' && state?.status !== 'RESERVED') return '이어갈 수 있는 활성 게임이 아닙니다.';
-    if (state.version !== '2.0.0' || snapshot.version !== state.version) return '게임 버전이 일치하지 않습니다.';
+    if (!['2.0.0', '2.1.0'].includes(state.version) || snapshot.version !== state.version) return '게임 버전이 일치하지 않습니다.';
     if (snapshot.sessionId !== (state.session_id || state.id) || Number(snapshot.seed) !== Number(state.seed)) return '게임 세션 정보가 일치하지 않습니다.';
     const tick = Number(snapshot.tick);
     const checkpoint = Number(state.last_checkpoint_tick || 0);
@@ -261,7 +290,7 @@ export const GameView = {
     if (!router.isCurrent(renderToken)) return;
     this.sessionId = session.session_id;
     this.ticketKind = session.ticket_kind || null;
-    this.gameVersion = session.version || router.config?.game_version || '2.0.0';
+    this.gameVersion = session.version || router.config?.campaign?.game_version || '2.1.0';
     storageSet(`${CHECKPOINT_PREFIX}${this.sessionId}`, '0');
     storageSet(`${SNAPSHOT_PREFIX}${this.sessionId}`, JSON.stringify({ sessionId: this.sessionId, version: this.gameVersion, seed: session.seed, tick: 0, jumpTicks: [] }));
     await router.refreshState({ quiet: true });
@@ -337,7 +366,7 @@ export const GameView = {
     const flash = container.querySelector('#stage-flash-badge');
     this.engine = new DinoGameEngine(canvas, {
       version: this.gameVersion,
-      onScoreUpdate: (value) => ui.text(score, value),
+      onScoreUpdate: (value) => { ui.text(score, value); this.updateRankTarget(container, value); },
       onStageChange: (stage) => {
         const stageNumber = Number(String(stage.title || '').match(/\d+/)?.[0] || 1);
         this.currentStage = `stage_${stageNumber}`;
@@ -368,6 +397,8 @@ export const GameView = {
         const revives = Number(event.revive_count || 0);
         ui.text(heartCount, Math.max(0, Math.min(1, Number(event.hearts || 0))));
         ui.text(reviveCount, revives);
+        const penaltyNote = container.querySelector('#revive-penalty-note');
+        if (penaltyNote) ui.text(penaltyNote, event.penalty ? `−${event.penalty}점 · 이번 판 총 −${event.total_penalty}점` : '보호막이 잠시 유지돼요');
         reviveFlash.classList.remove('show');
         void reviveFlash.offsetWidth;
         reviveFlash.classList.add('show');
@@ -379,6 +410,8 @@ export const GameView = {
         if (router.isCurrent(renderToken)) this.handleGameOver(result, router, container, renderToken);
       },
     });
+    this.rankTargets = null;
+    this.loadRankTargets(container, router, renderToken);
     const press = (event) => { event?.preventDefault?.(); this.engine?.jumpPress(); };
     const release = (event) => { event?.preventDefault?.(); this.engine?.jumpRelease(); };
     for (const element of [canvas, container.querySelector('#btn-jump')]) {
@@ -455,7 +488,7 @@ export const GameView = {
     const key = `finish_${sessionId}`;
     const summary = result.summary || this.engine?.getSummary?.() || {};
     const payload = {
-      version: result.version || this.gameVersion || '2.0.0',
+      version: result.version || this.gameVersion || '2.1.0',
       end_reason: result.end_reason || 'COLLISION',
       score: result.score,
       ticks: result.ticks,
@@ -626,6 +659,7 @@ export const GameView = {
     this.currentStage = 'stage_1';
     this.gameVersion = null;
     this.heartsCollected = 0;
+    this.rankTargets = null;
     this.cleanupTasks = [];
   },
   cleanup() {

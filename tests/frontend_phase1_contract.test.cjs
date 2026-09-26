@@ -220,7 +220,7 @@ test('blocked web storage cannot crash participant or game bootstrap', () => {
 
 test('a consumed ticket does not block access to an existing game or fault recovery', () => {
   const home = read('public/js/views/home.js');
-  assert.match(home, /start\.disabled = !pendingSession && \(campaignStatus !== 'ACTIVE' \|\| \(!unlimited && available < 1\)\)/);
+  assert.match(home, /start\.disabled = !pendingSession && campaignStatus !== 'ACTIVE'/);
   assert.match(home, /진행 중 게임 복원/);
   assert.match(home, /장애 복구 상태 확인/);
   assert.match(home, /if \(router\.state\.pendingGameSession\) \{ router\.navigate\('game'\); return; \}/);
@@ -247,12 +247,12 @@ test('scratch completion keeps a stable retry key and does not claim completion 
 
 test('share attribution uses an opaque approved parameter and records outcomes separately', () => {
   const app = read('public/js/app.js');
-  const invite = read('public/js/views/invite_view.js');
+  const sharing = read('public/js/referral_share.js');
   assert.match(app, /url\.searchParams\.get\('share'\)/);
   assert.match(app, /share_id: shareId/);
-  assert.match(invite, /url\.searchParams\.set\('share', shareId\)/);
-  assert.match(invite, /status: 'copied'/);
-  assert.match(invite, /status: 'failed'/);
+  assert.match(sharing, /url\.searchParams\.set\('share', shareId\)/);
+  assert.match(sharing, /trackShare\('copy', shareId, 'copied'/);
+  assert.match(sharing, /trackShare\('copy', shareId, 'failed'/);
   assert.match(read('public/js/analytics.js'), /'share_id'/);
 });
 
@@ -327,9 +327,8 @@ test('submitted TOP3 state wins over a stale requested result when result screen
     ui: { text(node, value) { node.textContent = String(value); } },
   });
   view.render(container, router);
-  const button = created.find((node) => node.tag === 'button' && node.textContent === '정보 접수 완료');
-  assert.ok(button);
-  assert.equal(button.disabled, true);
+  assert.ok(created.find((node) => node.textContent === 'TOP3 정보 접수 완료'));
+  assert.equal(created.some((node) => node.tag === 'form'), false);
   assert.equal(created.some((node) => node.textContent === '합성 테스트 정보 입력'), false);
 });
 
@@ -337,4 +336,6 @@ test('public metadata uses the deployment site name while retaining Dino Jump', 
   const index = read('public/index.html');
   assert.match(index, /<title>구글 코리아 팀 제미나이 \| 공룡 점프<\/title>/);
   assert.match(index, /property="og:site_name" content="구글 코리아 팀 제미나이"/);
+  assert.match(index, /href="\/css\/phase2-views\.css\?v=20260926-benefit"/);
+  assert.match(index, /src="\/js\/app\.js\?v=20260926-benefit"/);
 });

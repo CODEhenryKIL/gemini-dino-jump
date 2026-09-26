@@ -10,6 +10,10 @@
   width: 100%;
 }
 
+.pouch-selection-description {
+  text-align: center;
+}
+
 .pouch-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

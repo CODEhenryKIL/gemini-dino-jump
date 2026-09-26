@@ -74,7 +74,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         self.pending_cookie=f"dj_session={token}; Path=/; Max-Age={settings.participant_cookie_max_age}; HttpOnly; SameSite=Lax{secure}"
     def _context(self,settings,body,path):
         raw_cookie=self._cookie();participant_hash=auth.token_hash(raw_cookie,settings.token_pepper) if raw_cookie else ""
-        ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"participant_token_hash":participant_hash,"request_id":self.request_id,"invite_active_ms":settings.invite_active_ms,"participant_cookie_max_age":settings.participant_cookie_max_age,"ip_subject":self._ip_subject(settings),"preview_unlimited_participant_ids":settings.preview_unlimited_participant_ids}
+        ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"participant_token_hash":participant_hash,"request_id":self.request_id,"invite_active_ms":settings.invite_active_ms,"participant_cookie_max_age":settings.participant_cookie_max_age,"ip_subject":self._ip_subject(settings),"preview_unlimited_play":settings.preview_unlimited_play}
         idem=self.headers.get("Idempotency-Key","")
         if idem:
             if not re.fullmatch(r"[\x21-\x7e]{8,128}",idem):raise DomainError("INVALID_IDEMPOTENCY_KEY","요청 식별자를 확인해 주세요.")
@@ -114,7 +114,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                 ctx["campaign_id"]=guard["campaign_id"]
                 if method=="GET" and path=="/api/health":
                     campaign=conn.execute("select status,game_version from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();remaining=conn.execute("select count(*)::int n from dino_dev.inventory_item where status='AVAILABLE'").fetchone()["n"]
-                    self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":True,"test_seed":guard["test_seed"],"test_inventory_remaining":remaining,"campaign_status":campaign["status"] if campaign else None});return
+                    self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":False,"gameplay_synthetic_only":True,"top3_contact_collection_enabled":True,"test_seed":guard["test_seed"],"test_inventory_remaining":remaining,"campaign_status":campaign["status"] if campaign else None});return
                 if method=="GET" and path=="/api/config":
                     campaign=conn.execute("select id,title,status,game_version,opens_at,closes_at from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();data["campaign"].update(dict(campaign) if campaign else {});data["campaign"]["game_version"]=settings.game_version;self.send_json(200,data);return
                 if not is_admin:

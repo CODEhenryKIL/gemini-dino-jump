@@ -9,7 +9,7 @@ import { DrawView } from './views/draw_view.js';
 import { PrizeView } from './views/prize_view.js';
 import { RankingView } from './views/ranking_view.js';
 import { InviteView } from './views/invite_view.js';
-import { BenefitView } from './views/benefit_view.js';
+import { BenefitView } from './views/benefit_view.js?v=20260926-benefit';
 
 class AppRouter {
   constructor() {
@@ -54,8 +54,8 @@ class AppRouter {
       const [, initialized] = await Promise.all([this.introPromise, dataPromise]);
       this.installInviteState(initialized, this.initialRequest.inviteCode);
       const requestedView = this.initialRequest.requestedView;
-      const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit'];
-      const initialView = allowed.includes(requestedView) ? requestedView : (this.state.draw.status === 'DRAWN' && !this.state.draw.draw?.scratch_completed ? 'draw' : 'home');
+      const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'];
+      const initialView = allowed.includes(requestedView) ? requestedView : 'home';
       let rendered = await this.navigate(initialView, { replace: true });
       while (!rendered.current && this.activeRenderPromise) rendered = await this.activeRenderPromise;
       if (!rendered.ok) throw rendered.error;
@@ -76,7 +76,7 @@ class AppRouter {
     const pathInvite = url.pathname.match(/^\/invite\/([A-Za-z0-9_-]{12,64})$/);
     const inviteCode = url.searchParams.get('invite') || pathInvite?.[1] || null;
     const requestedViewValue = url.searchParams.get('view');
-    const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit'].includes(requestedViewValue) ? requestedViewValue : null;
+    const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requestedViewValue) ? requestedViewValue : null;
     const requestedLinkKind = url.searchParams.get('link');
     const legacyLinkKind = requestedLinkKind === 'prize_share' ? 'prize_share' : 'retry_invite';
     const linkKind = inviteCode
@@ -176,7 +176,7 @@ class AppRouter {
   bindNavigation() {
     if (this.navigationBound) return;
     this.navigationBound = true;
-    document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => {
+    document.querySelectorAll('.bottom-nav .nav-item, .brand-logo-area[data-view]').forEach((item) => {
       item.addEventListener('click', (event) => {
         if (event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
@@ -186,7 +186,7 @@ class AppRouter {
     window.addEventListener('popstate', (event) => {
       if (!this.initialized) return;
       const requested = event.state?.view || new URL(window.location.href).searchParams.get('view') || 'home';
-      const view = ['home', 'ranking', 'claims', 'invite', 'benefit'].includes(requested) ? requested : 'home';
+      const view = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requested) ? requested : 'home';
       if (view !== requested) history.replaceState({ view: 'home' }, '', '/');
       this.navigate(view, { history: false });
     });
@@ -232,7 +232,7 @@ class AppRouter {
     const tickets = this.state.tickets;
     const available = Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0)));
     this.ticketPill.textContent = tickets.unlimited_play === true ? '🎟️ 무제한' : `🎟️ ${available}장`;
-    this.ticketPill.title = tickets.unlimited_play === true ? '이 브라우저의 테스트 플레이는 게임권을 차감하지 않습니다.' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
+    this.ticketPill.title = tickets.unlimited_play === true ? '테스트 기간에는 누구나 게임권 차감 없이 플레이할 수 있어요.' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
   }
 
   navigate(viewName, { history: writeHistory = true, replace = false } = {}) {

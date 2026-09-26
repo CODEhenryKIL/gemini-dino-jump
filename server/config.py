@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 ROOT=Path(__file__).resolve().parent.parent
 CONSTANTS=json.loads((ROOT/"shared/game_constants.json").read_text(encoding="utf-8"))
-REQUIRED_SCHEMA_VERSIONS=("20260925083548","20260925092759","20260925125939","20260925140902")
+REQUIRED_SCHEMA_VERSIONS=("20260925083548","20260925092759","20260925125939","20260925140902","20260926093414","20260926103809","20260926215000")
 SCHEMA_VERSION=REQUIRED_SCHEMA_VERSIONS[-1]; SCHEMA_NAME="dino_dev"; APP_ROLE="dino_dev_app"
 APPROVED_PREVIEW_PROJECT_REF="igfrnexknwtiljdqjrbp"
 class ConfigurationError(RuntimeError): pass
@@ -21,7 +21,7 @@ class Settings:
     publishable_key:str; token_pepper:str; allowed_origins:frozenset[str]; deployment:str
     synthetic_only:bool=True; schema_name:str=SCHEMA_NAME; game_version:str=CONSTANTS["version"]
     participant_cookie_max_age:int=2592000; invite_active_ms:int=3000; web_analytics_enabled:bool=False
-    preview_unlimited_participant_ids:frozenset[str]=frozenset()
+    preview_unlimited_play:bool=False; kakao_javascript_key:str=""
     @classmethod
     def from_env(cls):
         environment=os.getenv("APP_ENV","local")
@@ -37,9 +37,10 @@ class Settings:
         base=_origin(os.getenv("APP_BASE_URL",f"https://{os.environ['VERCEL_URL']}" if os.getenv("VERCEL_URL") else "http://127.0.0.1:3000"),local)
         supabase=_origin(os.getenv("SUPABASE_URL","http://127.0.0.1:54321" if local else ""),local)
         if not local and urlparse(supabase).hostname!=f"{project_ref}.supabase.co": raise ConfigurationError("SUPABASE_PROJECT_MISMATCH")
-        benefit=os.getenv("GEMINI_BENEFIT_URL","https://gemini.google.com/students"); b=urlparse(benefit)
+        benefit=os.getenv("GEMINI_BENEFIT_URL","https://VQyu3J.s.gy/Game"); b=urlparse(benefit)
         allowed_benefit_hosts={x.strip().lower() for x in os.getenv("GEMINI_BENEFIT_ALLOWED_HOSTS","gemini.google.com").split(",") if x.strip()}
-        if b.scheme!="https" or b.hostname not in allowed_benefit_hosts or b.username or b.password or b.query or b.fragment or b.path.rstrip("/")!="/students": raise ConfigurationError("BENEFIT_URL_INVALID")
+        valid_benefit_path=(b.hostname in allowed_benefit_hosts and b.path.rstrip("/")=="/students") or (b.hostname=="vqyu3j.s.gy" and b.path=="/Game")
+        if b.scheme!="https" or not valid_benefit_path or b.port not in (None,443) or b.username or b.password or b.query or b.fragment: raise ConfigurationError("BENEFIT_URL_INVALID")
         key=os.getenv("SUPABASE_PUBLISHABLE_KEY","")
         if not local and not (re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{20,}",key) or key.count(".")==2): raise ConfigurationError("PUBLISHABLE_KEY_REQUIRED")
         if key.startswith("sb_secret_"): raise ConfigurationError("SECRET_KEY_PUBLIC")
@@ -57,10 +58,12 @@ class Settings:
         if not 3600<=cookie_age<=31536000:raise ConfigurationError("COOKIE_MAX_AGE_INVALID")
         analytics=os.getenv("WEB_ANALYTICS_ENABLED","false").lower()
         if analytics not in {"true","false"}:raise ConfigurationError("WEB_ANALYTICS_INVALID")
-        unlimited_ids=[value.strip() for value in os.getenv("PREVIEW_UNLIMITED_PARTICIPANT_IDS","").split(",") if value.strip()]
-        if any(not re.fullmatch(r"p_[0-9a-f]{32}",value) for value in unlimited_ids):raise ConfigurationError("PREVIEW_UNLIMITED_PARTICIPANT_IDS_INVALID")
-        return replace(cls(environment,database_url,project_ref,base,benefit,supabase,key,pepper,allowed,os.getenv("VERCEL_DEPLOYMENT_ID",os.getenv("VERCEL_GIT_COMMIT_SHA","local"))),participant_cookie_max_age=cookie_age,web_analytics_enabled=analytics=="true",preview_unlimited_participant_ids=frozenset(unlimited_ids))
+        unlimited=os.getenv("PREVIEW_UNLIMITED_PLAY","false").lower()
+        if unlimited not in {"true","false"}:raise ConfigurationError("PREVIEW_UNLIMITED_PLAY_INVALID")
+        kakao_key=os.getenv("KAKAO_JAVASCRIPT_KEY","").strip()
+        if kakao_key and not re.fullmatch(r"[0-9a-fA-F]{32}",kakao_key): raise ConfigurationError("KAKAO_JAVASCRIPT_KEY_INVALID")
+        return replace(cls(environment,database_url,project_ref,base,benefit,supabase,key,pepper,allowed,os.getenv("VERCEL_DEPLOYMENT_ID",os.getenv("VERCEL_GIT_COMMIT_SHA","local"))),participant_cookie_max_age=cookie_age,web_analytics_enabled=analytics=="true",preview_unlimited_play=unlimited=="true",kakao_javascript_key=kakao_key)
     def public(self):
-        return {"environment":self.environment,"synthetic_only":self.synthetic_only,"deployment":self.deployment,"web_analytics_enabled":self.web_analytics_enabled,"campaign":{"id":os.getenv("CAMPAIGN_ID","gemini_dino_phase1_test"),"game_version":self.game_version},"benefit_url":self.benefit_url,"content_guides":[
-            {"id":"study_note","title":"제미나이 노트북","description":"강의 자료 정리와 과제·시험 공부에 활용하는 공개 가이드", "url":"https://app.notion.com/p/3d41ef9d40cd803f9e56da74a08c695f?source=copy_link","available":True},
-            {"id":"job_photo","title":"취업사진 프롬프트","description":"정장·배경을 선택해 취업사진을 만드는 프롬프트 안내", "url":"https://app.notion.com/p/3d01ef9d40cd80a798f1c353b8b4311d?source=copy_link","available":True}],"auth":{"supabase_url":self.supabase_url,"publishable_key":self.publishable_key},"limits":{"participant_cookie_max_age_seconds":self.participant_cookie_max_age,"invite_active_ms":self.invite_active_ms}}
+        return {"environment":self.environment,"synthetic_only":False,"gameplay_synthetic_only":self.synthetic_only,"top3_contact_collection_enabled":True,"deployment":self.deployment,"web_analytics_enabled":self.web_analytics_enabled,"campaign":{"id":os.getenv("CAMPAIGN_ID","gemini_dino_phase1_test"),"game_version":self.game_version},"share":{"kakao_javascript_key":self.kakao_javascript_key},"benefit_url":self.benefit_url,"content_guides":[
+            {"id":"study_note","title":"4년 평점 4.26의 제미나이 공부법","description":"강의 자료 정리와 과제·시험 공부에 활용하는 공개 가이드", "url":"https://app.notion.com/p/3d41ef9d40cd803f9e56da74a08c695f?source=copy_link","available":True},
+            {"id":"job_photo","title":"취업 사진 제미나이로 만드는 비법","description":"정장·배경을 선택해 취업사진을 만드는 프롬프트 안내", "url":"https://app.notion.com/p/3d01ef9d40cd80a798f1c353b8b4311d?source=copy_link","available":True}],"auth":{"supabase_url":self.supabase_url,"publishable_key":self.publishable_key},"limits":{"participant_cookie_max_age_seconds":self.participant_cookie_max_age,"invite_active_ms":self.invite_active_ms}}

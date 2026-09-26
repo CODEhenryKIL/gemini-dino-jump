@@ -245,16 +245,6 @@ test('render promises are race guarded and an older route cannot become current 
   assert.equal(loaded.router.currentView, 'benefit');
 });
 
-test('ticket header shows unlimited only for an explicit server flag and resets after revocation', () => {
-  const { router, context } = loadRouter('https://example.test/');
-  router.state.tickets = { initial: 0, invitation: 0, available_total: 0, unlimited_play: true };
-  router.updateNav();
-  assert.equal(context.document.getElementById('header-ticket-pill').textContent, '🎟️ 무제한');
-  router.state.tickets = { initial: 0, invitation: 0, available_total: 0 };
-  router.updateNav();
-  assert.equal(context.document.getElementById('header-ticket-pill').textContent, '🎟️ 0장');
-});
-
 test('overlapping resume refreshes share one server read', async () => {
   const loaded = loadRouter('https://example.test/');
   let reads = 0;
@@ -432,4 +422,60 @@ test('leaving during countdown resolves the pending start and clears timers', as
   const pending = context.GameView.runCountdown(container, 3);
   context.GameView.cleanup();
   assert.equal(await pending, false);
+});
+
+ test('header logo uses home navigation and keeps native modified-link behavior', () => {
+  const { router, context } = loadRouter('https://example.test/?view=ranking');
+  const logo = { dataset: { view: 'home' }, addEventListener(_event, fn) { this.click = fn; } };
+  context.document.querySelectorAll = (selector) => selector.includes('.brand-logo-area') ? [logo] : [];
+  const routes = []; router.navigate = (view) => routes.push(view); router.initialized = true;
+  router.bindNavigation();
+  let prevented = false;
+  logo.click({ button: 0, preventDefault() { prevented = true; } });
+  assert.equal(prevented, true); assert.deepEqual(routes, ['home']);
+  logo.click({ button: 0, ctrlKey: true, preventDefault() { throw new Error('modified link intercepted'); } });
+  assert.deepEqual(routes, ['home']);
+  assert.match(read('public/index.html'), /<a class="brand-logo-area" data-view="home" href="\/" aria-label="홈으로 이동">/);
+ });
+ test('server unlimited flag controls header and disappears when test mode ends', () => {
+  const { router } = loadRouter('https://example.test/');
+  router.state.tickets = { initial: 0, invitation: 0, unlimited_play: true };
+  router.updateNav(); assert.match(router.ticketPill.textContent, /무제한/);
+  router.state.tickets.unlimited_play = false;
+  router.updateNav(); assert.match(router.ticketPill.textContent, /0장/);
+ });
+
+for (const draw of [
+  { status: 'LOCKED' },
+  { status: 'AVAILABLE' },
+  { status: 'DRAWN', draw_id: 'draw_existing' },
+  { status: 'DRAWN', draw: { scratch_completed: false } },
+  { status: 'DRAWN', draw: { scratch_completed: true } },
+]) test(`home refresh stays home with saved draw state ${JSON.stringify(draw)}`, async () => {
+  const { router, context, historyCalls } = loadRouter('https://example.test/');
+  router.introPromise = Promise.resolve();
+  router.loadInitialData = async () => { router.state.draw = draw; return {}; };
+  router.installInviteState = () => {};
+  router.hideSplash = () => {};
+  context.analytics.setLoadingReady = () => {};
+  await router.init();
+  assert.equal(router.initialized, true);
+  assert.equal(router.currentView, 'home');
+  assert.equal(historyCalls.at(-1).url, '/');
+});
+
+for (const view of ['draw', 'claims', 'ranking']) test(`refresh preserves an explicitly opened ${view} screen`, async () => {
+  const { router, context, historyCalls, windowListeners } = loadRouter(`https://example.test/?view=${view}`);
+  router.introPromise = Promise.resolve();
+  router.loadInitialData = async () => { router.state.draw = { status: 'DRAWN', draw_id: 'draw_existing' }; return {}; };
+  router.installInviteState = () => {};
+  router.hideSplash = () => {};
+  context.analytics.setLoadingReady = () => {};
+  await router.init();
+  assert.equal(router.initialRequest.requestedView, view);
+  assert.equal(router.currentView, view);
+  assert.equal(historyCalls.at(-1).url, `/?view=${view}`);
+  router.navigate('home');
+  windowListeners.popstate({ state: { view } });
+  assert.equal(router.currentView, view);
 });

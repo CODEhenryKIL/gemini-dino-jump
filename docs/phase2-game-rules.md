@@ -1,5 +1,7 @@
 # Phase 2 Dino Jump v2 game rules
 
+> Historical `2.0.0` replay contract. New games use [2.1.0 rules](game-rules-v21.md); existing 2.0.0 sessions retain the rules below.
+
 Effective 2026-09-25 for the local Preview/test implementation. The values below are the adopted and tested `2.0.0` replay contract. They are not approval of final event prizes, dates, eligibility, publicity, or production launch. The frozen machine-readable gameplay source is `shared/game_constants_v2.json`; the browser and server verifier must remain equivalent to its deterministic rules. Server lifecycle timing is defined by `server/operations.py`.
 
 ## Version and lifecycle
