@@ -1,0 +1,188 @@
+{
+  "environment": "local",
+  "game_count": 10,
+  "unique_participants": 1,
+  "all_scores_items_and_revives_match_server": true,
+  "one_start_and_finish_event_per_game_per_source": true,
+  "admin_aggregation_game": {
+    "approved": 10,
+    "approved_participants": 1,
+    "finished": 10,
+    "finished_participants": 1,
+    "rejected": 0,
+    "expired": 0,
+    "abandoned": 0,
+    "needs_review": 0,
+    "ongoing": 0,
+    "rejected_participants": 0,
+    "expired_participants": 0,
+    "abandoned_participants": 0,
+    "needs_review_participants": 0,
+    "ongoing_participants": 0,
+    "verified_ticks": 15329,
+    "coins_collected": 32,
+    "coin_score": 320,
+    "hearts_collected": 5,
+    "revives": 5,
+    "collision_finished": 10,
+    "time_limit_finished": 0,
+    "game_version": "2.0.0"
+  },
+  "ticket_state": {
+    "initial_balance": 0,
+    "invitation_balance": 0,
+    "cooldown_until": null
+  },
+  "games": [
+    {
+      "id": "round_1",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 741,
+      "valid_ticks": 3971,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 8,
+        "hearts": 2,
+        "revives": 2,
+        "coin_score": 80
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_2",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 716,
+      "valid_ticks": 3938,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 6,
+        "hearts": 2,
+        "revives": 2,
+        "coin_score": 60
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_3",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 534,
+      "valid_ticks": 2849,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 6,
+        "hearts": 1,
+        "revives": 1,
+        "coin_score": 60
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_4",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 141,
+      "valid_ticks": 668,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 3,
+        "hearts": 0,
+        "revives": 0,
+        "coin_score": 30
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_5",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 114,
+      "valid_ticks": 625,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 1,
+        "hearts": 0,
+        "revives": 0,
+        "coin_score": 10
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_6",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 115,
+      "valid_ticks": 631,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 1,
+        "hearts": 0,
+        "revives": 0,
+        "coin_score": 10
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_7",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 143,
+      "valid_ticks": 679,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 3,
+        "hearts": 0,
+        "revives": 0,
+        "coin_score": 30
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_8",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 125,
+      "valid_ticks": 694,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 1,
+        "hearts": 0,
+        "revives": 0,
+        "coin_score": 10
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_9",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 126,
+      "valid_ticks": 638,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 2,
+        "hearts": 0,
+        "revives": 0,
+        "coin_score": 20
+      },
+      "end_reason": "COLLISION"
+    },
+    {
+      "id": "round_10",
+      "status": "FINISHED",
+      "version": "2.0.0",
+      "score": 116,
+      "valid_ticks": 636,
+      "verification_result": "VERIFIED",
+      "game_summary": {
+        "coins": 1,
+        "hearts": 0,
+        "revives": 0,
+        "coin_score": 10
+      },
+      "end_reason": "COLLISION"
+    }
+  ]
+}

@@ -280,7 +280,7 @@ def validate_database_guard(
         "is_test": True,
         "real_prizes_enabled": False,
         "status": "ACTIVE",
-        "game_version": CONSTANTS["version"],
+        "game_version": "1.2.0",  # Campaign metadata stays compatible with the previous Preview.
         "schema_current": True,
     }
     if not row or any(row[key] != value for key, value in expected.items()):

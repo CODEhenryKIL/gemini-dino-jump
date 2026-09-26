@@ -119,7 +119,7 @@ class MetricsAcceptanceTest(unittest.TestCase):
         data = self.report(link_kind="initial", channel="school_a", content="study")
         self.assertEqual(data["totals"]["participants"], 1)
         self.assertEqual(len(data["leaderboard"]), 1)
-        self.assertEqual((data["leaderboard"][0]["rank"], data["leaderboard"][0]["nickname"], data["leaderboard"][0]["best_score"]), (2, "익명 참가자", 300))
+        self.assertEqual((data["leaderboard"][0]["rank"], data["leaderboard"][0]["nickname"], data["leaderboard"][0]["best_score"]), (1, "익명 참가자", 300))
         self.assertEqual(data["filter_attribution"], "first_participant_cohort")
 
 

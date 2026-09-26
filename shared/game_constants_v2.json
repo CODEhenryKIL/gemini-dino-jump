@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "canvas": { "logicalWidth": 960, "logicalHeight": 600, "groundY": 490 },
+  "physics": {
+    "tickRate": 60,
+    "gravity": 2200,
+    "jumpVelocityLow": -680,
+    "jumpVelocityHighBoost": -720,
+    "jumpHoldTicks": 6,
+    "jumpHoldThresholdMs": 100,
+    "jumpBufferMs": 100,
+    "dino": {
+      "x": 120, "width": 64, "height": 72,
+      "hitbox": { "offsetX": 10, "offsetY": 8, "width": 44, "height": 58 }
+    }
+  },
+  "stages": [
+    { "stage": 1, "startTime": 0, "endTime": 15, "startSpeed": 390, "endSpeed": 450, "minIntervalSec": 0.95, "title": "STAGE 1", "subtitle": "상쾌한 낮, 가볍게 출발!" },
+    { "stage": 2, "startTime": 15, "endTime": 30, "startSpeed": 450, "endSpeed": 530, "minIntervalSec": 0.88, "title": "STAGE 2", "subtitle": "기울어지는 오후 햇살" },
+    { "stage": 3, "startTime": 30, "endTime": 45, "startSpeed": 530, "endSpeed": 620, "minIntervalSec": 0.80, "title": "STAGE 3", "subtitle": "황금빛 노을 & 새 출현!" },
+    { "stage": 4, "startTime": 45, "endTime": 60, "startSpeed": 620, "endSpeed": 710, "minIntervalSec": 0.74, "title": "STAGE 4", "subtitle": "보랏빛 황혼 매직아워" },
+    { "stage": 5, "startTime": 60, "endTime": 75, "startSpeed": 710, "endSpeed": 800, "minIntervalSec": 0.68, "title": "STAGE 5", "subtitle": "별빛과 달빛의 밤하늘" },
+    { "stage": 6, "startTime": 75, "endTime": 999999, "startSpeed": 800, "speedIncreasePerSec": 4.0, "maxSpeed": 880, "maxSpeedTime": 95, "minIntervalSec": 0.62, "title": "STAGE 6", "subtitle": "신비로운 제미나이 은하수" }
+  ],
+  "obstacleTypes": [
+    { "type": "cactus_small", "width": 36, "height": 48, "altitude": "ground", "hitbox": { "offsetX": 6, "offsetY": 4, "width": 24, "height": 42 } },
+    { "type": "cactus_tall", "width": 44, "height": 84, "altitude": "ground", "hitbox": { "offsetX": 6, "offsetY": 4, "width": 32, "height": 76 } },
+    { "type": "cactus_double", "width": 68, "height": 64, "altitude": "ground", "hitbox": { "offsetX": 6, "offsetY": 4, "width": 56, "height": 56 } },
+    { "type": "bird_low", "width": 52, "height": 40, "altitude": "air_low", "offsetFromGround": 85, "hitbox": { "offsetX": 4, "offsetY": 4, "width": 44, "height": 32 } },
+    { "type": "bird_high", "width": 52, "height": 40, "altitude": "air_high", "offsetFromGround": 140, "hitbox": { "offsetX": 4, "offsetY": 4, "width": 44, "height": 32 } }
+  ],
+  "rules": {
+    "pointsPerSecond": 10,
+    "initialSafeTimeSec": 1.2,
+    "ticketReservationTtlSec": 120,
+    "scratchAutoRevealPercent": 0.7,
+    "maxTicks": 36000,
+    "coinScore": 10,
+    "coinFirstTick": 180,
+    "coinIntervalMinTicks": 120,
+    "coinIntervalMaxTicks": 240,
+    "heartFirstTick": 1200,
+    "heartIntervalMinTicks": 1500,
+    "heartIntervalMaxTicks": 2100,
+    "reviveInvulnerabilityTicks": 90,
+    "reviveOverlayTicks": 24,
+    "maxHearts": 1,
+    "itemObstacleClearancePx": 24
+  }
+}

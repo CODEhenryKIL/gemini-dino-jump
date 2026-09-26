@@ -1,6 +1,6 @@
 /**
  * Canvas Silver Coating Scratch Card Component for v1.1
- * Features: Touch/Mouse drag, Scratch sound, 50% auto-reveal, Instant reveal button, Touch scroll lock
+ * Features: Touch/Mouse drag, Scratch sound, 70% auto-reveal, Instant reveal button, Touch scroll lock
  */
 
 import { audio } from '../game/audio.js';
@@ -11,6 +11,7 @@ export class ScratchCard {
     this.ctx = canvasElement.getContext('2d', { willReadFrequently: true });
     this.onReveal = options.onReveal || (() => {});
     this.onStart = options.onStart || (() => {});
+    this.onKeyboardReveal = options.onKeyboardReveal || (() => {});
     this.autoRevealThreshold = options.threshold || 0.70; // 70% 긁는 손맛 강화
 
     this.isDrawing = false;
@@ -106,6 +107,14 @@ export class ScratchCard {
     this.canvas.addEventListener('touchstart', startScratch, { passive: false });
     window.addEventListener('touchmove', moveScratch, { passive: false });
     window.addEventListener('touchend', endScratch);
+    const revealWithKeyboard = (event) => {
+      if (!['Enter', ' '].includes(event.key) || this.isRevealed) return;
+      event.preventDefault();
+      if (!this.started) { this.started = true; this.onStart(); }
+      this.onKeyboardReveal();
+      this.revealInstantly();
+    };
+    this.canvas.addEventListener('keydown', revealWithKeyboard);
     this.cleanupTasks.push(() => {
       this.canvas.removeEventListener('mousedown', startScratch);
       window.removeEventListener('mousemove', moveScratch);
@@ -113,6 +122,7 @@ export class ScratchCard {
       this.canvas.removeEventListener('touchstart', startScratch);
       window.removeEventListener('touchmove', moveScratch);
       window.removeEventListener('touchend', endScratch);
+      this.canvas.removeEventListener('keydown', revealWithKeyboard);
     });
   }
 
@@ -166,19 +176,23 @@ export class ScratchCard {
     }
   }
 
-  revealInstantly() {
+  revealInstantly({ restored = false } = {}) {
     if (this.isRevealed) return;
+    if (!restored && !this.started) {
+      this.started = true;
+      this.onStart();
+    }
     this.isRevealed = true;
     this.canvas.classList.add('fade-out');
 
     // Celebration Haptic Vibration Pattern (Tap-Tap-Boom!)
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    if (!restored && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
         navigator.vibrate([35, 45, 50, 45, 100]);
       } catch (e) {}
     }
 
-    audio.playWin();
+    if (!restored) audio.playWin();
     this.revealTimer = setTimeout(() => {
       this.onReveal();
     }, 300);

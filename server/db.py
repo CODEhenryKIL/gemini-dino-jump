@@ -7,7 +7,7 @@ from time import monotonic,sleep
 import psycopg
 from psycopg.pq import TransactionStatus
 from psycopg.rows import dict_row
-from config import APP_ROLE,ConfigurationError,SCHEMA_NAME,SCHEMA_VERSION
+from config import APP_ROLE,ConfigurationError,REQUIRED_SCHEMA_VERSIONS,SCHEMA_NAME
 _slots=BoundedSemaphore(8)
 _idle=[]
 _idle_lock=Lock()
@@ -89,12 +89,17 @@ def transaction(conn):
         conn.execute("set local statement_timeout='5000ms'; set local lock_timeout='1500ms'; set local idle_in_transaction_session_timeout='8000ms'")
         yield
 def check_environment(conn,settings):
-    guard=conn.execute("select g.*, current_user as connection_role, exists(select 1 from dino_dev.schema_version where version=%s) as version_present from dino_dev.environment_guard g where singleton",(SCHEMA_VERSION,)).fetchone()
-    if not guard or not guard["version_present"]: raise ConfigurationError("DATABASE_NOT_PROVISIONED")
+    guard=conn.execute("""select g.*, current_user as connection_role,
+      not exists(
+        select 1 from unnest(%s::text[]) required(version)
+        where not exists(select 1 from dino_dev.schema_version s where s.version=required.version)
+      ) as required_versions_present
+      from dino_dev.environment_guard g where singleton""",(list(REQUIRED_SCHEMA_VERSIONS),)).fetchone()
+    if not guard or not guard["required_versions_present"]: raise ConfigurationError("DATABASE_NOT_PROVISIONED")
     if guard["environment"]!=settings.environment or guard["project_ref"]!=settings.project_ref or guard["schema_name"]!=SCHEMA_NAME: raise ConfigurationError("DATABASE_GUARD_MISMATCH")
     if not guard["synthetic_only"] or not settings.synthetic_only: raise ConfigurationError("SYNTHETIC_GUARD_REQUIRED")
     if guard["connection_role"]!=APP_ROLE: raise ConfigurationError("DATABASE_ROLE_MISMATCH")
-    del guard["connection_role"],guard["version_present"]
+    del guard["connection_role"],guard["required_versions_present"]
     return guard
 def rate_limits(conn,buckets,window=60):
     ordered=sorted(buckets)

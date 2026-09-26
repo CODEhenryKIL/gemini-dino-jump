@@ -20,40 +20,59 @@
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/game.css">
   <link rel="stylesheet" href="/css/scratch.css">
+  <link rel="stylesheet" href="/css/phase2-views.css">
 </head>
 <body>
 
   <!-- Mobile Container Wrapper (Max 440px) -->
   <div id="app-container">
     
-    <!-- Actual service initialization screen; no artificial minimum delay. -->
-    <div id="splash-screen">
-      <div class="splash-badge">
-        <span>공룡 점프 준비 중</span>
+    <div id="splash-screen" role="status" aria-live="polite" aria-label="게임 준비 중">
+      <div class="splash-ambassador"><span class="google-color-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Google Student Ambassador</div>
+      <div class="splash-story" role="group" aria-label="게임하고, 복주머니를 고르고, 복권을 긁어 결과를 확인하세요. 삼텐바이미, 소니 ULT WEAR, 오쏘몰 이뮨, 상품권과 간식 경품이 준비되어 있어요.">
+        <div class="splash-logos">
+          <img class="splash-team-logo" src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
+          <img class="splash-gemini-lockup" src="/assets/logos/googlegemini_lockup_fullcolor.png" alt="Google Gemini" onerror="this.style.display='none'">
+        </div>
+        <div class="splash-title-group">
+          <span class="splash-eyebrow">Google AI로 만든 공룡 게임</span>
+          <strong class="splash-main-title">한 판 즐기고,<br>경품에 도전하세요.</strong>
+        </div>
+        <div class="splash-explainer" aria-hidden="true">
+          <div class="splash-frame splash-frame-play">
+            <div class="splash-demo splash-demo-game"><div class="splash-game-ground"></div><img class="splash-runner" src="/assets/icons/Dino-Dark.png" alt=""><span class="splash-obstacle"></span></div>
+            <strong>공룡 게임 한 판!</strong><span>장애물을 넘고 기록에 도전해요.</span>
+          </div>
+          <div class="splash-frame splash-frame-pick">
+            <div class="splash-demo splash-demo-pouches"><div class="pouch-grid">
+              <div class="pouch-item"><span class="pouch-icon">🧧</span><span class="pouch-label">1번</span></div>
+              <div class="pouch-item selected splash-pouch-picked"><span class="pouch-icon">🧧</span><span class="pouch-label">2번</span></div>
+              <div class="pouch-item"><span class="pouch-icon">🧧</span><span class="pouch-label">3번</span></div>
+            </div></div>
+            <strong>복주머니를 고르고</strong><span>마음에 드는 주머니를 선택해요.</span>
+          </div>
+          <div class="splash-frame splash-frame-scratch">
+            <div class="splash-demo splash-demo-scratch"><div class="scratch-ticket">
+              <div class="ticket-header"><span>Team Gemini Lucky Ticket</span><span>행사당 1회</span></div>
+              <div class="ticket-scratch-area"><div class="ticket-result-underlay"><img src="/assets/icons/Smile-Light.png" alt=""></div><span class="splash-scratch-cover">✨ 살살 긁어서 행운 확인 ✨</span><span class="splash-scratch-sweep"></span></div>
+            </div></div>
+            <strong>복권을 긁어 결과 확인!</strong><span>어떤 행운이 기다리고 있을까요?</span>
+          </div>
+          <div class="splash-frame splash-frame-prizes">
+            <div class="splash-demo splash-demo-prizes">
+              <img class="splash-prize-lineup" src="/assets/prizes/prize-lineup-cutout-v2.webp" alt="" width="1280" height="1280">
+            </div>
+            <strong>삼텐바이미부터 상품권까지</strong><span>다양한 경품에 도전해 보세요.</span>
+          </div>
+        </div>
+        <div class="splash-progress-container" aria-hidden="true"><div id="splash-progress-bar" class="splash-progress-bar"></div></div>
+        <div id="splash-status-text" class="splash-status-text">게임을 준비하고 있어요</div>
+        <button id="splash-retry" class="btn btn-primary splash-retry" type="button" hidden>다시 연결</button>
       </div>
-
-      <div class="splash-logos">
-        <img class="splash-ambassador-logo" src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
-        <img class="splash-gemini-lockup" src="/assets/logos/googlegemini_lockup_fullcolor.png" alt="Google Gemini" onerror="this.style.display='none'">
-      </div>
-
-      <!-- Hop Animation Dino -->
-      <div class="splash-dino-track">
-        <img class="splash-dino-img" src="/assets/icons/Dino-Dark.png" alt="Dino Runner">
-        <div class="splash-dino-shadow"></div>
-      </div>
-
-      <!-- 4-Color Google Progress Bar -->
-      <div class="splash-progress-container">
-        <div id="splash-progress-bar" class="splash-progress-bar"></div>
-      </div>
-
-      <div id="splash-status-text" class="splash-status-text">참여 기록을 안전하게 불러오는 중...</div>
-      <div class="splash-sub-text">연결이 끝나면 자동으로 시작합니다.</div>
     </div>
     
     <!-- Top Fixed App Bar -->
-    <header class="app-header">
+    <header class="app-header" data-splash-inert inert>
       <div class="brand-logo-area">
         <img src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador Logo" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
       </div>
@@ -65,32 +84,32 @@
     </header>
 
     <!-- Main View Dynamic Container -->
-    <main id="view-container" class="view-content">
+    <main id="view-container" class="view-content" data-splash-inert inert>
       <!-- Views will be mounted here dynamically by Router -->
     </main>
 
     <!-- Fixed Bottom Navigation Bar -->
-    <nav class="bottom-nav">
-      <div class="nav-item active" data-view="home">
-        <span class="icon">🏠</span>
+    <nav class="bottom-nav" aria-label="주요 메뉴" data-splash-inert inert>
+      <a class="nav-item active" data-view="home" href="/" aria-current="page">
+        <span class="icon" aria-hidden="true">🏠</span>
         <span>홈</span>
-      </div>
-      <div class="nav-item" data-view="ranking">
-        <span class="icon">🏆</span>
+      </a>
+      <a class="nav-item" data-view="ranking" href="/?view=ranking">
+        <span class="icon" aria-hidden="true">🏆</span>
         <span>랭킹</span>
-      </div>
-      <div class="nav-item" data-view="claims">
-        <span class="icon">🎁</span>
+      </a>
+      <a class="nav-item" data-view="claims" href="/?view=claims">
+        <span class="icon" aria-hidden="true">🎁</span>
         <span>수령함</span>
-      </div>
-      <div class="nav-item" data-view="invite">
-        <span class="icon">👥</span>
+      </a>
+      <a class="nav-item" data-view="invite" href="/?view=invite">
+        <span class="icon" aria-hidden="true">👥</span>
         <span>친구초대</span>
-      </div>
-      <div class="nav-item" data-view="benefit">
-        <span class="icon">💡</span>
+      </a>
+      <a class="nav-item" data-view="benefit" href="/?view=benefit">
+        <span class="icon" aria-hidden="true">💡</span>
         <span>혜택안내</span>
-      </div>
+      </a>
     </nav>
 
   </div>

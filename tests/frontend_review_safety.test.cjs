@@ -92,7 +92,7 @@ test('unsupported native sharing falls back to copy without fabricating a native
   await nodes.get('#btn-share-native').onclick();
 
   assert.equal(copied.length, 1);
-  assert.match(copied[0], /\/invite\/abcdefghijkl\?share=share_12345678/);
+  assert.match(copied[0], /\/invite\/abcdefghijkl\?link=retry_invite&share=share_12345678/);
   assert.deepEqual(JSON.parse(JSON.stringify(events.filter(({ name }) => name === 'share_attempted').map(({ dimensions }) => dimensions))), [
     { share_method: 'copy', share_id: 'share_12345678', link_kind: 'retry_invite', status: 'attempted' },
     { share_method: 'copy', share_id: 'share_12345678', link_kind: 'retry_invite', status: 'copied' },

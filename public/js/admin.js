@@ -6,10 +6,60 @@ function sessionGet() { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } 
 function sessionSet(value) { try { sessionStorage.setItem(TOKEN_KEY, value); } catch (_) {} }
 function sessionClear() { try { sessionStorage.removeItem(TOKEN_KEY); } catch (_) {} }
 let accessToken = sessionGet();
+let sessionRevision = 0;
+let loginInFlight = false;
 let campaignVersion = 0;
 let adminPermissions = new Set();
+const loadFailures = new Set();
+const sectionRevisions = new Map();
+let sessionLoadMessage = '';
+
+function resetAdminSession(message) {
+  sessionRevision += 1;
+  accessToken = ''; sessionClear(); adminPermissions = new Set(); campaignVersion = 0;
+  loadFailures.clear(); sectionRevisions.clear(); sessionLoadMessage = '';
+  document.querySelector('#admin-app').hidden = true;
+  document.querySelector('#admin-login').hidden = false;
+  document.querySelector('#admin-load-status').hidden = true;
+  for (const id of ['admin-claims', 'admin-ranking-contacts', 'admin-faults', 'admin-name', 'admin-permissions']) {
+    document.querySelector(`#${id}`).replaceChildren();
+  }
+  ui.text(document.querySelector('#admin-login-message'), message);
+}
+
+function showLoadError(message) {
+  ui.text(document.querySelector('#admin-load-message'), message);
+  document.querySelector('#admin-load-status').hidden = false;
+}
+
+function updateLoadStatus() {
+  if (sessionLoadMessage) showLoadError(sessionLoadMessage);
+  else if (loadFailures.size) showLoadError(`불러오지 못한 항목: ${[...loadFailures].join(', ')}. 다시 불러오기를 눌러 주세요.`);
+  else document.querySelector('#admin-load-status').hidden = true;
+}
+
+async function loadSection(name, path, render) {
+  const session = sessionRevision;
+  const revision = (sectionRevisions.get(name) || 0) + 1;
+  sectionRevisions.set(name, revision);
+  const isCurrent = () => session === sessionRevision && sectionRevisions.get(name) === revision;
+  try {
+    const data = await adminRequest(path);
+    if (!isCurrent()) return;
+    render(data);
+    loadFailures.delete(name);
+    updateLoadStatus();
+  } catch (error) {
+    if (!isCurrent()) return;
+    loadFailures.add(name);
+    updateLoadStatus();
+    throw error;
+  }
+}
 
 async function adminRequest(path, options = {}) {
+  const revision = sessionRevision;
+  if (!accessToken) throw new Error('관리자 로그인이 필요합니다.');
   const headers = new Headers(options.headers || {});
   headers.set('Authorization', `Bearer ${accessToken}`);
   if (options.body) headers.set('Content-Type', 'application/json');
@@ -18,13 +68,22 @@ async function adminRequest(path, options = {}) {
   const fetchOptions = { ...options, headers, credentials: 'same-origin' };
   let response;
   try { response = await fetch(path, fetchOptions); }
-  catch (error) { if (!mutation) throw error; response = await fetch(path, fetchOptions); }
+  catch (error) { if (!mutation || revision !== sessionRevision) throw error; response = await fetch(path, fetchOptions); }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || data.error || '관리자 요청에 실패했습니다.');
+  if (revision !== sessionRevision) throw new Error('로그인 상태가 변경되었습니다.');
+  if (!response.ok) {
+    const error = new Error(data.message || data.error || '관리자 요청에 실패했습니다.');
+    error.status = response.status;
+    if (response.status === 401) resetAdminSession('로그인이 만료되었거나 유효하지 않습니다. 다시 로그인해 주세요.');
+    throw error;
+  }
   return data;
 }
 
 async function login() {
+  if (loginInFlight) return;
+  loginInFlight = true;
+  document.querySelector('#btn-admin-login').disabled = true;
   const message = document.querySelector('#admin-login-message');
   message.textContent = '';
   try {
@@ -38,33 +97,49 @@ async function login() {
     });
     const auth = await response.json().catch(() => ({}));
     if (!response.ok || !auth.access_token) throw new Error(auth.msg || auth.error_description || '로그인에 실패했습니다.');
+    sessionRevision += 1;
     accessToken = auth.access_token;
     sessionSet(accessToken);
     document.querySelector('#admin-password').value = '';
     await showAdmin();
   } catch (error) { message.textContent = error.message; }
+  finally { loginInFlight = false; document.querySelector('#btn-admin-login').disabled = false; }
 }
 
 async function showAdmin() {
-  const session = await adminRequest('/api/admin/session');
+  const revision = sessionRevision;
+  let session;
+  try { session = await adminRequest('/api/admin/session'); }
+  catch (error) {
+    if (revision !== sessionRevision) throw error;
+    if (error.status === 403) resetAdminSession('관리자 접근 권한을 확인할 수 없습니다. 권한이 있는 계정으로 다시 로그인해 주세요.');
+    else if (accessToken) {
+      sessionLoadMessage = '관리자 연결을 확인하지 못했습니다. 다시 불러오기를 눌러 주세요.';
+      updateLoadStatus();
+    }
+    throw error;
+  }
+  sessionLoadMessage = '';
+  updateLoadStatus();
   document.querySelector('#admin-login').hidden = true;
   document.querySelector('#admin-app').hidden = false;
   ui.text(document.querySelector('#admin-name'), session.admin.display_name || '관리자');
   adminPermissions = new Set(session.admin.permissions || []);
   ui.text(document.querySelector('#admin-permissions'), `권한: ${[...adminPermissions].join(', ')}`);
   const tasks = [];
+  document.querySelector('#admin-analytics-section').hidden = !adminPermissions.has('analytics:read');
+  document.querySelector('#claim-operations-section').hidden = !adminPermissions.has('claims:read');
+  document.querySelector('#ranking-contact-section').hidden = !adminPermissions.has('claims:read');
+  document.querySelector('#fault-review-section').hidden = !adminPermissions.has('faults:read');
   if (adminPermissions.has('analytics:read')) tasks.push(loadMetrics());
   if (adminPermissions.has('claims:read')) {
-    document.querySelector('#claim-operations-section').hidden = false;
-    document.querySelector('#ranking-contact-section').hidden = false;
     tasks.push(loadClaims(), loadRankingContacts());
   }
   if (adminPermissions.has('faults:read')) {
-    document.querySelector('#fault-review-section').hidden = false;
     tasks.push(loadFaults());
   }
   document.querySelector('#btn-campaign-update').disabled = !adminPermissions.has('campaign:write');
-  await Promise.all(tasks);
+  await Promise.allSettled(tasks);
 }
 
 async function loadMetrics() {
@@ -72,7 +147,10 @@ async function loadMetrics() {
   for (const [key, value] of [...params]) if (!value) params.delete(key);
   if (params.has('from')) params.set('from', `${params.get('from')}T00:00:00+09:00`);
   if (params.has('to')) params.set('to', `${nextCalendarDate(params.get('to'))}T00:00:00+09:00`);
-  const data = await adminRequest(`/api/admin/overview?${params}`);
+  return loadSection('통계', `/api/admin/overview?${params}`, renderMetrics);
+}
+
+function renderMetrics(data) {
   campaignVersion = data.campaign?.version ?? campaignVersion;
   if (data.campaign?.status) document.querySelector('#campaign-status').value = data.campaign.status;
   ui.text(document.querySelector('#metrics-refreshed'), data.generated_at ? `갱신 ${new Date(data.generated_at).toLocaleString('ko-KR')}` : '갱신 시각 미제공');
@@ -96,7 +174,7 @@ async function loadMetrics() {
   renderTicketLedger(data.ticket_ledger || []);
   renderClaimSummary(data.claims || []);
   renderOperationalBreakdowns(data);
-  ui.text(document.querySelector('#metrics-scope'), `${data.synthetic_only ? '합성 테스트 데이터만 표시' : '운영 데이터 포함'} · 필터 귀속 ${data.filter_attribution || '미제공'} · 환경 ${data.environment || '현재 환경'}`);
+  ui.text(document.querySelector('#metrics-scope'), `${data.synthetic_only ? '합성 테스트 데이터만 표시' : '운영 데이터 포함'} · 게임 버전 ${data.campaign?.game_version || data.game?.game_version || '미제공'} · 필터 귀속 ${data.filter_attribution || '미제공'} · 환경 ${data.environment || '현재 환경'}`);
   renderDefinitions(data.definitions || {});
 }
 
@@ -186,6 +264,7 @@ function renderSourceFunnel(rows) {
 
 function renderScoreDistribution(rows) {
   renderTable(document.querySelector('#score-distribution'), [
+    { label: '게임 버전', value: (row) => row.game_version || '미제공' },
     { label: '점수 구간', value: (row) => row.score_from != null && row.score_to != null ? `${row.score_from}~${row.score_to}` : (row.bucket || row.range || row.score_bucket) },
     { label: '기록 수', value: (row) => row.games ?? row.count ?? row.sessions ?? row.event_count },
     { label: '고유 참가자', value: (row) => row.participants ?? row.unique_participants },
@@ -194,6 +273,7 @@ function renderScoreDistribution(rows) {
 
 function renderLeaderboard(rows) {
   renderTable(document.querySelector('#leaderboard-summary'), [
+    { label: '게임 버전', value: (row) => row.game_version || '미제공' },
     { label: '현재 순위', value: (row) => row.rank },
     { label: '참가자', value: (row) => row.nickname || '익명 참가자' },
     { label: '최고점', value: (row) => row.best_score },
@@ -255,6 +335,15 @@ function renderOperationalBreakdowns(data) {
     { label: '추정 이탈', value: (row) => row.estimated_exits },
     { label: '추정 이탈률', value: (row) => row.estimated_exit_rate == null ? '계산 대상 없음' : `${(Number(row.estimated_exit_rate) * 100).toFixed(1)}%` },
   ], data.loading?.buckets || [], '조회된 로딩 구간이 없습니다.');
+  const loadingTarget = document.querySelector('#loading-summary');
+  if (data.loading?.milestones?.length) {
+    const milestoneTarget = document.createElement('div'); milestoneTarget.className = 'admin-table-wrap';
+    loadingTarget.appendChild(milestoneTarget);
+    renderTable(milestoneTarget, [
+      { label: '로딩 마일스톤', value: (row) => row.milestone }, { label: '이벤트', value: (row) => row.events },
+      { label: '참가자', value: (row) => row.participants }, { label: '관찰', value: (row) => row.observations },
+    ], data.loading.milestones, '조회된 로딩 마일스톤이 없습니다.');
+  }
   renderTable(document.querySelector('#screen-summary'), [
     { label: '화면', value: (row) => row.screen }, { label: '방문', value: (row) => row.visits },
     { label: '활성 ms', value: (row) => row.active_ms }, { label: '진행 중', value: (row) => row.ongoing },
@@ -308,6 +397,18 @@ function renderOperationalBreakdowns(data) {
       columns: sharingMethodColumns(),
     },
     {
+      title: '재도전 초대 공유 수단과 확인 가능한 상태', rows: data.sharing?.retry_invite_sharing?.by_method_status || [], emptyText: '조회된 재도전 초대 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
+    },
+    {
+      title: '기록 공유 수단과 확인 가능한 상태', rows: data.sharing?.record_share_sharing?.by_method_status || [], emptyText: '조회된 기록 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
+    },
+    {
+      title: '당첨 공유 수단과 확인 가능한 상태', rows: data.sharing?.prize_share_sharing?.by_method_status || [], emptyText: '조회된 당첨 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
+    },
+    {
       title: '초대 공유·전환 요약', rows: [
         ...sharingRows(data.sharing?.invitation_sharing),
         { label: '초대권 지급', value: data.invitation_performance?.grant_events }, { label: '지급 참가자', value: data.invitation_performance?.granted_participants },
@@ -350,7 +451,9 @@ function renderOperationalBreakdowns(data) {
     {
       title: '콘텐츠별 클릭·경유', rows: data.content || [], emptyText: '조회된 승인 콘텐츠 행동이 없습니다.',
       columns: [
-        { label: '콘텐츠', value: (row) => row.content || 'unknown' }, { label: '클릭', value: (row) => row.click_events },
+        { label: '콘텐츠', value: (row) => row.content || 'unknown' }, { label: '노출', value: (row) => row.view_events }, { label: '클릭', value: (row) => row.click_events },
+        { label: '노출 참가자', value: (row) => row.viewed_participants }, { label: '클릭 참가자', value: (row) => row.clicked_participants },
+        { label: '고유 CTR', value: (row) => row.unique_ctr == null ? '계산 대상 없음' : `${(Number(row.unique_ctr) * 100).toFixed(1)}%` },
         { label: '경유 요청', value: (row) => row.outbound_request_events }, { label: '연결 참가자', value: (row) => row.linked_participants },
         { label: '미연결 이벤트', value: (row) => row.unlinked_events },
       ],
@@ -365,7 +468,10 @@ function renderDefinitions(definitions) {
 }
 
 async function loadFaults() {
-  const data = await adminRequest('/api/admin/game-faults?status=PENDING');
+  return loadSection('장애 심사', '/api/admin/game-faults?status=PENDING', renderFaults);
+}
+
+function renderFaults(data) {
   const list = document.querySelector('#admin-faults'); list.replaceChildren();
   if (!data.faults?.length) {
     const empty = document.createElement('p'); empty.textContent = '심사 대기 중인 장애 신고가 없습니다.'; list.appendChild(empty); return;
@@ -402,14 +508,20 @@ function faultEditor(fault) {
 }
 
 async function loadClaims() {
-  const data = await adminRequest('/api/admin/claims?limit=100');
+  return loadSection('수령 원장', '/api/admin/claims?limit=100', renderClaims);
+}
+
+function renderClaims(data) {
   const list = document.querySelector('#admin-claims'); list.replaceChildren();
   if (!data.claims?.length) { const empty = document.createElement('p'); empty.textContent = '처리할 수령 건이 없습니다.'; list.appendChild(empty); return; }
   for (const claim of data.claims) list.appendChild(claimEditor(claim));
 }
 
 async function loadRankingContacts() {
-  const data = await adminRequest('/api/admin/ranking-contacts');
+  return loadSection('TOP3 접수', '/api/admin/ranking-contacts', renderRankingContacts);
+}
+
+function renderRankingContacts(data) {
   const list = document.querySelector('#admin-ranking-contacts'); list.replaceChildren();
   if (!data.ranking_contacts?.length) { const empty = document.createElement('p'); empty.textContent = '잠정 TOP3 연락 접수 건이 없습니다.'; list.appendChild(empty); return; }
   for (const contact of data.ranking_contacts) {
@@ -472,6 +584,11 @@ function claimEditor(claim) {
 document.querySelector('#btn-admin-login').onclick = login;
 document.querySelector('#admin-password').addEventListener('keydown', (event) => { if (event.key === 'Enter') login(); });
 document.querySelector('#btn-admin-logout').onclick = () => { accessToken = ''; sessionClear(); window.location.reload(); };
+document.querySelector('#btn-admin-retry').onclick = async () => {
+  const button = document.querySelector('#btn-admin-retry'); button.disabled = true;
+  try { await showAdmin(); } catch (_) { /* showAdmin displays the appropriate recovery state. */ }
+  finally { button.disabled = false; }
+};
 document.querySelector('#analytics-filter').onsubmit = (event) => { event.preventDefault(); loadMetrics().catch((error) => ui.showToast(error.message)); };
 document.querySelector('#btn-refresh-claims').onclick = () => loadClaims().catch((error) => ui.showToast(error.message));
 document.querySelector('#btn-refresh-ranking-contacts').onclick = () => loadRankingContacts().catch((error) => ui.showToast(error.message));
@@ -487,4 +604,4 @@ document.querySelector('#btn-campaign-update').onclick = async () => {
   } catch (error) { ui.showToast(error.message); }
 };
 
-if (accessToken) showAdmin().catch(() => { accessToken = ''; sessionClear(); });
+if (accessToken) showAdmin().catch(() => {});

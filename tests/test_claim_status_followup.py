@@ -199,7 +199,7 @@ class ClaimMigrationFollowupTest(unittest.TestCase):
             )
 
     def test_migration_backfills_only_unsubmitted_information_received_claims(self):
-        self.assertEqual(config.SCHEMA_VERSION, CLAIM_FIX.name.split("_", 1)[0])
+        self.assertGreaterEqual(config.SCHEMA_VERSION, CLAIM_FIX.name.split("_", 1)[0])
         _apply(self.dsn, CLAIM_FIX)
         _apply(self.dsn, CLAIM_FIX)
 
@@ -288,17 +288,19 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
                     (claim_id, CAMPAIGN_ID, participant_id, claim_type, status),
                 )
 
-    def _submit(self, claim_id, token_hash=None):
+    def _submit(self, claim_id, token_hash=None, body=None):
+        if body is None:
+            body = {
+                "name": "TEST_user",
+                "contact": "01000000000",
+                "school": "TEST_school",
+                "address": "TEST_address",
+            }
         with self.app_tx() as conn:
             return operations.submit_claim(
                 conn,
                 claim_id,
-                {
-                    "name": "TEST_user",
-                    "contact": "01000000000",
-                    "school": "TEST_school",
-                    "address": "TEST_address",
-                },
+                body,
                 _context(participant_token_hash=token_hash or self.token_hash),
             )[1]
 
@@ -366,6 +368,61 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
                 _context(admin_user_id=self.admin_id),
             )[1]
         self.assertEqual((reviewed["status"], reviewed["version"]), ("PENDING_REVIEW", 2))
+
+    def test_new_submission_requires_school_without_partial_mutation_and_replay_stays_idempotent(self):
+        self._insert_claim("claim_school_required")
+        base_body = {
+            "name": "TEST_user",
+            "contact": "01000000000",
+            "address": "TEST_address",
+        }
+        invalid_schools = (
+            (None, "VALIDATION_ERROR"),
+            ("", "VALIDATION_ERROR"),
+            ("   ", "VALIDATION_ERROR"),
+            ("대학교", "SYNTHETIC_DATA_REQUIRED"),
+        )
+        for school, expected_code in invalid_schools:
+            with self.subTest(school=school):
+                with self.assertRaises(operations.DomainError) as rejected:
+                    self._submit("claim_school_required", body={**base_body, "school": school})
+                self.assertEqual(rejected.exception.code, expected_code)
+
+                with psycopg.connect(self.dsn) as conn:
+                    claim = conn.execute(
+                        "select status,contact_submitted_at from dino_dev.claim "
+                        "where id='claim_school_required'"
+                    ).fetchone()
+                    contacts = conn.execute(
+                        "select count(*) from dino_dev.claim_contact "
+                        "where claim_id='claim_school_required'"
+                    ).fetchone()[0]
+                    events = conn.execute(
+                        "select count(*) from dino_dev.analytics_event "
+                        "where participant_id=%s and event_name='claim_information_received'",
+                        (self.participant_id,),
+                    ).fetchone()[0]
+                self.assertEqual(claim, ("AWAITING_INFORMATION", None))
+                self.assertEqual((contacts, events), (0, 0))
+
+        submitted = self._submit(
+            "claim_school_required", body={**base_body, "school": "TEST_school"}
+        )
+        replay = self._submit("claim_school_required", body={**base_body, "school": ""})
+        self.assertEqual(replay, submitted)
+        with psycopg.connect(self.dsn) as conn:
+            row = conn.execute(
+                "select c.status,c.contact_submitted_at is not null,cc.school "
+                "from dino_dev.claim c join dino_dev.claim_contact cc on cc.claim_id=c.id "
+                "where c.id='claim_school_required'"
+            ).fetchone()
+            events = conn.execute(
+                "select count(*) from dino_dev.analytics_event "
+                "where participant_id=%s and event_name='claim_information_received'",
+                (self.participant_id,),
+            ).fetchone()[0]
+        self.assertEqual(row, ("INFORMATION_RECEIVED", True, "TEST_school"))
+        self.assertEqual(events, 1)
 
     def test_late_submission_never_rolls_back_progressed_or_terminal_status(self):
         self._insert_claim("claim_progressed", "PENDING_REVIEW")

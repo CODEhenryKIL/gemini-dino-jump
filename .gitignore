@@ -12,3 +12,7 @@ __pycache__/
 .artifacts/
 supabase/.temp/
 .local/
+.omx/
+
+# Generated local browser benchmark (template lives in tests/fixtures).
+public/preview-phase2-perf.html

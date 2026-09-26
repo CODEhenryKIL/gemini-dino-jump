@@ -1,13 +1,23 @@
-# 공룡 점프 — 1차 운영 기반
+# 공룡 점프 — 2차 구현·화면 개선
 
-기존 JavaScript 게임과 Python API를 유지하면서 Vercel Preview와 Supabase PostgreSQL에 연결하는 작업 브랜치입니다. 이 문서는 배포 완료 보고가 아닙니다. 완료 여부는 실제 테스트·배포 기록으로 판단합니다.
+JavaScript 게임과 Python API를 Vercel Preview·Supabase PostgreSQL에 연결한 공룡 점프입니다. 기존 2차 기능에 최신 로딩·홈·게임 가이드 개선을 통합했습니다.
+
+## 최신 검토 배포 — 2026-09-26
+
+- **주소:** https://google-korea-team-gemini.vercel.app/
+- 실행 코드: `8bc3ea2`. 기존 검토 주소를 최신 Preview로 갱신했습니다.
+- 검증: Node **150/150**, 로컬 PostgreSQL 기반 Python **176/176**, 작은 화면·가이드·로딩 확인.
+- 상태: Vercel READY, DB ready, `environment=preview`, `synthetic_only=true`.
+- 접속: 기존 Vercel Preview 보호를 유지합니다. 인증된 브라우저 또는 별도 제공하는 만료형 검토 공유 링크로 접속합니다. 완전 공개 운영 전환은 아직 하지 않았습니다.
+- 실경품 지급·Production 환경 활성화는 3차 범위이며 원격 부하 테스트는 보류 중입니다.
+- 상세: [통합 배포 기록](docs/phase2-ui-release.md), [2차 전체 보고](docs/phase2-report.md), [UI 변경 기록](docs/phase2-ui-feedback.md).
 
 ## 기준과 범위
 
 - 최초 개발 기준: 게이트러너 제거 완료 커밋 `f57c3d1`.
-- 이번 코드 기준: 1차 운영 기반과 F1–F3 보완을 PR #3으로 `main`에 반영했습니다. 병합 직후 도착한 자동 리뷰의 추가 결함은 후속 PR에서 수정합니다. 원격 DB·Preview 배포 상태는 아래 보고서와 별개로 확인합니다.
+- 1차 운영 기반·F1–F3 및 추가 검토 보완은 PR #3·#4로 반영했습니다. 2차 전체 기능과 화면 개선은 PR #5에서 통합합니다.
 - 최초 1차 개발 브랜치: `codex/phase1-clean-start`.
-- 현재 추가 수정 브랜치: `codex/phase1-review-fixes` (`7955f44`에서 분기). F1–F3와 추가 수정은 원격 DB·Preview에 아직 반영하지 않았습니다.
+- 2차 통합 브랜치: `codex/phase2-ux-game-conversion`.
 - 요구사항: [1차 지시서](docs/phase1-work-instructions.md).
 - 확정 규칙과 운영 미정값: [정책 결정표](docs/phase1-policy-decisions.md).
 - 정적 화면: Vercel. API: Python 3.12 Vercel Functions. 데이터: PostgreSQL.

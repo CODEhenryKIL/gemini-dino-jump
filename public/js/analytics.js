@@ -1,20 +1,25 @@
 import { api } from './api.js';
 
 const EVENT_ALLOWLIST = new Set([
-  'entry_viewed', 'participant_ready', 'loading_ready', 'loading_checkpoint', 'screen_entered', 'screen_left',
-  'game_cta_clicked', 'game_start_approved', 'game_checkpoint', 'game_completed',
+  'entry_viewed', 'participant_ready', 'loading_data_ready', 'loading_intro_completed', 'loading_ready', 'loading_checkpoint', 'screen_entered', 'screen_left',
+  'game_cta_clicked', 'game_start_approved', 'game_checkpoint', 'game_coin_collected', 'game_heart_collected', 'game_revived', 'game_completed',
   'game_fault_reported', 'game_recovered', 'ranking_viewed', 'top3_profile_started',
   'top3_profile_submitted', 'invite_cta_viewed', 'share_attempted', 'invite_visit_interacted',
-  'invite_visit_qualified', 'invite_visit_rejected', 'draw_entered', 'pouch_selected',
-  'scratch_started', 'scratch_completed', 'draw_result_viewed', 'claim_form_started',
+  'invite_visit_qualified', 'invite_visit_rejected', 'draw_cta_clicked', 'draw_entered', 'pouch_selected',
+  'scratch_reveal_requested', 'scratch_started', 'scratch_completed', 'draw_result_viewed', 'claim_form_started',
   'claim_form_submitted', 'benefit_viewed', 'gemini_cta_viewed', 'gemini_cta_clicked',
-  'content_clicked', 'notion_redirect_requested',
+  'content_viewed', 'content_clicked', 'notion_redirect_requested',
 ]);
 const SAFE_DIMENSIONS = new Set([
   'previous_screen', 'source', 'link_kind', 'channel', 'campaign_code', 'content', 'position',
   'action', 'status', 'reason', 'stage', 'bucket', 'result_type', 'prize_kind', 'share_method',
   'checkpoint', 'is_new', 'is_synthetic', 'connected', 'observed', 'score', 'rank',
-  'game_version', 'draw_status', 'claim_type', 'share_id',
+  'game_version', 'draw_status', 'claim_type', 'share_id', 'end_reason', 'coin_count',
+  'coin_score', 'hearts', 'revive_count', 'tick', 'reduced_motion',
+]);
+const REJECTION_REASONS = new Set([
+  'INVALID_EVENT', 'INVALID_DIMENSIONS', 'INVALID_TIME', 'INVALID_CONTEXT',
+  'CONTEXT_OWNERSHIP', 'PARTICIPANT_NOT_READY',
 ]);
 
 function cleanDimensions(payload = {}) {
@@ -42,7 +47,11 @@ class Analytics {
     this.lastCheckpoint = 0;
     this.flushing = false;
     this.observationReady = false;
+    this.participantReady = false;
+    this.awaitingParticipant = false;
+    this.participantRetries = new WeakSet();
     this.loadingTransition = null;
+    this.loadingMilestones = new Set();
     this.interval = setInterval(() => { this.checkpoint(); this.flush(); }, 2000);
     this.onVisibility = () => {
       const now = performance.now();
@@ -94,6 +103,8 @@ class Analytics {
 
   setParticipantReady(meta = {}) {
     api.setTrackingContext(this.observationId, this.visitSessionId);
+    this.participantReady = true;
+    this.awaitingParticipant = false;
     this.recordLoadingCheckpoint(true);
     this.track('participant_ready', { connected: true, is_new: Boolean(meta.is_new) });
     this.flush();
@@ -112,6 +123,21 @@ class Analytics {
     this.loadingTransition = null;
     this.flush();
   }
+
+  trackLoadingMilestone(name, dimensions = {}) {
+    if (this.loadingMilestones.has(name)) return;
+    this.loadingMilestones.add(name);
+    this.recordLoadingCheckpoint(true);
+    this.track(name, dimensions, {
+      screen: 'loading',
+      screenViewId: this.loadingTransition?.screenViewId || this.screenViewId,
+      activeMs: this.loadingTransition?.activeMs || this.currentActiveMs(),
+    });
+    this.flush();
+  }
+
+  setLoadingDataReady(meta = {}) { this.trackLoadingMilestone('loading_data_ready', { connected: true, ...meta }); }
+  setLoadingIntroCompleted(meta = {}) { this.trackLoadingMilestone('loading_intro_completed', meta); }
 
   setObservationReady() {
     this.observationReady = true;
@@ -176,18 +202,47 @@ class Analytics {
   }
 
   async flush(keepalive = false) {
-    if (!this.observationReady || !this.queue.length || this.flushing) return;
+    if (!this.observationReady || !this.queue.length || this.flushing || this.awaitingParticipant) return;
     this.flushing = true;
     const events = this.queue.splice(0, 20);
+    let resume = false;
     try {
       const result = await api.postEvents(events, { keepalive });
-      if (result.rejected) console.warn('analytics_batch_rejected', { rejected: result.rejected });
+      if (result.rejected) {
+        const reports = new Map();
+        for (const item of Array.isArray(result.rejections) ? result.rejections : []) {
+          if (Number.isInteger(item?.index) && item.index >= 0 && item.index < events.length && REJECTION_REASONS.has(item.reason)) {
+            reports.set(item.index, item.reason);
+          }
+        }
+        const retry = [];
+        const details = [];
+        for (const [index, reason] of reports) {
+          const event = events[index];
+          // An anonymous batch can reach the server after its observation is
+          // linked. Retry that event once with the cookie, without delaying init.
+          if (reason === 'PARTICIPANT_NOT_READY' && !this.participantRetries.has(event) && this.queue.length + retry.length < 40) {
+            this.participantRetries.add(event);
+            retry.push(event);
+          } else {
+            details.push({ event: event.name, reason });
+          }
+        }
+        this.queue.unshift(...retry);
+        if (retry.length) {
+          this.awaitingParticipant = !this.participantReady;
+          resume = this.participantReady;
+        }
+        const rejected = Math.max(0, result.rejected - retry.length);
+        if (rejected) console.warn('analytics_batch_rejected', { rejected, details });
+      }
     } catch (error) {
       const retryable = !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
       if (retryable) this.queue.unshift(...events.slice(0, Math.max(0, 40 - this.queue.length)));
       else console.warn('analytics_batch_failed', { status: error.status, count: events.length });
     } finally {
       this.flushing = false;
+      if (resume) this.flush(keepalive);
     }
   }
 }

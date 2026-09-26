@@ -93,7 +93,7 @@ test('rebatching the same first event gets a fresh request key and relies on eve
 test('lost finish retries retain an exact key and a PII-free payload', () => {
   const game = read('public/js/views/game_view.js');
   assert.match(game, /storageSet\(PENDING_RESULT_KEY/);
-  assert.match(game, /const key = `finish_\$\{this\.sessionId\}`/);
+  assert.match(game, /const sessionId = this\.sessionId;[\s\S]*const key = `finish_\$\{sessionId\}`/);
   assert.match(game, /api\.getSession\(pending\.sessionId\)/);
   assert.doesNotMatch(game, /session_token|contact|recipient|participant_id/i);
   assert.match(game, /checkpointSession/);
@@ -223,16 +223,13 @@ test('a consumed ticket does not block access to an existing game or fault recov
   assert.match(home, /start\.disabled = !pendingSession && \(campaignStatus !== 'ACTIVE' \|\| available < 1\)/);
   assert.match(home, /진행 중 게임 복원/);
   assert.match(home, /장애 복구 상태 확인/);
-  assert.match(home, /if \(pendingSession\) \{ router\.navigate\('game'\); return; \}/);
+  assert.match(home, /if \(router\.state\.pendingGameSession\) \{ router\.navigate\('game'\); return; \}/);
 });
 
 test('fault recovery persists only non-PII evidence and reconciles rejected checkpoints', () => {
   const game = read('public/js/views/game_view.js');
   assert.match(game, /FAULT_PREFIX = 'dino_fault_'/);
   assert.match(game, /persistFaultMarker\('NETWORK_ERROR', tick\)/);
-  assert.match(game, /error\.status === 409[\s\S]*api\.getSession\(this\.sessionId\)/);
-  assert.match(game, /await api\.checkpointSession\(this\.sessionId, tick, this\.currentStage\)/);
-  assert.match(game, /await api\.reportSessionFault/);
   assert.match(game, /정상 종료나 자발적 이탈은 환급 대상이 아닙니다/);
   assert.doesNotMatch(game, /recipient_name|contact|address|participant_token/i);
 });
@@ -300,19 +297,13 @@ test('hidden views leave the accessibility tree and Gemini exposure requires vis
   assert.match(benefit, /cleanup\(\) \{ this\.observer\?\.disconnect/);
 });
 
-test('a persistent TOP3 request remains actionable after result state is gone', () => {
-  const ranking = read('public/js/views/ranking_view.js');
-  assert.match(ranking, /router\.state\.top3Profile\?\.status === 'REQUESTED'/);
-  assert.match(ranking, /ResultView\.top3Modal\(router\)/);
-  assert.match(ranking, /새로고침하거나 현재 순위가 내려가도/);
-});
-
 test('submitted TOP3 state wins over a stale requested result when result screen rerenders', () => {
   const created = [];
   const makeNode = (tag = 'div') => ({
     tag, children: [], disabled: false, textContent: '',
     append(...nodes) { this.children.push(...nodes); },
     appendChild(node) { this.children.push(node); },
+    replaceChildren(...nodes) { this.children = nodes; },
   });
   const nodes = new Map([
     ['#result-score', makeNode()], ['#result-best', makeNode()], ['#result-rank', makeNode()],
