@@ -101,6 +101,8 @@ class Phase2MetricsTest(unittest.TestCase):
                    {"link_kind": "retry_invite", "share_method": "native", "status": "attempted", "share_id": "retry_phase2_metrics"}, "invite")
         self.event("share_attempted", converted, converted_obs, 8,
                    {"link_kind": "prize_share", "share_method": "native", "status": "share_sheet_closed", "share_id": "prize_phase2_metrics"}, "prize")
+        self.event("scratch_reveal_requested", converted, converted_obs, 9,
+                   {"action": "accessibility_button"}, "draw")
 
         reversed_pid = self.person("reversed")
         reversed_obs = self.observation("reversed", reversed_pid)
@@ -124,6 +126,19 @@ class Phase2MetricsTest(unittest.TestCase):
         self.assertEqual((invitation["event_count"], invitation["linked_participants"]), (3, 1))
         self.assertEqual({"record_share", "retry_invite", "prize_share"},
                          {row["purpose"] for row in data["sharing"]["by_purpose"]})
+        labels = {row["key"]: row["label"] for row in data["metrics"]}
+        self.assertEqual(
+            {key: labels[key] for key in (
+                "event.client.content_viewed",
+                "event.client.content_clicked",
+                "event.client.scratch_reveal_requested",
+            )},
+            {
+                "event.client.content_viewed": "가이드 카드 노출 (client)",
+                "event.client.content_clicked": "가이드 링크 클릭 (client)",
+                "event.client.scratch_reveal_requested": "긁기 보조 공개 요청 (client)",
+            },
+        )
 
     def test_ranking_contact_counts_are_game_version_scoped(self):
         legacy = self.person("legacy_contact")

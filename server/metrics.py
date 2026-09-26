@@ -5,7 +5,12 @@ import datetime as dt
 import os
 
 UTC = dt.timezone.utc
-EVENT_LABELS = {'draw_cta_clicked': '복주머니 버튼 클릭'}
+EVENT_LABELS = {
+    'draw_cta_clicked': '복주머니 버튼 클릭',
+    'content_viewed': '가이드 카드 노출',
+    'content_clicked': '가이드 링크 클릭',
+    'scratch_reveal_requested': '긁기 보조 공개 요청',
+}
 
 
 def _iso(value):
