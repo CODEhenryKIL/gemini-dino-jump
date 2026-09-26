@@ -4,7 +4,7 @@
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
 상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart 적용 완료. 아래 복귀·수령·메뉴·노출 보완을 Preview에 반영하고 기본 화면·노출 저장을 확인했다. 2차 부하는 사용자 지시로 보류.**
 
-최신 개선 Preview: https://dino-nanobanana-2t3yrbcby-henry-kils-projects.vercel.app (`dpl_tk7r3eCYgnhmSSSA6bLnzUCVud7e`, 코드 `67a9476`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
+최신 개선 Preview: https://dino-nanobanana-cga1tx8wv-henry-kils-projects.vercel.app (`dpl_DSmorXG65iZ4n9HCshqGL4U38jRe`, 코드 `f1557b1`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
 
 ## 2026-09-26 화면·복귀 보완
 
@@ -82,6 +82,13 @@
 - 체크포인트·장애 보고는 요청을 시작한 세션·단계에 고정한다. 이전 게임의 응답이 새 게임의 저장소나 장애 표시를 변경하지 못하게 하고, 역순 응답으로 체크포인트가 과거 tick으로 돌아가지 않도록 했다.
 - 장애 복구 화면의 조회·갱신에도 화면 수명 검사를 적용했다. 게임 준비 중 만들어진 정상 예약 snapshot은 이어하기를 위해 유지한다.
 - 지연 성공/실패·역순 체크포인트·정리 후 응답·장애 체크포인트 409 재조정 행동 회귀를 추가했다. 내부 변수명에 의존하던 일부 정규식 검사를 행동 검증으로 대체했다. 전체 Node **116개** 통과. 서버 게임 규칙·점수 재현·초대 제한은 변경하지 않았다.
+- `f1557b1` 개선 Preview가 READY이며 health의 `database=ready`·`synthetic_only=true`를 확인했다. 배포된 게임 화면 모듈과 로컬 검증본의 SHA-256은 `fa80c2d974c4fb867a26a611476ba66e35795dddf6988006d71acda4ab62d730`으로 일치한다. 해당 배포에서 새 부하나 참가자 준비를 실행하지 않았다.
+
+## 실제 앱 10판 순차 확인
+
+- `f1557b1`의 실제 GameView·로컬 API·PostgreSQL로 같은 참가자의 홈 → 게임 → 정상 충돌 → 서버 승인 → 결과 → 랭킹 → 홈을 10판 확인했다. 코인 32개·하트 5개·부활 5회가 화면과 서버 재현 결과에서 일치했다. 동시 접속이나 원격 부하가 없는 로컬 기능 확인이다.
+- 매 판 종료 후 게임 RAF와 canvas가 0이고 전역 listener 수는 기준값과 같았다. 스테이지 전환 11회 구간의 RAF 최대는 18.8ms, 부활 5회 구간은 35.2ms였다. 전체 플레이에는 최대 50ms 간격 표본도 있어 모든 기기의 60 FPS 통과로 해석하지 않는다.
+- 시작/완료 이벤트는 게임마다 클라이언트·서버 각각 1건이었다. 실제 관리자 집계 함수도 승인 10·완료 10·고유 참가자 1·진행 중 0으로 일치했다. 원격 관리자 전체 화면 검증과는 구분한다. [측정 방법·판별 결과](phase2-browser-performance.md), [서버 대조 요약](phase2-full-app-repeat-summary.json).
 
 ## 구현 범위
 
@@ -156,7 +163,7 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 - 기존 1차 배포는 전용 DB 연결 정보를 배포 단위로 전달하는 방식이었다. 같은 전용 설정을 새 Preview에만 전달하는 재배포가 자동 승인 검사에서 민감 정보 전송 승인을 요구하며 차단됐다. 이후 사용자가 기존 DB 비밀번호·쿠키 검증 비밀값의 동일 Vercel 프로젝트 Preview 적용을 명시적으로 승인했다.
 - 기존 Preview의 `/api/health`는 migration 후에도 `database=ready`로 정상. Vercel 보호 설정은 유지한다.
 - 승인 후 Preview `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71`에서 `database=ready`, `environment=preview`, `synthetic_only=true`, `/api/config`의 `game_version=2.0.0`을 확인했다.
-- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 개선 Preview는 위 `67a9476` 배포다.
+- Smile/Heart 최초 적용 Preview: https://dino-nanobanana-qoh8u0g61-henry-kils-projects.vercel.app (`dpl_5NDHjGJcvcXmrrfwmzjpQiksvuQ4`, 코드 `96c6139`). health 정상과 실제 HUD의 Smile/Heart 원본 2000×2000 로드를 확인했다. 최신 개선 Preview는 위 `f1557b1` 배포다.
 - `dpl_CDZqaEU5iLxc7Qu8RZpzK1LTmB71` 실제 브라우저에서 신규 참가자 기본권 1장 → 게임 시작 → 32점 서버 승인·1위 표시 → 주머니 선택 → Enter 공개 → 미당첨 → Gemini 안내를 확인했다. 공개 뒤 초점은 다음 CTA로 이동했다. Smile/Heart Preview에서는 신규 참가자 기본권 1장 → 32점 서버 승인·1위 표시까지 별도로 확인했다. 테스트 경품 재고는 0이므로 원격 당첨 경로는 아직 검증하지 않았다.
 
 ## 비밀 설정 노출 점검
@@ -170,6 +177,6 @@ Codex 내장 Chromium, 로컬 Python 서버 + 실제 로컬 PostgreSQL. 원격 �
 
 1. 사용자 화면·기능 개선을 우선하고, 개선본 Preview에서 공유 URL·쿠키·원격 당첨 수령·관리자 집계를 추가 확인. 게임·수령 전 흐름과 실기기 검증이 모두 끝난 상태는 아니다.
 2. [2차 부하 계획](phase2-load-plan.md)은 **2026-09-26 사용자 지시로 보류**한다. 사용자가 재개를 요청하기 전에는 참가자 준비·원격 부하를 진행하지 않는다. 기존 계획의 시간/요청 한도는 제안값이며 승인된 예산이 아니다. 1차 시험 예산은 그대로 보존한다.
-3. [로컬 브라우저 프레임·10회 엔진 정리 측정](phase2-browser-performance.md)을 완료했다. 빈 RAF도 약 30Hz인 IAB 환경에서 스테이지/부활 경계 지연 증가나 listener/RAF 잔류는 관측하지 않았다. 10회 완전 플레이, 전체 화면 애니메이션, 실기기·인앱 브라우저·네이티브 공유는 추가 검증 범위다. HTTP 테스트로 모바일 FPS 통과를 대신하지 않는다.
+3. [로컬 브라우저 프레임·10회 엔진 정리·실제 앱 10판 측정](phase2-browser-performance.md)을 완료했다. 실제 GameView·화면 전환·점수 저장·시작/완료 이벤트·관리자 집계 함수까지 대조했다. 실기기·인앱 브라우저·네이티브 공유는 추가 검증 범위다. HTTP 테스트로 모바일 FPS 통과를 대신하지 않는다.
 4. 실제 경품/확률/재고/기간, 대학생 인증 방식, 개인정보 안내, 동점 최종 수상 규칙, Google 공식 혜택은 3차 확정.
 5. 4.26 체험담·사진 예시는 실자료를 받아 확정한다. Notion 원문 CTA 수정·게시 여부와 경유 추적 승인도 별도로 확인한다.
