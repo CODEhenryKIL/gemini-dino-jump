@@ -1,5 +1,9 @@
 # 2차 화면 세부 수정 요청
 
+## 최신 통합 상태 — 2026-09-26
+
+사용자 요청에 따라 기존 2차와 아래 개선을 통합 검증·배포했다. Node 150/150, Python 176/176 통과. https://google-korea-team-gemini.vercel.app/ 에 실행 코드 `8bc3ea2`를 연결했으며 DB ready·합성 전용 설정을 유지한다. 자세한 결과는 [통합 배포 기록](phase2-ui-release.md)을 따른다. 아래의 개별 검증/배포 보류 문구는 당시의 작업 이력이며 원격 부하 테스트 보류는 현재도 유지한다.
+
 최신 위치·서체 수정: Antigravity 로고를 제작 문구 왼쪽으로 이동했다. Google Fonts에서 받은 Google Sans Medium 원본을 `public/assets/fonts/google-sans-medium.ttf`에 저장하고 `Google AI`에 적용했다. 사용자 최종 요청에 따라 글자색은 Google의 파랑·빨강·노랑·초록이며, 한국어는 중립 회색·400 굵기로 구분한다.
 
 ## 최신 반영: Antigravity·실제 추첨 디자인·경품 재배치

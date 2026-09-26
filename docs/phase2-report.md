@@ -4,7 +4,7 @@
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
 상태: **2차 구현 목표 완료. 2026-09-26 사용자가 Notion 내부 링크 추가를 직접 맡고, 부하 테스트는 세부 디테일 정리 후 별도 진행하기로 했다. 나머지 구현·검증 증거는 [완료 대조표](phase2-completion-audit.md)를 따른다. 운영 공개는 3차 범위다.**
 
-최신 개선 Preview: https://dino-nanobanana-ilx08jqy5-henry-kils-projects.vercel.app (`dpl_EU1NVPQHrg8AEDBnkUpQJF43QscB`, 코드 `dc40170`). 이후 문서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
+최신 개선 Preview: https://google-korea-team-gemini.vercel.app/ (`dpl_HJ4J76mdR2gWfq5aVwtsJtfaBD7B`, 실행 코드 `8bc3ea2`). 기존 2차 구현과 최신 UI 개선을 통합했고 Node 150개·Python 176개를 통과했다. 배포 READY·DB ready·합성 전용 및 배포 파일 일치를 확인했다. [최신 통합 배포 기록](phase2-ui-release.md)을 따른다. 아래 기록은 각 변경 시점의 이력이다.
 
 ## 로딩·홈 수정 및 검증 방식 변경
 

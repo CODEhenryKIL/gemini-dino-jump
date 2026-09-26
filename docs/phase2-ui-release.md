@@ -27,4 +27,15 @@
 - `.local` 샘플 랭킹·비밀 설정 및 `.omx` 실행 기록은 Git·배포에서 제외한다.
 - 원격 부하 테스트는 계속 보류한다. 실기기·인앱·네이티브 공유 및 실제 행사 오픈 검증은 3차 범위다.
 
-배포 결과와 main 병합 결과는 완료 후 이 문서에 기록한다.
+## 배포 결과
+
+- 실행 코드: `8bc3ea2776658f71bf8c60dcf4a637eba05c1d4e`.
+- Vercel 배포: `dpl_HJ4J76mdR2gWfq5aVwtsJtfaBD7B`, **READY**, Preview.
+- 고유 URL: https://dino-nanobanana-oyf8682n8-henry-kils-projects.vercel.app
+- 고정 검토 URL: https://google-korea-team-gemini.vercel.app/
+- 빌드: Python 3.12, Vercel 빌드 완료 2초.
+- `/api/health`: `ok=true`, `database=ready`, `environment=preview`, `synthetic_only=true`.
+- 원격 JS 3개·CSS 2개·최종 경품 WebP를 로컬 파일과 바이트 단위 대조해 모두 일치 확인.
+- 고정 검토 주소도 새 배포로 연결했다. 인증된 실제 브라우저에서 새 홈·4장 가이드·원격 랭킹 표시를 확인했다.
+- 기존 Vercel Preview 보호(`all_except_custom_domains`)를 유지한다. 인증 없는 요청은 Vercel 로그인으로 이동하므로 완전 공개 사이트로 간주하지 않는다. 사용자 검토를 위해 23시간짜리 공유 링크를 발급했다. 공유 접근 토큰은 Git에 저장하지 않는다.
+- PR #5의 검증된 작업 브랜치를 main에 병합한다. 이후 문서 갱신 커밋은 실행 코드 변경이 없어 재배포하지 않는다.
