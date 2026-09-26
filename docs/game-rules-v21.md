@@ -53,3 +53,11 @@ Supabase Advisor에서 dino_dev 관련 경고는 없었다. 변경하지 않은 
 - Node 162개, Python 189개 전체 통과(생략 없음).
 - 부활 0·1·2·3회 감점, 8~10단계 속도·간격, 2.0/2.1 중간 복원, JS/Python 재현 일치, DB 점수·랭킹 버전 격리 검증.
 - 원격 부하 테스트는 실행하지 않았다.
+
+## Preview 반영
+
+- 제품 커밋: `d548ec5`, 기존 작업 브랜치 `codex/ranking-ticket-ui`, PR #7.
+- 배포: `dpl_FntoNWY3YEBJZkwJgjDs9F9pdLer` (`READY`).
+- 테스트 주소: https://google-korea-team-gemini.vercel.app/
+- 원격 DB ready, 공개 config의 게임 버전 2.1.0, 변경된 JS/CSS 6개 파일의 원격 내용 일치 확인.
+- 합성 참가자 1명으로 접속→예약→시작→종료→잔액 조회 6회 API 확인: 새 버전으로 32점 저장 성공, 무제한 유지, 잔액 미차감. 부하·추첨은 실행하지 않았다.
