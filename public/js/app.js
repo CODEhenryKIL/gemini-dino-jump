@@ -40,11 +40,15 @@ class AppRouter {
     this.channel?.addEventListener('message', () => this.refreshState({ quiet: true }).catch(() => {}));
   }
 
-  async init() {
+  async init({ fromRetry = false } = {}) {
     this.bindNavigation();
     if (!this.initialRequest) this.initialRequest = this.parseInitialRequest();
     if (!this.introPromise) this.introPromise = this.playInitialIntro();
     this.setSplashState('loading');
+    if (fromRetry) {
+      const status = document.getElementById('splash-status-text');
+      if (status) { status.tabIndex = -1; status.focus({ preventScroll: true }); }
+    }
     try {
       const dataPromise = this.loadInitialData(this.initialRequest);
       const [, initialized] = await Promise.all([this.introPromise, dataPromise]);
@@ -58,10 +62,12 @@ class AppRouter {
       this.initialized = true;
       analytics.setLoadingReady();
       this.hideSplash();
+      if (fromRetry) { this.container.tabIndex = -1; this.container.focus({ preventScroll: true }); }
       if (this.state.tickets.cooldown_notice_pending && this.state.tickets.cooldown_until) this.showCooldownNotice();
     } catch (error) {
       await this.introPromise;
       this.renderInitError(error);
+      if (fromRetry) document.getElementById('splash-retry')?.focus();
     }
   }
 
@@ -156,7 +162,7 @@ class AppRouter {
       this.loadingState.intro = true;
       this.setSplashState(this.loadingState.data ? 'ready' : 'intro-complete');
       resolve();
-    }, 2500));
+    }, 5000));
   }
 
   installInviteState(_initialized, inviteCode) {
@@ -276,6 +282,7 @@ class AppRouter {
   hideSplash() {
     const splash = document.getElementById('splash-screen');
     if (splash) { splash.setAttribute('aria-hidden', 'true'); splash.inert = true; }
+    document.querySelectorAll('[data-splash-inert]').forEach((element) => { element.inert = false; });
     splash?.classList.add('fade-out');
     setTimeout(() => { if (splash) splash.hidden = true; }, 250);
   }
@@ -287,20 +294,20 @@ class AppRouter {
     if (!splash) return;
     splash.dataset.state = state;
     if (retry) retry.hidden = state !== 'error';
-    if (status && state === 'loading') status.textContent = '참여 기록과 게임 자산을 준비하는 중...';
-    if (status && state === 'data-ready') status.textContent = '준비 완료 · 브랜드 이야기를 마무리하는 중...';
-    if (status && state === 'intro-complete') status.textContent = '안전하게 연결하는 중...';
-    if (status && state === 'ready') status.textContent = '준비 완료!';
+    if (status && state === 'loading') status.textContent = '게임을 준비하고 있어요';
+    if (status && state === 'data-ready') status.textContent = '잠시 후, 게임이 시작돼요';
+    if (status && state === 'intro-complete') status.textContent = '게임을 불러오고 있어요. 잠시만 기다려 주세요';
+    if (status && state === 'ready') status.textContent = '이제 시작해 볼까요?';
   }
 
   renderInitError(error) {
     this.setSplashState('error');
     const status = document.getElementById('splash-status-text');
     if (status) status.textContent = error.status === 401
-      ? '잘못되거나 만료된 쿠키로 새 참가자를 자동 생성하지 않았습니다. 운영자에게 문의하거나 쿠키를 직접 지운 뒤 다시 접속해 주세요.'
-      : '기존 참여 기록을 보호하기 위해 임시 ID를 만들지 않았습니다. 잠시 후 다시 시도해 주세요.';
+      ? '이 브라우저의 참여 기록을 확인할 수 없어요. 운영팀에 문의해 주세요.'
+      : '연결이 잠시 끊겼어요. 잠시 후 다시 연결해 주세요.';
     const retry = document.getElementById('splash-retry');
-    if (retry) retry.onclick = () => this.init();
+    if (retry) retry.onclick = () => this.init({ fromRetry: true });
   }
 
   showCooldownNotice() {

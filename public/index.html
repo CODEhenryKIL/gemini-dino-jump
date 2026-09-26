@@ -28,31 +28,38 @@
   <div id="app-container">
     
     <div id="splash-screen" role="status" aria-live="polite" aria-label="게임 준비 중">
-      <div class="splash-ambassador">Google Student Ambassador</div>
-      <div class="splash-story" aria-label="Google AI로 만든 게임입니다. 게임하고 복주머니에서 복권 뽑고 긁으면 선물!">
+      <div class="splash-ambassador"><span class="google-color-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Google Student Ambassador</div>
+      <div class="splash-story" role="group" aria-label="Google AI로 만든 게임입니다. 게임하고, 복주머니에서 복권 뽑고, 긁으면 선물! 최대 삼텐바이미!">
         <div class="splash-title-group">
-          <strong class="splash-main-title">Google AI로 만든<br>게임입니다</strong>
-          <span class="splash-event-title">전국 대학생 한정 이벤트</span>
-          <span class="splash-eligibility">게임은 누구나 참여 가능 · 경품은 대학생 대상</span>
+          <strong class="splash-main-title"><span class="google-ink"><span class="google-word"><span>G</span><span>o</span><span>o</span><span>g</span><span>l</span><span>e</span></span> AI</span>로 만든<br>추억의 공룡 게임</strong>
         </div>
-        <div class="splash-steps" aria-hidden="true">
-          <span>게임하고</span>
-          <span>복주머니에서 복권 뽑고</span>
-          <span>긁으면 선물!</span>
-          <strong>최대 삼텐바이미!</strong>
+        <div class="splash-scene" aria-hidden="true">
+          <span class="splash-orbit orbit-blue"></span><span class="splash-orbit orbit-red"></span>
+          <span class="splash-orbit orbit-yellow"></span><span class="splash-orbit orbit-green"></span>
+          <div class="splash-dino-wrap"><img class="splash-dino" src="/assets/icons/Dino-Dark.png" alt="" width="128" height="128"></div>
+          <span class="splash-dino-shadow"></span>
+          <div class="splash-runway"><i></i><i></i><i></i><i></i></div>
         </div>
+        <div class="splash-chapters" aria-hidden="true">
+          <div class="splash-chapter chapter-play"><span class="splash-chapter-number">01 / PLAY</span><strong>가볍게, 한 판.</strong><span>게임하고</span></div>
+          <div class="splash-chapter chapter-draw"><span class="splash-chapter-number">02 / PICK</span><strong>골라봐, 너의 행운.</strong><span>복주머니에서 복권 뽑고</span></div>
+          <div class="splash-chapter chapter-prize"><span class="splash-chapter-number">03 / REVEAL</span><strong>긁으면 선물!</strong><span>최대 <b>삼텐바이미!</b></span></div>
+        </div>
+        <div class="splash-event-copy"><span class="splash-event-title">전국 대학생 한정 이벤트</span><span class="splash-eligibility">게임은 누구나 참여 가능 · 경품은 대학생 대상</span></div>
       </div>
-      <p class="splash-preview-note">Preview 경품 문구 · 추첨 결과에 따라 미당첨이 있을 수 있어요.</p>
-      <div class="splash-team-logo-wrap">
-        <img class="splash-team-logo" src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
+      <div class="splash-footer">
+        <div class="splash-team-logo-wrap">
+          <img class="splash-team-logo" src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
+        </div>
+        <p class="splash-preview-note">경품은 Preview 시안이며, 추첨 결과에 따라 미당첨될 수 있어요.</p>
+        <div class="splash-progress-container" aria-hidden="true"><div id="splash-progress-bar" class="splash-progress-bar"></div></div>
+        <div id="splash-status-text" class="splash-status-text">게임을 준비하고 있어요</div>
+        <button id="splash-retry" class="btn btn-primary splash-retry" type="button" hidden>다시 연결</button>
       </div>
-      <div class="splash-progress-container" aria-hidden="true"><div id="splash-progress-bar" class="splash-progress-bar"></div></div>
-      <div id="splash-status-text" class="splash-status-text">참여 기록과 게임 자산을 준비하는 중...</div>
-      <button id="splash-retry" class="btn btn-primary splash-retry" type="button" hidden>다시 연결</button>
     </div>
     
     <!-- Top Fixed App Bar -->
-    <header class="app-header">
+    <header class="app-header" data-splash-inert inert>
       <div class="brand-logo-area">
         <img src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador Logo" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
       </div>
@@ -64,12 +71,12 @@
     </header>
 
     <!-- Main View Dynamic Container -->
-    <main id="view-container" class="view-content">
+    <main id="view-container" class="view-content" data-splash-inert inert>
       <!-- Views will be mounted here dynamically by Router -->
     </main>
 
     <!-- Fixed Bottom Navigation Bar -->
-    <nav class="bottom-nav" aria-label="주요 메뉴">
+    <nav class="bottom-nav" aria-label="주요 메뉴" data-splash-inert inert>
       <a class="nav-item active" data-view="home" href="/" aria-current="page">
         <span class="icon" aria-hidden="true">🏠</span>
         <span>홈</span>

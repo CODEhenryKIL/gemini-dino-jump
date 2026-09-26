@@ -43,7 +43,10 @@ function loadHome(guideSeen = false) {
 
 test('home presents only Dino Jump and starts it after the guide', () => {
   const page = loadHome();
-  assert.match(page.container.innerHTML, /공룡 점프 시작/);
+  assert.match(page.container.innerHTML, />게임 시작<\/button>/);
+  assert.match(page.container.innerHTML.replace(/<[^>]+>/g, ''), /Google AI[\s\S]*공룡 게임/);
+  assert.match(page.container.innerHTML, /추억의 공룡 게임 한 판 하고 삼텐바이미 받자!/);
+  assert.doesNotMatch(page.container.innerHTML, /home-team-logo|home-draw-state|복주머니와 재도전|지금 사용 가능/);
   assert.doesNotMatch(page.container.innerHTML, /게이트 러너|종목 선택/);
   const start = page.elements.get('#btn-start-jump');
   assert.ok(start, 'a direct Dino Jump start button is present');

@@ -1,9 +1,18 @@
-.home-team-logo {
-  width: min(210px, 72%);
-  max-height: 54px;
-  margin: 0 auto 2px;
-  object-fit: contain;
-}
+.brand-logo-area img { width: 130px; max-width: 130px; height: 70px; }
+.hero-card { gap: 18px; padding: 28px 22px 22px; box-shadow: 0 4px 18px rgba(25, 103, 210, .04); }
+.hero-card > .sticker-badge { align-self: center; }
+.hero-card h1 { font-size: clamp(29px, 8.4vw, 36px); font-weight: 800; line-height: 1.3; letter-spacing: -.055em; }
+.home-ai-word { color: #1967d2; }
+.home-campaign-line { max-width: 275px; margin: -6px auto 0; font-size: 15px; line-height: 1.7; letter-spacing: -.035em; color: #3c4043; text-wrap: balance; }
+.home-eligibility { font-size: 10px; line-height: 1.6; color: #747b85; }
+.hero-card .hero-dino { width: 118px; height: 118px; margin: 3px auto 6px; }
+.hero-card .stat-grid { gap: 0; padding: 12px 0; border-top: 1px solid #edf0f4; border-bottom: 1px solid #edf0f4; }
+.hero-card .stat-grid > div { padding: 0 4px; background: transparent; border-radius: 0; gap: 4px; }
+.hero-card .stat-grid > div + div { border-left: 1px solid #edf0f4; }
+.hero-card .stat-grid small { font-size: 11px; }
+.hero-card .stat-grid strong { font-size: 17px; }
+.hero-card #btn-how-to-play { min-height: 38px; border: 0; color: #5f6368; font-size: 12px; font-weight: 550; }
+.hero-card .status-note { margin: 0; }
 
 .result-gap {
   padding: 11px 13px;
@@ -61,6 +70,9 @@ a[aria-disabled="true"] {
 
 @media (max-width: 350px) {
   .stat-grid { grid-template-columns: 1fr; }
+  .hero-card .stat-grid { grid-template-columns: repeat(3, 1fr); }
+  .hero-card { padding: 24px 16px 18px; }
+  .brand-logo-area img { width: 110px; max-width: 110px; }
   .ticket-ledger { flex-direction: column; gap: 4px; }
 }
 

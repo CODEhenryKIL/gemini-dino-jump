@@ -44,7 +44,8 @@ test('home enables a newly earned ticket and uses the latest pending game after 
   router.state.tickets = { initial: 0, invitation: 1 };
   view.updateState(container, router);
   assert.equal(start.disabled, false);
-  assert.equal(start.textContent, '공룡 점프 시작');
+  assert.equal(start.textContent, '게임 시작');
+  assert.equal(nodes.get('#home-ticket-note').hidden, true);
   assert.equal(nodes.get('#home-invite-ticket').textContent, '1장');
   start.onclick();
   assert.deepEqual(routes, ['game']);
@@ -64,8 +65,10 @@ test('home distinguishes expired cooldown from current waiting and explains an e
   const router = { state: { tickets: { initial: 0, invitation: 2, cooldown_until: '2000-01-01T00:00:00Z' } } };
   view.render(container, router);
   assert.doesNotMatch(nodes.get('#home-ticket-note').textContent, /적립 대기/);
+  assert.equal(nodes.get('#home-ticket-note').hidden, true);
   router.config = { campaign: { status: 'ENDED' } };
   view.updateState(container, router);
+  assert.equal(nodes.get('#home-ticket-note').hidden, false);
   assert.match(nodes.get('#home-ticket-note').textContent, /종료/);
   assert.doesNotMatch(nodes.get('#home-ticket-note').textContent, /다시 시작/);
 });

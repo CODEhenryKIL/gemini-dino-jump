@@ -80,7 +80,7 @@ test('entry parsing accepts record_share once and removes invite and attribution
   assert.doesNotMatch(loaded.historyCalls.at(-1).url, /invite|share|channel|campaign|InviteCode/);
 });
 
-test('initial brand flow has the required copy, fixed 2.5 second gate, and a static reduced-motion presentation', () => {
+test('initial brand flow has the required copy and a static reduced-motion presentation', () => {
   const html = read('public/index.html');
   const css = read('public/css/style.css');
   const app = read('public/js/app.js');
@@ -88,10 +88,32 @@ test('initial brand flow has the required copy, fixed 2.5 second gate, and a sta
   assert.match(html, /Google AI로 만든/);
   assert.match(html, /게임은 누구나 참여 가능 · 경품은 대학생 대상/);
   assert.match(html, /게임하고[\s\S]*복주머니에서 복권 뽑고[\s\S]*긁으면 선물![\s\S]*최대 삼텐바이미!/);
-  assert.match(app, /}, 2500\)\)/);
   assert.match(app, /prefers-reduced-motion: reduce/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation: none !important/);
   assert.match(app, /Dino-Dark\.png[\s\S]*Heart-Light\.png/);
+});
+
+test('five-second intro completion stays separate from data readiness, including reduced motion', async () => {
+  for (const reduced of [false, true]) {
+    const { router, context } = loadRouter('https://example.test/');
+    const timers = [];
+    const milestones = [];
+    context.window.matchMedia = () => ({ matches: reduced });
+    context.setTimeout = (callback, delay) => { timers.push({ callback, delay }); };
+    context.analytics.setLoadingIntroCompleted = (data) => milestones.push(data);
+    const intro = router.playInitialIntro();
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0].delay, 5000);
+    assert.equal(router.loadingState.intro, false);
+    assert.equal(milestones.length, 0);
+    timers[0].callback();
+    await intro;
+    assert.equal(router.loadingState.intro, true);
+    assert.equal(router.loadingState.data, false);
+    assert.equal(milestones.length, 1);
+    assert.equal(milestones[0].reduced_motion, reduced);
+    assert.equal(context.document.getElementById('splash-screen').dataset.state, 'intro-complete');
+  }
 });
 
 test('router writes public screen-only history and popstate renders without creating a duplicate entry', () => {
@@ -172,6 +194,33 @@ test('initial loading_ready and splash dismissal wait for the actual initial vie
   await initializing;
   assert.deepEqual(events, ['ranking_rendered', 'loading_ready', 'splash_hidden']);
   assert.equal(loaded.router.initialized, true);
+});
+
+test('retry keeps focus on the loading status, then the page or the retry button', async () => {
+  for (const fails of [false, true]) {
+    const { router, context } = loadRouter('https://example.test/');
+    const focused = [];
+    const status = context.document.getElementById('splash-status-text');
+    const retry = context.document.getElementById('splash-retry');
+    status.focus = () => focused.push('status');
+    retry.focus = () => focused.push('retry');
+    router.container.focus = () => focused.push('page');
+    router.initialRequest = { requestedView: 'home', inviteCode: null };
+    router.introPromise = Promise.resolve();
+    router.loadInitialData = async () => {
+      if (fails) throw new Error('connection failed');
+      return { participant: {} };
+    };
+    router.installInviteState = () => {};
+    context.analytics.setLoadingReady = () => {};
+    router.renderInitError(new Error('initial connection failed'));
+    await retry.onclick();
+    assert.deepEqual(focused, ['status', fails ? 'retry' : 'page']);
+    assert.equal(status.tabIndex, -1);
+    assert.equal(retry.hidden, !fails);
+    assert.equal(router.initialized, !fails);
+    if (!fails) assert.equal(router.container.tabIndex, -1);
+  }
 });
 
 test('render promises are race guarded and an older route cannot become current after a newer route', async () => {

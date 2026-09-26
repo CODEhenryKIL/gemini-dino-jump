@@ -15,7 +15,7 @@
 
 | 화면 | 목적과 주요 상태 | 주요 CTA / 보조 CTA | 표시 데이터와 API | 화면 이벤트 |
 | --- | --- | --- | --- | --- |
-| 초기 로딩 | 브랜드 흐름과 실제 데이터 준비를 분리한다. 약 2.5초 연출, 준비 지연, 연결 실패, 모션 감소 상태를 처리한다. | 자동 진입 / 실패 시 다시 연결 | `POST /api/observations`, `GET /api/config`, `POST /api/participants/anonymous`, `GET /api/me` | `entry_viewed`, `loading_data_ready`, `loading_intro_completed`, `loading_checkpoint`, `participant_ready`, `loading_ready` |
+| 초기 로딩 | 브랜드 흐름과 실제 데이터 준비를 분리한다. 약 5초 연출 (2026-09-26 사용자 후속 수정), 준비 지연, 연결 실패, 모션 감소 상태를 처리한다. | 자동 진입 / 실패 시 다시 연결 | `POST /api/observations`, `GET /api/config`, `POST /api/participants/anonymous`, `GET /api/me` | `entry_viewed`, `loading_data_ready`, `loading_intro_completed`, `loading_checkpoint`, `participant_ready`, `loading_ready` |
 | 홈 | 기본권·초대권·최고점·복주머니 상태를 한눈에 표시한다. 진행 세션, 권리 없음, 쿨다운, 캠페인 중단·종료 상태를 구분한다. | 게임 시작 또는 진행 게임 복원 / 사용 가능한 복주머니 열기·기존 결과 보기, 조작 가이드 | `GET /api/me`로 복원된 `tickets`, `best_score`, `draw`, `pending_game_session`; 캠페인 설정 | `screen_entered`, `game_cta_clicked`, `draw_cta_clicked`, `screen_left` |
 | 게임 | 서버가 승인한 세션에서 점프, 코인, 하트, 반복 부활을 진행한다. 저장·검증·장애 복구를 구분한다. | 점프와 플레이 / 장애 상태 확인·재시도 | `POST /api/game-sessions`, `POST .../start`, `POST .../checkpoint`, `POST .../finish`, `POST .../fault`, `GET .../game-sessions/{id}` | `game_start_approved`, `game_checkpoint`, `game_coin_collected`, `game_heart_collected`, `game_revived`, `game_completed`, `game_fault_reported`, `game_recovered` |
 | 결과 | 이번 점수, 최고점, 현재 순위, 서버 `top3_gap`을 표시한다. `IN_TOP3`, `TOO_FEW`, `NO_SCORE`, `CHASING`과 `tied`를 각각 처리한다. TOP3 입력은 복주머니를 막지 않는다. | 복주머니 확인 / 기록 공유, 닉네임 수정, 잠정 TOP3 정보 접수 | `GET /api/leaderboard`, `PATCH /api/me/profile`, `POST /api/ranking/profile` | `top3_profile_started`, `top3_profile_submitted`; 공유 화면에서 `share_attempted` |
@@ -60,3 +60,9 @@
 - 데스크톱 Chromium에서 실제 화면 모듈과 합성 응답을 사용한 홈·랭킹·결과·수령함·초대·혜택의 320/390/768/1440px 가로 잘림 및 320×400·390×400 모달 스크롤·키보드 이동은 확인했다. 실제 iOS·Android·인앱 브라우저의 터치/가상 키보드와 스크린리더 조작은 아직 실기기 검증하지 않았다.
 - 최종 경품 재고·확률, 대학생 증빙 방식, 운영 기간, 동점 수상 규칙, 개인정보 운영 문구는 Phase 3 결정이 필요하다.
 - 실제 Preview 게임·복주머니·TOP3·가이드와 원격 관리자 집계는 진행 보고의 범위대로 확인했다. 당첨 수령·경품 공유는 기존 합성 기록으로 로컬 실제 화면을 원격 Preview API에 연결해 대조했다. 모든 화면 분기를 한 번의 최신 원본 도메인 브라우저 실행으로 다시 검사한 것은 아니다. 실제 지급은 3차 범위다.
+
+## 2026-09-26 로딩·홈 후속 수정
+
+- Google 4색과 원본 공룡의 5초 애니메이션, 모션 감소 정적 대안. 실제 준비 완료와 연출 종료의 계측은 유지한다.
+- 홈 로고는 공통 헤더 하나만 표시한다. 제목·행사 문구·게임 시작 CTA를 변경하고 일반 게임권/복주머니 설명과 추가 설명 카드를 제거했다. 특수 상태 안내와 실제 복주머니 버튼은 유지한다.
+- 세부 변경·검증은 [수정 요청 및 결과](phase2-ui-feedback.md), 시각 기준은 `DESIGN.md`를 따른다.
