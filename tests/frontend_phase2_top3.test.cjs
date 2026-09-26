@@ -284,7 +284,7 @@ test('result keeps the completed game and TOP3 contact CTA while its supplementa
   assert.equal(result.rank, 4);
   assert.equal(nodes.get('#result-rank').textContent, '현재 4위');
   assert.equal(result.top3_gap.score_needed, 12);
-  assert.match(nodes.get('#result-top3-gap').textContent, /12점/);
+  assert.match(nodes.get('#result-top3-gap').textContent, /약 2초/);
   assert.equal(nodes.get('#result-score').textContent, '51점');
   assert.match(nodes.get('#top3-request').textContent, /수령 정보를 등록/);
 });
@@ -309,7 +309,7 @@ test('result ignores reverse-order supplemental responses and completion after l
   assert.equal(result.rank, 4);
   assert.equal(nodes.get('#result-rank').textContent, '현재 4위');
   assert.equal(result.top3_gap.score_needed, 7);
-  assert.match(nodes.get('#result-top3-gap').textContent, /7점/);
+  assert.match(nodes.get('#result-top3-gap').textContent, /약 1초/);
 
   result.top3_gap = null;
   const lateLoad = ResultView.loadTop3Gap(container, router, 4, result);
@@ -415,7 +415,7 @@ test('result sharing opens the prepared share action in place above the pouch', 
   assert.equal(shares, 1);
   assert.deepEqual(routes, []);
   assert.ok(container.innerHTML.indexOf('id="btn-share-record"') < container.innerHTML.indexOf('id="btn-go-pouch"'));
-  assert.match(nodes.get('#result-top3-gap').textContent, /약 5초.*\n42점 차이 · 시간 점수 기준/);
+  assert.match(nodes.get('#result-top3-gap').textContent, /TOP3까지 약 5초만 더!/);
 });
 
 test('ranking claims explain the final cutoff and use record sharing', () => {

@@ -29,7 +29,7 @@ export const ResultView = {
     ui.text(container.querySelector('#result-best'), `최고 ${result.bestScore}점`);
     ui.text(container.querySelector('#result-rank'), result.rank ? `현재 ${result.rank}위` : '순위 집계 중');
     const gapNode = container.querySelector('#result-top3-gap');
-    if (gapNode) ui.text(gapNode, this.top3GapMessage(result));
+    if (gapNode) this.renderGap(gapNode, result);
     ui.text(container.querySelector('#result-nickname'), router.state.participant?.nickname || '익명 러너');
     container.querySelector('#btn-go-pouch').onclick = () => {
       analytics.track('draw_cta_clicked', { source: 'result', draw_status: router.state.draw?.status || 'LOCKED' });
@@ -53,7 +53,7 @@ export const ResultView = {
       const prepared = await prepareResultReferralShare(router);
       if (!isCurrent()) return;
       button.disabled = false;
-      if (status) ui.text(status, prepared.mode === 'native' ? '공유창에서 카카오톡을 선택해 주세요.' : prepared.mode === 'copy' ? '초대 링크를 복사해 카카오톡으로 보낼 수 있어요.' : '친구가 방문하면 재도전권이 쌓여요.');
+      if (status) ui.text(status, prepared.mode === 'native' ? '' : prepared.mode === 'copy' ? '초대 링크를 복사해 카카오톡으로 보낼 수 있어요.' : '친구가 방문하면 재도전권이 쌓여요.');
       button.onclick = () => { if (isCurrent()) return prepared.share(); };
     } catch (_) {
       if (!isCurrent()) return;
@@ -78,7 +78,7 @@ export const ResultView = {
       }
       result.top3_gap = data.top3_gap ?? data.me?.top3_gap ?? null;
       const currentGapNode = container.querySelector('#result-top3-gap');
-      if (currentGapNode) ui.text(currentGapNode, this.top3GapMessage(result));
+      if (currentGapNode) this.renderGap(currentGapNode, result);
     } catch (_error) {
       if ((router.isCurrent && !router.isCurrent(renderToken)) || resultGapRequests.get(container) !== request) return;
       const currentGapNode = container.querySelector('#result-top3-gap');
@@ -125,9 +125,14 @@ export const ResultView = {
     return 'TOP3 기준을 계산하는 중이에요.';
   },
 
+  renderGap(node, result) {
+    ui.text(node, this.top3GapMessage(result));
+    node.classList?.toggle('is-chasing', result.top3_gap?.status === 'CHASING' && Number(result.top3_gap.score_needed) > 0);
+  },
+
   retryGapCopy(points) {
     // Current game rules award 10 time points per second; coins and revivals also affect ranking.
-    return `TOP3까지 약 ${Math.ceil(points / 10)}초만 더!\n${points}점 차이 · 시간 점수 기준`;
+    return `TOP3까지 약 ${Math.ceil(points / 10)}초만 더!`;
   },
 
   nicknameModal(router, renderToken) {

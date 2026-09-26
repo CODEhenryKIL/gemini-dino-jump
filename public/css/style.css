@@ -482,7 +482,8 @@ body {
 .result-contact > strong { font-size: 17px; }
 .result-contact .form-field { font-size: 14px; }
 .result-contact input:not([type="checkbox"]) { font-size: 16px; min-width: 0; }
-.result-contact .consent-row { font-size: 13px; line-height: 1.5; }
+.result-contact .consent-row { align-items: center; font-size: 13px; line-height: 1.5; }
+.result-contact .consent-row input[type="checkbox"] { flex: 0 0 16px; width: 16px; height: 16px; margin: 0; accent-color: var(--primary); }
 .result-contact p { margin: 0; }
 .result-retry { display: grid; gap: 10px; padding-top: 8px; }
 .result-card > .result-gap { margin: 0; white-space: pre-line; font-size: 15px; line-height: 1.6; font-weight: 600; }
@@ -495,3 +496,6 @@ body {
 .result-contact-intro { font-size: 14px; line-height: 1.6; color: var(--text-sub); }
 .result-contact .consent-row span, .result-contact-accuracy { white-space: pre-line; }
 .result-contact-accuracy { font-size: 13px; line-height: 1.6; color: var(--text-sub); padding-left: 24px; }
+
+.result-card > .result-gap.is-chasing { font-size: 22px; font-weight: 800; line-height: 1.45; padding: 18px 12px; }
+.result-share-status:empty { display: none; }
