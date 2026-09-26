@@ -54,8 +54,8 @@ class AppRouter {
       const [, initialized] = await Promise.all([this.introPromise, dataPromise]);
       this.installInviteState(initialized, this.initialRequest.inviteCode);
       const requestedView = this.initialRequest.requestedView;
-      const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit'];
-      const initialView = allowed.includes(requestedView) ? requestedView : (this.state.draw.status === 'DRAWN' && !this.state.draw.draw?.scratch_completed ? 'draw' : 'home');
+      const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'];
+      const initialView = allowed.includes(requestedView) ? requestedView : 'home';
       let rendered = await this.navigate(initialView, { replace: true });
       while (!rendered.current && this.activeRenderPromise) rendered = await this.activeRenderPromise;
       if (!rendered.ok) throw rendered.error;
@@ -76,7 +76,7 @@ class AppRouter {
     const pathInvite = url.pathname.match(/^\/invite\/([A-Za-z0-9_-]{12,64})$/);
     const inviteCode = url.searchParams.get('invite') || pathInvite?.[1] || null;
     const requestedViewValue = url.searchParams.get('view');
-    const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit'].includes(requestedViewValue) ? requestedViewValue : null;
+    const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requestedViewValue) ? requestedViewValue : null;
     const requestedLinkKind = url.searchParams.get('link');
     const legacyLinkKind = requestedLinkKind === 'prize_share' ? 'prize_share' : 'retry_invite';
     const linkKind = inviteCode
@@ -186,7 +186,7 @@ class AppRouter {
     window.addEventListener('popstate', (event) => {
       if (!this.initialized) return;
       const requested = event.state?.view || new URL(window.location.href).searchParams.get('view') || 'home';
-      const view = ['home', 'ranking', 'claims', 'invite', 'benefit'].includes(requested) ? requested : 'home';
+      const view = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requested) ? requested : 'home';
       if (view !== requested) history.replaceState({ view: 'home' }, '', '/');
       this.navigate(view, { history: false });
     });

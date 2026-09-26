@@ -444,3 +444,38 @@ test('leaving during countdown resolves the pending start and clears timers', as
   router.state.tickets.unlimited_play = false;
   router.updateNav(); assert.match(router.ticketPill.textContent, /0장/);
  });
+
+for (const draw of [
+  { status: 'LOCKED' },
+  { status: 'AVAILABLE' },
+  { status: 'DRAWN', draw_id: 'draw_existing' },
+  { status: 'DRAWN', draw: { scratch_completed: false } },
+  { status: 'DRAWN', draw: { scratch_completed: true } },
+]) test(`home refresh stays home with saved draw state ${JSON.stringify(draw)}`, async () => {
+  const { router, context, historyCalls } = loadRouter('https://example.test/');
+  router.introPromise = Promise.resolve();
+  router.loadInitialData = async () => { router.state.draw = draw; return {}; };
+  router.installInviteState = () => {};
+  router.hideSplash = () => {};
+  context.analytics.setLoadingReady = () => {};
+  await router.init();
+  assert.equal(router.initialized, true);
+  assert.equal(router.currentView, 'home');
+  assert.equal(historyCalls.at(-1).url, '/');
+});
+
+for (const view of ['draw', 'claims', 'ranking']) test(`refresh preserves an explicitly opened ${view} screen`, async () => {
+  const { router, context, historyCalls, windowListeners } = loadRouter(`https://example.test/?view=${view}`);
+  router.introPromise = Promise.resolve();
+  router.loadInitialData = async () => { router.state.draw = { status: 'DRAWN', draw_id: 'draw_existing' }; return {}; };
+  router.installInviteState = () => {};
+  router.hideSplash = () => {};
+  context.analytics.setLoadingReady = () => {};
+  await router.init();
+  assert.equal(router.initialRequest.requestedView, view);
+  assert.equal(router.currentView, view);
+  assert.equal(historyCalls.at(-1).url, `/?view=${view}`);
+  router.navigate('home');
+  windowListeners.popstate({ state: { view } });
+  assert.equal(router.currentView, view);
+});
