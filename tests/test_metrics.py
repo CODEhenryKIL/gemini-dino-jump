@@ -6,6 +6,7 @@ from pathlib import Path
 import secrets
 import sys
 import unittest
+import unicodedata
 from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'server'))
@@ -161,6 +162,46 @@ class MetricsTest(unittest.TestCase):
         data=self.report();stage=next(x for x in data['stages'] if x['key']=='draw.select')
         self.assertEqual((stage['entered'],stage['progressed'],stage['estimated_exits']),(1,1,0))
         self.assertEqual((stage['mean_observed_active_ms'],stage['active_dwell_unknown']),(None,1))
+
+    def test_scratch_start_progresses_to_both_visible_result_and_saved_completion(self):
+        participant = self.person('scratchdone')
+        view = self.prefix + 'scratch-completed-view'
+        self.event('scratch_started', participant, 1, active=100, screen='draw', screen_view=view)
+        self.event('draw_result_viewed', participant, 2, {'result_type':'no_prize'}, active=200, screen='draw', screen_view=view)
+        self.event('client_scratch_completed', participant, 3, active=300, screen='draw', screen_view=view)
+
+        stages = {row['key']:row for row in self.report()['stages']}
+        visible = stages['scratch.visible']
+        complete = stages['scratch.complete']
+        self.assertEqual(unicodedata.normalize('NFC', visible['label']), '긁기 시작→결과 실제 노출')
+        self.assertEqual((visible['entered'],visible['progressed'],visible['estimated_exits']), (1,1,0))
+        self.assertEqual(unicodedata.normalize('NFC', complete['label']), '긁기 시작→완료 저장')
+        self.assertEqual((complete['entered'],complete['progressed'],complete['estimated_exits']), (1,1,0))
+
+    def test_visible_scratch_with_failed_save_is_not_a_visibility_exit(self):
+        participant = self.person('scratchfailed')
+        view = self.prefix + 'scratch-failed-view'
+        self.event('scratch_started', participant, 1, active=100, screen='draw', screen_view=view)
+        self.event('draw_result_viewed', participant, 2, {'result_type':'no_prize'}, active=200, screen='draw', screen_view=view)
+
+        stages = {row['key']:row for row in self.report()['stages']}
+        visible = stages['scratch.visible']
+        complete = stages['scratch.complete']
+        self.assertEqual((visible['entered'],visible['progressed'],visible['estimated_exits']), (1,1,0))
+        self.assertEqual((complete['entered'],complete['progressed'],complete['estimated_exits']), (1,0,1))
+
+    def test_restored_visible_result_adds_dwell_without_a_new_scratch_stage(self):
+        participant = self.person('scratchrestored')
+        view = self.prefix + 'scratch-restored-view'
+        self.event('draw_result_viewed', participant, 1, {'result_type':'no_prize'}, active=100, screen='draw', screen_view=view)
+        self.event('screen_left', participant, 2, active=900, screen='draw', screen_view=view)
+
+        data = self.report()
+        stages = {row['key']:row for row in data['stages']}
+        self.assertNotIn('scratch.visible', stages)
+        self.assertNotIn('scratch.complete', stages)
+        dwell = next(row for row in data['result_dwell'] if row['result_type']=='no_prize')
+        self.assertEqual((dwell['visits'],dwell['active_ms']), (1,800))
 
     def test_open_observation_window_is_not_abandonment(self):
         p=self.person('pending')

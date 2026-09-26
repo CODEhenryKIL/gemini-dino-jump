@@ -177,7 +177,7 @@ export const DrawView = {
       this.scratchCard.revealInstantly();
     };
     if (draw.scratch_completed || draw.revealed) {
-      this.scratchCard.revealInstantly();
+      this.scratchCard.revealInstantly({ restored: true });
       showResult();
     }
   },

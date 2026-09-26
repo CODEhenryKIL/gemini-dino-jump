@@ -235,11 +235,13 @@ def build_overview(conn, query, ctx):
     ranking = one('''select count(*)::int requested,count(*) filter(where r.status='SUBMITTED')::int submitted
       from dino_dev.ranking_contact r join people p on p.id=r.participant_id
       join dino_dev.ranking_contact_version rv on rv.participant_id=r.participant_id and rv.game_version=%s''', (game_version,))
+    # Result exposure precedes the async completion save; both progress from
+    # scratch start. A restored result has no new start or completion event.
     stages = rows(""" , stage_defs(key,label,entry_name,next_name) as (values
       ('draw.select','복주머니 진입→선택','draw_entered','pouch_selected'),
       ('scratch.start','주머니 선택→긁기 시작','pouch_selected','scratch_started'),
-      ('scratch.complete','긁기 시작→완료','scratch_started','scratch_completed'),
-      ('scratch.visible','긁기 완료→결과 실제 노출','scratch_completed','draw_result_viewed'),
+      ('scratch.complete','긁기 시작→완료 저장','scratch_started','scratch_completed'),
+      ('scratch.visible','긁기 시작→결과 실제 노출','scratch_started','draw_result_viewed'),
       ('claim.submit','수령 양식 시작→제출','claim_form_started','claim_form_submitted'),
       ('ranking.submit','TOP3 양식 시작→제출','top3_profile_started','top3_profile_submitted'),
       ('invite.share','초대 CTA 노출→공유 시도','invite_cta_viewed','share_attempted'),

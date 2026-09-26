@@ -238,9 +238,10 @@ test('restored scratched draw reveals the same server result without another dra
   const selectors = ['#result-prize-img', '#result-prize-title', '#result-prize-sub', '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status', '#scratch-canvas', '#scratch-result-content'];
   const nodes = new Map(selectors.map((selector) => [selector, node()]));
   let completeCalls = 0;
+  let restored = false;
   class ScratchCardMock {
     constructor(_canvas, options) { this.options = options; }
-    revealInstantly() { this.options.onReveal(); }
+    revealInstantly(options) { restored = options?.restored === true; this.options.onReveal(); }
     destroy() {}
   }
   const view = loadView('public/js/views/draw_view.js', 'DrawView', {
@@ -256,6 +257,7 @@ test('restored scratched draw reveals the same server result without another dra
   view.renderScratch(container, router, { draw_id: 'draw-1', pouch_index: 2, is_won: false, scratch_completed: true, prize: {} });
   await Promise.resolve();
   assert.equal(completeCalls, 0);
+  assert.equal(restored, true, 'restoring a server result must not count as a new scratch');
   assert.match(nodes.get('#restored-pouch').textContent, /3번 주머니/);
   assert.equal(nodes.get('#post-reveal-actions').hidden, false);
   assert.equal(nodes.get('#btn-after-draw').textContent, '혜택 안내 보기');

@@ -176,19 +176,23 @@ export class ScratchCard {
     }
   }
 
-  revealInstantly() {
+  revealInstantly({ restored = false } = {}) {
     if (this.isRevealed) return;
+    if (!restored && !this.started) {
+      this.started = true;
+      this.onStart();
+    }
     this.isRevealed = true;
     this.canvas.classList.add('fade-out');
 
     // Celebration Haptic Vibration Pattern (Tap-Tap-Boom!)
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    if (!restored && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
         navigator.vibrate([35, 45, 50, 45, 100]);
       } catch (e) {}
     }
 
-    audio.playWin();
+    if (!restored) audio.playWin();
     this.revealTimer = setTimeout(() => {
       this.onReveal();
     }, 300);
