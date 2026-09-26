@@ -89,6 +89,64 @@ class BackendPhase2Test(unittest.TestCase):
             state=conn.execute('select status,fault_reason from dino_dev.game_session where id=%s',(s['session_id'],)).fetchone()
             self.assertEqual(dict(state),{'status':'FAULT_REPORTED','fault_reason':'SERVER_TIMEOUT'})
 
+    def test_submitted_top3_contact_survives_rank_drop_and_verified_reentry(self):
+        # Exercise the real finish/upsert twice; competing scores are local rank fixtures.
+        short = json.loads(subprocess.check_output([
+            'node', str(ROOT/'tests/js_v2_fixture_runner.cjs'),
+            json.dumps({'seed': 4, 'jumps': []}),
+        ], text=True, cwd=ROOT))
+        verified_short = game_verifier.verify_game('2.0.0', 4, [], short['score'], short['ticks'])
+        self.assertTrue(verified_short['valid'])
+        self.assertGreater(self.play['score'], short['score'] + 3)
+        raw, _, person = self.make_participant()
+        pid = person['participant']['id']
+        ctx, first = self.started(raw)
+        with fixtures.app_tx() as conn:
+            result = operations.finish_session(conn, first['session_id'], {}, dict(ctx, verification=verified_short))[1]
+            self.assertEqual((result['rank'], result['top3_profile']['status']), (1, 'REQUESTED'))
+            submitted = operations.ranking_profile_post(conn, {
+                'name': 'TEST_REENTRY', 'contact': '01000000000', 'school': 'TEST_SCHOOL',
+            }, ctx)[1]
+
+        with fixtures.psycopg.connect(fixtures.DSN) as conn:
+            for index in range(1, 4):
+                _, _, data = self.make_participant()
+                rival_id = data['participant']['id']
+                session_id = 'rank_reentry_rival_' + str(index)
+                score = short['score'] + index
+                conn.execute("""insert into dino_dev.game_session
+                    (id,participant_id,campaign_id,idempotency_key,seed,version,status,ticket_kind,
+                     ticket_refund_status,expires_at,score,valid_ticks,verification_result,finished_at,environment)
+                    values(%s,%s,'gemini_dino_phase1_test',%s,4,'2.0.0','FINISHED','INITIAL',
+                    'NOT_DUE',clock_timestamp()+interval '1 minute',%s,60,'VERIFIED',clock_timestamp(),'test')""",
+                    (session_id, rival_id, session_id, score))
+                conn.execute("""insert into dino_dev.versioned_best_score
+                    (participant_id,game_version,session_id,score,achieved_at)
+                    values(%s,'2.0.0',%s,%s,clock_timestamp())""", (rival_id, session_id, score))
+
+        with fixtures.app_tx() as conn:
+            self.assertEqual(operations.get_me(conn, ctx)[1]['rank'], 4)
+            profile = operations.ranking_profile_get(conn, ctx)[1]
+            self.assertEqual((profile['status'], profile['required']), ('SUBMITTED', False))
+
+        visitor, _, visit = self.make_participant(person['participant']['referral_code'])
+        self.qualify(visitor, person['participant']['referral_code'], visit['invite_visit']['visit_nonce'])
+        retry_ctx, retry = self.started(raw)
+        with fixtures.app_tx() as conn:
+            reentry = operations.finish_session(conn, retry['session_id'], {}, dict(retry_ctx, verification=self.verification))[1]
+            self.assertEqual((reentry['rank'], reentry['top3_gap']['status']), (1, 'IN_TOP3'))
+            self.assertEqual((reentry['top3_profile']['status'], reentry['top3_profile']['required']), ('SUBMITTED', False))
+            replay = operations.ranking_profile_post(conn, {
+                'name': 'TEST_OTHER', 'contact': '01000000001', 'school': 'TEST_OTHER',
+            }, retry_ctx)[1]
+            self.assertEqual(replay['claim_id'], submitted['claim_id'])
+            contact = conn.execute('select count(*) n from dino_dev.ranking_contact where participant_id=%s', (pid,)).fetchone()
+            claims = conn.execute("select count(*) n from dino_dev.claim where participant_id=%s and claim_type='RANKING'", (pid,)).fetchone()
+            saved = conn.execute('select recipient_name,school from dino_dev.claim_contact where claim_id=%s', (submitted['claim_id'],)).fetchone()
+            self.assertEqual((contact['n'], claims['n']), (1, 1))
+            self.assertEqual((saved['recipient_name'], saved['school']), ('TEST_REENTRY', 'TEST_SCHOOL'))
+            self.assertEqual(reentry['draw']['status'], 'AVAILABLE')
+
     def test_dense_rank_ties_private_name_and_gap_use_same_rules(self):
         participants=[]
         for score in (500,500,400,300,200):

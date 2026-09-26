@@ -16,17 +16,29 @@ class Element {
     this.value = '';
     this.checked = false;
     this.onclick = null;
+    this.attrs = {};
     this._text = '';
+    this._html = '';
   }
+  set innerHTML(value) { this._html = String(value); this._text = ''; this.children = []; }
+  get innerHTML() { return this._html; }
   set textContent(value) { this._text = String(value); this.children = []; }
   get textContent() { return this._text + this.children.map((child) => child.textContent || '').join(''); }
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.children.push(child); return child; }
   replaceChildren(...children) { this._text = ''; this.children = children; }
+  setAttribute(name, value) { this.attrs[name] = String(value); }
   querySelector(selector) {
     if (selector.startsWith('#')) return descendants(this).find((node) => node.id === selector.slice(1)) || null;
     return descendants(this).find((node) => node.tag === selector) || null;
   }
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((ok, fail) => { resolve = ok; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function descendants(node) {
@@ -84,6 +96,17 @@ function loadPrize(overrides = {}) {
   context.globalThis = context;
   vm.runInNewContext(source, context, { filename: 'prize_view.js' });
   return context.PrizeView;
+}
+
+function resultContainer() {
+  const selectors = [
+    '#result-score', '#result-best', '#result-rank', '#result-top3-gap', '#result-nickname',
+    '#top3-request', '#btn-go-pouch', '#btn-share-record', '#btn-edit-nick',
+  ];
+  const nodes = new Map(selectors.map((selector) => [selector, new Element(selector === '#top3-request' ? 'div' : 'span')]));
+  const container = new Element('main');
+  container.querySelector = (selector) => nodes.get(selector) || null;
+  return { container, nodes };
 }
 
 function modalHarness({ submit }) {
@@ -147,6 +170,155 @@ test('ranking reconnect renders a submitted TOP3 card without relying on lastRes
   assert.ok(holder, 'ranking always renders the persistent TOP3 state holder');
   assert.match(holder.textContent, /TOP3 정보 접수 완료/);
   assert.equal(descendants(holder).find((node) => node.tag === 'button').disabled, true);
+});
+
+test('ranking failure retries in place once and keeps the TOP3 contact state after recovery', async () => {
+  const { view: ResultView } = loadResult();
+  const retryRequest = deferred();
+  let calls = 0;
+  const RankingView = loadRanking(ResultView, {
+    api: {
+      getLeaderboard() {
+        calls += 1;
+        if (calls === 1) return Promise.reject(new Error('랭킹 연결 실패'));
+        return retryRequest.promise;
+      },
+    },
+  });
+  const container = new Element('main');
+  const router = {
+    state: { top3Profile: { required: false, status: 'SUBMITTED', game_version: '2.0.0' } },
+    config: { campaign: { game_version: '2.0.0' } },
+    isCurrent: (token) => token === 3,
+  };
+
+  await RankingView.render(container, router, 3);
+  assert.match(container.textContent, /랭킹 연결 실패/);
+  const retry = descendants(container).find((node) => node.tag === 'button');
+  const recovering = retry.onclick();
+  assert.equal(retry.onclick(), undefined, 'a double click cannot start a duplicate ranking request');
+  assert.equal(calls, 2);
+  retryRequest.resolve({
+    leaderboard: [{ rank: 1, nickname: '재접속 러너', score: 88, is_me: true }],
+    me: { rank: 1, best_score: 88 }, top3_gap: { status: 'IN_TOP3', rank: 1 },
+  });
+  await recovering;
+
+  assert.match(container.textContent, /재접속 러너/);
+  assert.match(container.querySelector('#top3-request').textContent, /TOP3 정보 접수 완료/);
+  assert.doesNotMatch(container.textContent, /랭킹 연결 실패/);
+});
+
+test('ranking ignores reverse-order responses and a retry that finishes after leaving', async () => {
+  const { view: ResultView } = loadResult();
+  const oldRequest = deferred();
+  const newRequest = deferred();
+  const leavingRetry = deferred();
+  const requests = [
+    () => oldRequest.promise,
+    () => newRequest.promise,
+    () => Promise.reject(new Error('다시 불러와 주세요')),
+    () => leavingRetry.promise,
+  ];
+  const RankingView = loadRanking(ResultView, { api: { getLeaderboard: () => requests.shift()() } });
+  const container = new Element('main');
+  let current = true;
+  const router = { state: { top3Profile: { status: 'NOT_REQUIRED' } }, isCurrent: () => current };
+
+  const oldRender = RankingView.render(container, router, 1);
+  const newRender = RankingView.load(container, router, 1);
+  newRequest.resolve({ leaderboard: [{ rank: 1, nickname: '새 응답', score: 90 }], me: null, top3_gap: { status: 'NO_SCORE' } });
+  await newRender;
+  oldRequest.resolve({ leaderboard: [{ rank: 1, nickname: '예전 응답', score: 10 }], me: null, top3_gap: { status: 'NO_SCORE' } });
+  await oldRender;
+  assert.match(container.textContent, /새 응답/);
+  assert.doesNotMatch(container.textContent, /예전 응답/);
+
+  await RankingView.load(container, router, 1);
+  const retry = descendants(container).find((node) => node.tag === 'button');
+  const late = retry.onclick();
+  current = false;
+  container.textContent = '다른 화면';
+  leavingRetry.resolve({ leaderboard: [{ rank: 1, nickname: '늦은 응답', score: 100 }], me: null, top3_gap: { status: 'NO_SCORE' } });
+  await late;
+  assert.equal(container.textContent, '다른 화면');
+});
+
+test('result keeps the completed game and TOP3 contact CTA while its supplemental ranking request retries', async () => {
+  const retryRequest = deferred();
+  let calls = 0;
+  const { view: ResultView } = loadResult({
+    api: {
+      getLeaderboard() {
+        calls += 1;
+        if (calls === 1) return Promise.reject(new Error('temporary'));
+        return retryRequest.promise;
+      },
+    },
+  });
+  const { container, nodes } = resultContainer();
+  const result = { score: 51, bestScore: 81, rank: 5, top3_gap: null };
+  const router = {
+    state: {
+      lastResult: result, draw: { status: 'AVAILABLE' }, participant: { nickname: '완주 러너' },
+      top3Profile: { required: true, status: 'REQUESTED', game_version: '2.0.0' },
+    },
+    config: { campaign: { game_version: '2.0.0' } },
+    isCurrent: (token) => token === 6,
+    navigate() {},
+  };
+
+  ResultView.render(container, router, 6);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.get('#result-score').textContent, '51점');
+  assert.match(nodes.get('#top3-request').textContent, /잠정 TOP3/);
+  assert.match(nodes.get('#result-top3-gap').textContent, /불러오지 못했어요/);
+  const retry = descendants(nodes.get('#result-top3-gap')).find((node) => node.tag === 'button');
+  const recovering = retry.onclick();
+  assert.equal(retry.onclick(), undefined, 'a double click cannot start a duplicate supplemental request');
+  assert.equal(calls, 2);
+  retryRequest.resolve({ me: { rank: 4 }, top3_gap: { status: 'CHASING', score_needed: 12 } });
+  await recovering;
+
+  assert.equal(result.rank, 4);
+  assert.equal(nodes.get('#result-rank').textContent, '현재 4위');
+  assert.equal(result.top3_gap.score_needed, 12);
+  assert.match(nodes.get('#result-top3-gap').textContent, /12점/);
+  assert.equal(nodes.get('#result-score').textContent, '51점');
+  assert.match(nodes.get('#top3-request').textContent, /잠정 TOP3/);
+});
+
+test('result ignores reverse-order supplemental responses and completion after leaving', async () => {
+  const oldRequest = deferred();
+  const newRequest = deferred();
+  const lateRequest = deferred();
+  const requests = [oldRequest, newRequest, lateRequest];
+  const { view: ResultView } = loadResult({ api: { getLeaderboard: () => requests.shift().promise } });
+  const { container, nodes } = resultContainer();
+  const result = { score: 20, bestScore: 20, rank: 8, top3_gap: null };
+  let current = true;
+  const router = { state: { lastResult: result, draw: {}, top3Profile: { status: 'NOT_REQUIRED' } }, isCurrent: () => current, navigate() {} };
+
+  const oldLoad = ResultView.loadTop3Gap(container, router, 4, result);
+  const newLoad = ResultView.loadTop3Gap(container, router, 4, result);
+  newRequest.resolve({ me: { rank: 4 }, top3_gap: { status: 'CHASING', score_needed: 7 } });
+  await newLoad;
+  oldRequest.resolve({ me: { rank: 9 }, top3_gap: { status: 'CHASING', score_needed: 99 } });
+  await oldLoad;
+  assert.equal(result.rank, 4);
+  assert.equal(nodes.get('#result-rank').textContent, '현재 4위');
+  assert.equal(result.top3_gap.score_needed, 7);
+  assert.match(nodes.get('#result-top3-gap').textContent, /7점/);
+
+  result.top3_gap = null;
+  const lateLoad = ResultView.loadTop3Gap(container, router, 4, result);
+  current = false;
+  nodes.get('#result-top3-gap').textContent = '다른 화면 상태';
+  lateRequest.resolve({ me: { rank: 1 }, top3_gap: { status: 'IN_TOP3', rank: 1 } });
+  await lateLoad;
+  assert.equal(result.rank, 4);
+  assert.equal(result.top3_gap, null);
+  assert.equal(nodes.get('#result-top3-gap').textContent, '다른 화면 상태');
 });
 
 test('result and ranking passive updates replace TOP3 state and ignore stale render tokens', async () => {

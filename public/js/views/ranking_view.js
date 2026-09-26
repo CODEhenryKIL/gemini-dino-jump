@@ -2,13 +2,21 @@ import { api } from '../api.js';
 import { analytics } from '../analytics.js';
 import { ResultView } from './result_view.js';
 
+const rankingRequests = new WeakMap();
+
 export const RankingView = {
-  async render(container, router, renderToken) {
-    container.innerHTML = '<section class="card empty-state"><p>랭킹을 불러오는 중...</p></section>';
+  render(container, router, renderToken) {
     analytics.track('ranking_viewed');
+    return this.load(container, router, renderToken);
+  },
+
+  async load(container, router, renderToken) {
+    const request = Symbol('ranking');
+    rankingRequests.set(container, request);
+    container.innerHTML = '<section class="card empty-state"><p>랭킹을 불러오는 중...</p></section>';
     try {
       const data = await api.getLeaderboard();
-      if (!router.isCurrent(renderToken)) return;
+      if (!router.isCurrent(renderToken) || rankingRequests.get(container) !== request) return;
       container.replaceChildren();
       const intro = document.createElement('section'); intro.className = 'card compact-card';
       const title = document.createElement('h1'); title.textContent = '검증된 최고 점수 랭킹';
@@ -31,8 +39,17 @@ export const RankingView = {
       }
       container.appendChild(list);
     } catch (error) {
-      if (!router.isCurrent(renderToken)) return;
-      container.replaceChildren(); const card = document.createElement('section'); card.className = 'card empty-state'; card.textContent = error.message; container.appendChild(card);
+      if (!router.isCurrent(renderToken) || rankingRequests.get(container) !== request) return;
+      container.replaceChildren();
+      const card = document.createElement('section'); card.className = 'card empty-state ranking-load-error'; card.setAttribute('role', 'status');
+      const message = document.createElement('p'); message.textContent = error.message || '랭킹을 불러오지 못했습니다.';
+      const retry = document.createElement('button'); retry.className = 'btn btn-secondary btn-sm'; retry.textContent = '랭킹 다시 불러오기';
+      retry.onclick = () => {
+        if (!router.isCurrent(renderToken) || retry.disabled) return;
+        retry.disabled = true;
+        return this.load(container, router, renderToken);
+      };
+      card.append(message, retry); container.appendChild(card);
     }
   },
 

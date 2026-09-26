@@ -2,8 +2,11 @@ import { api } from '../api.js';
 import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 
+const resultGapRequests = new WeakMap();
+
 export const ResultView = {
   render(container, router, renderToken) {
+    resultGapRequests.set(container, Symbol('result-render'));
     const result = router.state.lastResult;
     if (!result) { router.navigate('home'); return; }
     container.innerHTML = `
@@ -31,12 +34,39 @@ export const ResultView = {
     container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router, renderToken);
     this.updateState(container, router, renderToken);
     if (result.top3_gap == null && typeof api !== 'undefined' && typeof api.getLeaderboard === 'function') {
-      api.getLeaderboard().then((data) => {
-        if (router.isCurrent && !router.isCurrent(renderToken)) return;
-        result.top3_gap = data.top3_gap ?? data.me?.top3_gap ?? null;
-        const currentGapNode = container.querySelector('#result-top3-gap');
-        if (currentGapNode) ui.text(currentGapNode, this.top3GapMessage({ ...result, rank: data.me?.rank ?? result.rank }));
-      }).catch(() => {});
+      this.loadTop3Gap(container, router, renderToken, result);
+    }
+  },
+
+  async loadTop3Gap(container, router, renderToken, result) {
+    const request = Symbol('result-top3-gap');
+    resultGapRequests.set(container, request);
+    const gapNode = container.querySelector('#result-top3-gap');
+    if (gapNode) ui.text(gapNode, 'TOP3 기준을 계산하는 중이에요.');
+    try {
+      const data = await api.getLeaderboard();
+      if ((router.isCurrent && !router.isCurrent(renderToken)) || resultGapRequests.get(container) !== request) return;
+      if (data.me?.rank != null) {
+        result.rank = data.me.rank;
+        const rankNode = container.querySelector('#result-rank');
+        if (rankNode) ui.text(rankNode, `현재 ${result.rank}위`);
+      }
+      result.top3_gap = data.top3_gap ?? data.me?.top3_gap ?? null;
+      const currentGapNode = container.querySelector('#result-top3-gap');
+      if (currentGapNode) ui.text(currentGapNode, this.top3GapMessage(result));
+    } catch (_error) {
+      if ((router.isCurrent && !router.isCurrent(renderToken)) || resultGapRequests.get(container) !== request) return;
+      const currentGapNode = container.querySelector('#result-top3-gap');
+      if (!currentGapNode) return;
+      currentGapNode.replaceChildren();
+      const message = document.createElement('span'); message.textContent = 'TOP3 기준을 불러오지 못했어요. 게임 결과와 복주머니 진행에는 영향이 없어요.';
+      const retry = document.createElement('button'); retry.className = 'btn btn-secondary btn-sm'; retry.textContent = 'TOP3 기준 다시 불러오기';
+      retry.onclick = () => {
+        if ((router.isCurrent && !router.isCurrent(renderToken)) || retry.disabled) return;
+        retry.disabled = true;
+        return this.loadTop3Gap(container, router, renderToken, result);
+      };
+      currentGapNode.append(message, retry);
     }
   },
 
