@@ -4,7 +4,7 @@
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
 상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart 적용 완료. 아래 복귀·수령·메뉴·노출 보완을 Preview에 반영하고 기본 화면·노출 저장을 확인했다. 2차 부하는 사용자 지시로 보류.**
 
-최신 개선 Preview: https://dino-nanobanana-k8ypx8d81-henry-kils-projects.vercel.app (`dpl_82Hk4u3ZPb8cRSZyh2VHz8eannQ1`, 코드 `4c8eb0b`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
+최신 개선 Preview: https://dino-nanobanana-dgwikzmje-henry-kils-projects.vercel.app (`dpl_8gsBd3YjYVqceQgmdRaMtdBkYHrq`, 코드 `4b50d9c`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
 
 ## 공유 응답 지연·화면 이동 보완
 
@@ -12,6 +12,7 @@
 - 화면 이탈·재진입 뒤 끝난 복사/공유는 결과 기록만 남기고 현재 화면의 토스트·직접 복사 안내를 변경하지 않는다. 같은 화면에서 처리 중인 중복 클릭은 공유 ID나 복사·공유 호출을 추가하지 않는다.
 - 복사 성공·실패, 공유 취소·공유 창 종료를 계속 구분한다. 네이티브 공유 호출은 사용자 클릭에서 즉시 시작하며 `share_sheet_closed`를 실제 전송 성공으로 해석하지 않는다.
 - 응답을 의도적으로 지연한 신규 회귀 4개를 포함해 전체 Node **144개**, 대상 JavaScript 문법·diff 검사를 통과했다. 이 결과는 로컬 비동기 회귀이며 실기기 공유 창·클립보드 검증은 별도다. 2차 부하 테스트와 참가자 준비는 계속 보류한다.
+- 개선 `4b50d9c` Preview는 READY, health의 `database=ready`, `synthetic_only=true`를 확인했다. 배포된 초대·Gemini 화면 모듈을 읽어 로컬 검증본과 바이트 단위 일치를 확인했다. health와 정적 파일 2개만 조회했으며 새 참가자 생성·부하 테스트는 하지 않았다.
 
 ## 관리자 기본 통계 시간 초과·오류 안내 복구 보완
 
