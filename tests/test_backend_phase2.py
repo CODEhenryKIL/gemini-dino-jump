@@ -179,10 +179,90 @@ class BackendPhase2Test(unittest.TestCase):
         events.append(dict(events[-1],event_id='evt_'+secrets.token_hex(10),dimensions={'content':'my-phone-01000000000'}))
         with fixtures.app_tx() as conn:
             _,result=operations.events_batch(conn,{'events':events},ctx)
-            self.assertEqual(result,{'accepted':14,'duplicates':0,'rejected':1})
+            self.assertEqual(result,{
+                'accepted':14,'duplicates':0,'rejected':1,
+                'rejections':[{'index':14,'reason':'INVALID_DIMENSIONS'}],
+            })
             stored=conn.execute("select screen,dimensions->>'source' source,dimensions->>'draw_status' draw_status from dino_dev.analytics_event where event_name='draw_cta_clicked' order by screen").fetchall()
             self.assertEqual({(row['screen'],row['source'],row['draw_status']) for row in stored},
                              {(source,source,draw_status) for source,draw_status in draw_ctas})
+
+    def test_event_batch_rejections_distinguish_retryable_participant_linking(self):
+        owner,_,owner_data=self.make_participant();other,_,_=self.make_participant()
+        owner_id=owner_data['participant']['id']
+        now=dt.datetime.now(dt.timezone.utc).isoformat()
+        with fixtures.app_tx() as conn:
+            observation=conn.execute(
+                'select id from dino_dev.observation where participant_id=%s order by created_at desc limit 1',
+                (owner_id,),
+            ).fetchone()['id']
+            session=operations.create_session(
+                conn,{},self.ctx(owner,idempotency_key=secrets.token_urlsafe(24)),
+            )[1]['session_id']
+
+        linked_event={
+            'event_id':'evt_linked_'+secrets.token_hex(8),'name':'page_view','screen':'home',
+            'occurred_at':now,'observation_id':observation,'dimensions':{},
+        }
+        malformed_events=[
+            {'event_id':'bad','name':'page_view','screen':'home','occurred_at':now,'dimensions':{}},
+            {'event_id':'evt_dims_'+secrets.token_hex(8),'name':'page_view','screen':'home',
+             'occurred_at':now,'dimensions':{'source':'person@example.com'}},
+            {'event_id':'evt_time_'+secrets.token_hex(8),'name':'page_view','screen':'home',
+             'occurred_at':'2020-01-01T00:00:00Z','dimensions':{}},
+            {'event_id':'evt_context_'+secrets.token_hex(8),'name':'page_view','screen':'home',
+             'occurred_at':now,'screen_view_id':'bad','dimensions':{}},
+            {'event_id':'evt_shape_'+secrets.token_hex(8),'name':'page_view','screen':'home',
+             'occurred_at':now,'dimensions':[]},
+        ]
+
+        with fixtures.app_tx() as conn:
+            _,waiting=operations.events_batch(conn,{'events':[linked_event]},fixtures.context())
+            _,accepted=operations.events_batch(conn,{'events':[linked_event]},self.ctx(owner))
+            _,duplicate=operations.events_batch(conn,{'events':[linked_event]},self.ctx(owner))
+            _,foreign=operations.events_batch(conn,{'events':[
+                dict(linked_event,event_id='evt_foreign_obs_'+secrets.token_hex(8)),
+                dict(linked_event,event_id='evt_foreign_game_'+secrets.token_hex(8),
+                     observation_id=None,game_session_id=session),
+            ]},self.ctx(other))
+            _,malformed=operations.events_batch(conn,{'events':malformed_events},self.ctx(owner))
+            _,missing_observation=operations.events_batch(conn,{'events':[
+                dict(linked_event,event_id='evt_missing_obs_'+secrets.token_hex(8),
+                     observation_id='obs_missing_12345678'),
+            ]},self.ctx(owner))
+
+        self.assertEqual(waiting,{
+            'accepted':0,'duplicates':0,'rejected':1,
+            'rejections':[{'index':0,'reason':'PARTICIPANT_NOT_READY'}],
+        })
+        self.assertEqual(accepted,{'accepted':1,'duplicates':0,'rejected':0})
+        self.assertEqual(duplicate,{'accepted':0,'duplicates':1,'rejected':0})
+        self.assertEqual(foreign,{
+            'accepted':0,'duplicates':0,'rejected':2,
+            'rejections':[
+                {'index':0,'reason':'CONTEXT_OWNERSHIP'},
+                {'index':1,'reason':'CONTEXT_OWNERSHIP'},
+            ],
+        })
+        self.assertEqual(malformed,{
+            'accepted':0,'duplicates':0,'rejected':5,
+            'rejections':[
+                {'index':0,'reason':'INVALID_EVENT'},
+                {'index':1,'reason':'INVALID_DIMENSIONS'},
+                {'index':2,'reason':'INVALID_TIME'},
+                {'index':3,'reason':'INVALID_CONTEXT'},
+                {'index':4,'reason':'INVALID_DIMENSIONS'},
+            ],
+        })
+        self.assertEqual(missing_observation,{
+            'accepted':0,'duplicates':0,'rejected':1,
+            'rejections':[{'index':0,'reason':'CONTEXT_OWNERSHIP'}],
+        })
+        for result in (waiting,foreign,malformed,missing_observation):
+            serialized=json.dumps(result)
+            self.assertNotIn(linked_event['event_id'],serialized)
+            self.assertNotIn(observation,serialized)
+            self.assertNotIn(owner,serialized)
 
     def test_share_kinds_do_not_bypass_pair_deduplication(self):
         inviter,_,p=self.make_participant();code=p['participant']['referral_code'];visitor,_,_=self.make_participant()

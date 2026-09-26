@@ -14,6 +14,12 @@ The landing parser accepts only the named attribution query values used by this 
 
 `visit_session_id` identifies the browser visit. The envelope `screen_view_id` changes on each logical screen entry, including repeated visits to the same screen. Screen-scoped events carry cumulative visible `active_ms` for that view so step durations can be derived without counting hidden time.
 
+### Batch delivery and participant initialization (Phase 2)
+
+`POST /api/events/batch` preserves the `accepted`, `duplicates`, and `rejected` counts. When events are rejected, `rejections` contains their zero-based batch `index` and a fixed `reason`: `INVALID_EVENT`, `INVALID_DIMENSIONS`, `INVALID_TIME`, `INVALID_CONTEXT`, `CONTEXT_OWNERSHIP`, or `PARTICIPANT_NOT_READY`. The response does not echo event payloads, IDs, credentials, or personal information.
+
+An anonymous request may arrive after its observation has become participant-owned. It is still rejected by the existing ownership check, with `PARTICIPANT_NOT_READY`. The client retains only those rejected events and retries them once after participant initialization has completed. IDs, original timestamps, active time and attribution remain unchanged, so database event-ID deduplication still applies. This retry does not delay participant initialization, replay accepted events, or bypass ownership validation. The queue remains capped at 40 events and each batch at 20. Other rejections are not automatically replayed; console diagnostics contain only allowlisted event names and reason codes.
+
 ## Client event names
 
 | Event | Meaning |

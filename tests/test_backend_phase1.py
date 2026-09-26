@@ -259,7 +259,15 @@ class BackendPhase1Test(unittest.TestCase):
             {"event_id":"evt_foreign_1234","name":"game_checkpoint","screen":"game","occurred_at":now,"game_session_id":sid,"dimensions":{"checkpoint":60}},
         ]
         with app_tx() as conn:_,result=operations.events_batch(conn,{"events":events},context(participant_token_hash=h(owner)))
-        self.assertEqual(result,{"accepted":0,"duplicates":0,"rejected":4})
+        self.assertEqual(result,{
+            "accepted":0,"duplicates":0,"rejected":4,
+            "rejections":[
+                {"index":0,"reason":"INVALID_DIMENSIONS"},
+                {"index":1,"reason":"INVALID_DIMENSIONS"},
+                {"index":2,"reason":"INVALID_TIME"},
+                {"index":3,"reason":"CONTEXT_OWNERSHIP"},
+            ],
+        })
     def test_app_role_cannot_change_guard_membership_or_append_only_ledger(self):
         with app_tx() as conn:
             for sql in ("update dino_dev.environment_guard set project_ref='evil'","insert into dino_dev.admin_member(auth_user_id,display_name) values(gen_random_uuid(),'evil')","update dino_dev.ticket_ledger set delta=-1"):

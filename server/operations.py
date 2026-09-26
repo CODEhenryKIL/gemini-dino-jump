@@ -503,16 +503,27 @@ ENUM_DIMENSIONS={
 CODE_DIMENSIONS={"channel","campaign_code"}
 CODE_DIMENSION_VALUE=re.compile(r"(?:unknown|[A-Za-z][A-Za-z0-9_-]{0,31})")
 GAME_VERSION_VALUE=re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+INVALID_EVENT="INVALID_EVENT"
+INVALID_DIMENSIONS="INVALID_DIMENSIONS"
+INVALID_TIME="INVALID_TIME"
+INVALID_CONTEXT="INVALID_CONTEXT"
+CONTEXT_OWNERSHIP="CONTEXT_OWNERSHIP"
+PARTICIPANT_NOT_READY="PARTICIPANT_NOT_READY"
 def events_batch(conn,body,ctx):
     p=None
     if ctx.get("participant_token_hash"):p=_participant(conn,ctx)
     events=body.get("events")
     if not isinstance(events,list) or not 1<=len(events)<=32:raise DomainError("VALIDATION_ERROR","이벤트 묶음을 확인해 주세요.")
     accepted=duplicates=rejected=0
-    for event in events:
-        if not isinstance(event,dict) or event.get("name") not in CLIENT_EVENTS or event.get("screen") not in SCREENS or not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",str(event.get("event_id") or "")): rejected+=1;continue
-        dims=event.get("dimensions") or {}
-        if not isinstance(dims,dict) or set(dims)-DIMENSIONS:rejected+=1;continue
+    rejections=[]
+    def reject(index,reason):
+        nonlocal rejected
+        rejected+=1;rejections.append({"index":index,"reason":reason})
+    for index,event in enumerate(events):
+        if not isinstance(event,dict) or event.get("name") not in CLIENT_EVENTS or event.get("screen") not in SCREENS or not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",str(event.get("event_id") or "")): reject(index,INVALID_EVENT);continue
+        raw_dims=event.get("dimensions")
+        dims={} if raw_dims is None else raw_dims
+        if not isinstance(dims,dict) or set(dims)-DIMENSIONS:reject(index,INVALID_DIMENSIONS);continue
         valid_dims=True
         for key,value in dims.items():
             if key in BOOLEAN_DIMENSIONS:valid_dims=valid_dims and isinstance(value,bool)
@@ -524,26 +535,29 @@ def events_batch(conn,body,ctx):
             elif key in CODE_DIMENSIONS:valid_dims=valid_dims and isinstance(value,str) and bool(CODE_DIMENSION_VALUE.fullmatch(value))
             elif key=="game_version":valid_dims=valid_dims and isinstance(value,str) and bool(GAME_VERSION_VALUE.fullmatch(value))
             else:valid_dims=False
-        if not valid_dims:rejected+=1;continue
-        if dims.get("source")=="phase1_load" and ctx["environment"]=="production":rejected+=1;continue
+        if not valid_dims:reject(index,INVALID_DIMENSIONS);continue
+        if dims.get("source")=="phase1_load" and ctx["environment"]=="production":reject(index,INVALID_DIMENSIONS);continue
         try:occurred=dt.datetime.fromisoformat(str(event.get("occurred_at") or "").replace("Z","+00:00")); active=int(event.get("active_ms")) if event.get("active_ms") is not None else None
-        except (TypeError,ValueError):rejected+=1;continue
+        except (TypeError,ValueError):reject(index,INVALID_TIME);continue
         now=dt.datetime.now(UTC)
-        if occurred.tzinfo is None or occurred.astimezone(UTC)<now-dt.timedelta(hours=24) or occurred.astimezone(UTC)>now+dt.timedelta(minutes=5) or (active is not None and not 0<=active<=3600000):rejected+=1;continue
+        if occurred.tzinfo is None or occurred.astimezone(UTC)<now-dt.timedelta(hours=24) or occurred.astimezone(UTC)>now+dt.timedelta(minutes=5) or (active is not None and not 0<=active<=3600000):reject(index,INVALID_TIME);continue
         observation_id=event.get("observation_id");game_session_id=event.get("game_session_id");screen_view_id=event.get("screen_view_id")
-        if screen_view_id is not None and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",str(screen_view_id)):rejected+=1;continue
+        if screen_view_id is not None and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",str(screen_view_id)):reject(index,INVALID_CONTEXT);continue
         if observation_id:
             observed=_one(conn,"select participant_id from dino_dev.observation where id=%s",(observation_id,))
-            if not observed or (p and observed["participant_id"] not in (None,p["id"])) or (not p and observed["participant_id"] is not None):rejected+=1;continue
+            if not observed or (p and observed["participant_id"] not in (None,p["id"])):reject(index,CONTEXT_OWNERSHIP);continue
+            if not p and observed["participant_id"] is not None:reject(index,PARTICIPANT_NOT_READY);continue
         if game_session_id:
             game=_one(conn,"select participant_id from dino_dev.game_session where id=%s",(game_session_id,))
-            if not p or not game or game["participant_id"]!=p["id"]:rejected+=1;continue
+            if not p or not game or game["participant_id"]!=p["id"]:reject(index,CONTEXT_OWNERSHIP);continue
         stored_name="client_"+event["name"] if event["name"] in SERVER_EVENT_NAMES else event["name"]
         result=conn.execute("""insert into dino_dev.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,screen_view_id,visit_session_id,game_session_id,active_ms,dimensions,environment,deployment,event_version,synthetic,source,occurred_at)
           values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,true,'client',%s) on conflict(event_id) do nothing""",(event["event_id"],ctx["campaign_id"],p["id"] if p else None,observation_id,stored_name,event["screen"],screen_view_id,str(event.get("visit_session_id") or "")[:128] or None,game_session_id,active,json.dumps(dims),ctx["environment"],ctx["deployment"],ctx["event_version"],occurred))
         if result.rowcount:accepted+=1
         else:duplicates+=1
-    return 202,{"accepted":accepted,"duplicates":duplicates,"rejected":rejected}
+    response={"accepted":accepted,"duplicates":duplicates,"rejected":rejected}
+    if rejections:response["rejections"]=rejections
+    return 202,response
 
 def admin_session(conn,ctx):
     row=_admin(conn,ctx); return 200,{"authenticated":True,"admin":{"user_id":str(row["auth_user_id"]),"display_name":row["display_name"],"permissions":row["permissions"]}}

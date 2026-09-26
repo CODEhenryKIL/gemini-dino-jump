@@ -17,6 +17,10 @@ const SAFE_DIMENSIONS = new Set([
   'game_version', 'draw_status', 'claim_type', 'share_id', 'end_reason', 'coin_count',
   'coin_score', 'hearts', 'revive_count', 'tick', 'reduced_motion',
 ]);
+const REJECTION_REASONS = new Set([
+  'INVALID_EVENT', 'INVALID_DIMENSIONS', 'INVALID_TIME', 'INVALID_CONTEXT',
+  'CONTEXT_OWNERSHIP', 'PARTICIPANT_NOT_READY',
+]);
 
 function cleanDimensions(payload = {}) {
   const clean = {};
@@ -43,6 +47,9 @@ class Analytics {
     this.lastCheckpoint = 0;
     this.flushing = false;
     this.observationReady = false;
+    this.participantReady = false;
+    this.awaitingParticipant = false;
+    this.participantRetries = new WeakSet();
     this.loadingTransition = null;
     this.loadingMilestones = new Set();
     this.interval = setInterval(() => { this.checkpoint(); this.flush(); }, 2000);
@@ -96,6 +103,8 @@ class Analytics {
 
   setParticipantReady(meta = {}) {
     api.setTrackingContext(this.observationId, this.visitSessionId);
+    this.participantReady = true;
+    this.awaitingParticipant = false;
     this.recordLoadingCheckpoint(true);
     this.track('participant_ready', { connected: true, is_new: Boolean(meta.is_new) });
     this.flush();
@@ -193,18 +202,47 @@ class Analytics {
   }
 
   async flush(keepalive = false) {
-    if (!this.observationReady || !this.queue.length || this.flushing) return;
+    if (!this.observationReady || !this.queue.length || this.flushing || this.awaitingParticipant) return;
     this.flushing = true;
     const events = this.queue.splice(0, 20);
+    let resume = false;
     try {
       const result = await api.postEvents(events, { keepalive });
-      if (result.rejected) console.warn('analytics_batch_rejected', { rejected: result.rejected });
+      if (result.rejected) {
+        const reports = new Map();
+        for (const item of Array.isArray(result.rejections) ? result.rejections : []) {
+          if (Number.isInteger(item?.index) && item.index >= 0 && item.index < events.length && REJECTION_REASONS.has(item.reason)) {
+            reports.set(item.index, item.reason);
+          }
+        }
+        const retry = [];
+        const details = [];
+        for (const [index, reason] of reports) {
+          const event = events[index];
+          // An anonymous batch can reach the server after its observation is
+          // linked. Retry that event once with the cookie, without delaying init.
+          if (reason === 'PARTICIPANT_NOT_READY' && !this.participantRetries.has(event) && this.queue.length + retry.length < 40) {
+            this.participantRetries.add(event);
+            retry.push(event);
+          } else {
+            details.push({ event: event.name, reason });
+          }
+        }
+        this.queue.unshift(...retry);
+        if (retry.length) {
+          this.awaitingParticipant = !this.participantReady;
+          resume = this.participantReady;
+        }
+        const rejected = Math.max(0, result.rejected - retry.length);
+        if (rejected) console.warn('analytics_batch_rejected', { rejected, details });
+      }
     } catch (error) {
       const retryable = !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
       if (retryable) this.queue.unshift(...events.slice(0, Math.max(0, 40 - this.queue.length)));
       else console.warn('analytics_batch_failed', { status: error.status, count: events.length });
     } finally {
       this.flushing = false;
+      if (resume) this.flush(keepalive);
     }
   }
 }
