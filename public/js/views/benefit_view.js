@@ -14,6 +14,15 @@ async function copyText(value) {
   await navigator.clipboard.writeText(value);
 }
 
+function captureAnalyticsContext() {
+  const context = {};
+  if (typeof analytics.screen === 'string' && analytics.screen) context.screen = analytics.screen;
+  if (typeof analytics.screenViewId === 'string' && analytics.screenViewId) context.screenViewId = analytics.screenViewId;
+  const activeMs = typeof analytics.currentActiveMs === 'function' ? analytics.currentActiveMs() : null;
+  if (Number.isFinite(activeMs)) context.activeMs = activeMs;
+  return context;
+}
+
 export const BenefitView = {
   observer: null,
   contentObserver: null,
@@ -113,25 +122,58 @@ export const BenefitView = {
       document.addEventListener?.('visibilitychange', this.visibilityHandler);
     }
     link.onclick = safeUrl ? () => analytics.track('gemini_cta_clicked', { position: 'benefit_main' }) : (event) => event.preventDefault();
-    const trackShare = (method, status) => analytics.track('share_attempted', { source: 'gemini', position: 'benefit_main', share_method: method, status });
+    const trackShare = (method, status, trackingContext) => analytics.track(
+      'share_attempted',
+      { source: 'gemini', position: 'benefit_main', share_method: method, status },
+      trackingContext,
+    );
     const showManualFallback = () => { const node = container.querySelector('#benefit-fallback'); if (node) ui.text(node, safeUrl ? `자동 복사가 지원되지 않아요. 이 주소를 길게 눌러 복사한 뒤 외부 브라우저에서 열어 주세요: ${safeUrl}` : '확인된 공식 링크를 준비 중입니다.'); };
+    let sharePending = false;
     container.querySelector('#btn-copy-benefit').onclick = async () => {
-      trackShare('copy', 'attempted');
-      if (!safeUrl) { trackShare('copy', 'failed'); showManualFallback(); return; }
-      try { await copyText(safeUrl); trackShare('copy', 'copied'); ui.showToast('공식 혜택 링크를 복사했어요.'); }
-      catch (_) { trackShare('copy', 'failed'); showManualFallback(); }
+      if (sharePending) return;
+      sharePending = true;
+      const trackingContext = captureAnalyticsContext();
+      trackShare('copy', 'attempted', trackingContext);
+      try {
+        if (!safeUrl) { trackShare('copy', 'failed', trackingContext); if (isActiveRender()) showManualFallback(); return; }
+        await copyText(safeUrl);
+        trackShare('copy', 'copied', trackingContext);
+        if (isActiveRender()) ui.showToast('공식 혜택 링크를 복사했어요.');
+      } catch (_) {
+        trackShare('copy', 'failed', trackingContext);
+        if (isActiveRender()) showManualFallback();
+      } finally {
+        sharePending = false;
+      }
     };
     container.querySelector('#btn-share-benefit').onclick = async () => {
-      if (!safeUrl) { trackShare('native', 'failed'); showManualFallback(); return; }
-      if (typeof navigator.share !== 'function') {
-        trackShare('copy', 'attempted');
-        try { await copyText(safeUrl); trackShare('copy', 'copied'); ui.showToast('공유 창을 지원하지 않아 링크를 복사했어요.'); }
-        catch (_) { trackShare('copy', 'failed'); showManualFallback(); }
-        return;
+      if (sharePending) return;
+      sharePending = true;
+      const trackingContext = captureAnalyticsContext();
+      try {
+        if (!safeUrl) { trackShare('native', 'failed', trackingContext); if (isActiveRender()) showManualFallback(); return; }
+        if (typeof navigator.share !== 'function') {
+          trackShare('copy', 'attempted', trackingContext);
+          try {
+            await copyText(safeUrl);
+            trackShare('copy', 'copied', trackingContext);
+            if (isActiveRender()) ui.showToast('공유 창을 지원하지 않아 링크를 복사했어요.');
+          } catch (_) {
+            trackShare('copy', 'failed', trackingContext);
+            if (isActiveRender()) showManualFallback();
+          }
+          return;
+        }
+        trackShare('native', 'attempted', trackingContext);
+        try {
+          await navigator.share({ title: 'Gemini 학생 혜택', url: safeUrl });
+          trackShare('native', 'share_sheet_closed', trackingContext);
+        } catch (error) {
+          trackShare('native', error?.name === 'AbortError' ? 'cancelled' : 'failed', trackingContext);
+        }
+      } finally {
+        sharePending = false;
       }
-      trackShare('native', 'attempted');
-      try { await navigator.share({ title: 'Gemini 학생 혜택', url: safeUrl }); trackShare('native', 'share_sheet_closed'); }
-      catch (error) { trackShare('native', error?.name === 'AbortError' ? 'cancelled' : 'failed'); }
     };
   },
   cleanup() { this.observer?.disconnect(); this.observer = null;

@@ -13,13 +13,25 @@ function copyFallback(text) {
   return Promise.reject(new Error('CLIPBOARD_UNSUPPORTED'));
 }
 
+function captureAnalyticsContext() {
+  const context = {};
+  if (typeof analytics.screen === 'string' && analytics.screen) context.screen = analytics.screen;
+  if (typeof analytics.screenViewId === 'string' && analytics.screenViewId) context.screenViewId = analytics.screenViewId;
+  const activeMs = typeof analytics.currentActiveMs === 'function' ? analytics.currentActiveMs() : null;
+  if (Number.isFinite(activeMs)) context.activeMs = activeMs;
+  return context;
+}
+
 export const InviteView = {
+  renderGeneration: 0,
   async render(container, router, renderToken) {
+    const renderGeneration = ++this.renderGeneration;
+    const isActiveRender = () => this.renderGeneration === renderGeneration && router.isCurrent(renderToken);
     container.innerHTML = '<section class="card empty-state"><p>초대 현황을 불러오는 중...</p></section>';
     analytics.track('invite_cta_viewed');
     try {
       const data = await api.getReferralInfo();
-      if (!router.isCurrent(renderToken)) return;
+      if (!isActiveRender()) return;
       const shareKind = ['record_share', 'prize_share', 'retry_invite'].includes(router.shareContext) ? router.shareContext : 'retry_invite';
       const copy = SHARE_COPY[shareKind];
       router.shareContext = null;
@@ -39,34 +51,48 @@ export const InviteView = {
         url.searchParams.set('share', shareId);
         return url.toString();
       };
-      const copyLink = async (inviteUrl, shareId) => {
-        analytics.track('share_attempted', { share_method: 'copy', share_id: shareId, link_kind: shareKind, status: 'attempted' });
+      const trackShare = (method, shareId, outcome, trackingContext) => analytics.track(
+        'share_attempted',
+        { share_method: method, share_id: shareId, link_kind: shareKind, ...outcome },
+        trackingContext,
+      );
+      const copyLink = async (inviteUrl, shareId, trackingContext) => {
+        trackShare('copy', shareId, { status: 'attempted' }, trackingContext);
         try {
           await copyFallback(inviteUrl);
-          analytics.track('share_attempted', { share_method: 'copy', share_id: shareId, link_kind: shareKind, status: 'copied' });
-          ui.showToast('초대 링크를 복사했어요.');
+          trackShare('copy', shareId, { status: 'copied' }, trackingContext);
+          if (isActiveRender()) ui.showToast('초대 링크를 복사했어요.');
         } catch (_) {
-          analytics.track('share_attempted', { share_method: 'copy', share_id: shareId, link_kind: shareKind, status: 'failed' });
-          setText('#share-fallback', `복사가 지원되지 않아요. 주소창에서 이 링크를 길게 눌러 복사해 주세요: ${inviteUrl}`);
+          trackShare('copy', shareId, { status: 'failed' }, trackingContext);
+          if (isActiveRender()) setText('#share-fallback', `복사가 지원되지 않아요. 주소창에서 이 링크를 길게 눌러 복사해 주세요: ${inviteUrl}`);
         }
       };
+      let sharePending = false;
       const share = async (method) => {
+        if (sharePending) return;
+        sharePending = true;
+        const trackingContext = captureAnalyticsContext();
         const shareId = api.createRequestId('share');
         const inviteUrl = buildInviteUrl(shareId);
-        if (method !== 'native' || typeof navigator.share !== 'function') return copyLink(inviteUrl, shareId);
-        analytics.track('share_attempted', { share_method: 'native', share_id: shareId, link_kind: shareKind, status: 'attempted' });
         try {
+          if (method !== 'native' || typeof navigator.share !== 'function') {
+            await copyLink(inviteUrl, shareId, trackingContext);
+            return;
+          }
+          trackShare('native', shareId, { status: 'attempted' }, trackingContext);
           await navigator.share({ title: '공룡 점프 챌린지', text: shareKind === 'prize_share' ? '내 복주머니 결과를 확인해 봐!' : `내 기록 ${router.state.bestScore || 0}점에 도전해 봐!`, url: inviteUrl });
-          analytics.track('share_attempted', { share_method: 'native', share_id: shareId, link_kind: shareKind, status: 'share_sheet_closed' });
-          ui.showToast('공유 창을 닫았어요. 실제 전송 여부는 기기에서 확인해 주세요.');
+          trackShare('native', shareId, { status: 'share_sheet_closed' }, trackingContext);
+          if (isActiveRender()) ui.showToast('공유 창을 닫았어요. 실제 전송 여부는 기기에서 확인해 주세요.');
         } catch (error) {
-          analytics.track('share_attempted', { share_method: 'native', share_id: shareId, link_kind: shareKind, status: error?.name === 'AbortError' ? 'cancelled' : 'failed' });
+          trackShare('native', shareId, { status: error?.name === 'AbortError' ? 'cancelled' : 'failed' }, trackingContext);
+        } finally {
+          sharePending = false;
         }
       };
       container.querySelector('#btn-share-native').onclick = () => share('native');
       container.querySelector('#btn-copy-link').onclick = () => share('copy');
     } catch (error) {
-      if (!router.isCurrent(renderToken)) return;
+      if (!isActiveRender()) return;
       container.replaceChildren();
       const card = document.createElement('section'); card.className = 'card empty-state';
       const text = document.createElement('p'); text.textContent = error.message || '초대 현황을 불러오지 못했습니다.';
