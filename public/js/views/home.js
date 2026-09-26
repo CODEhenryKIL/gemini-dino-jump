@@ -12,7 +12,7 @@ export const HomeView = {
           </div>
           <p class="home-event-organizer">공식 Google Student Ambassador 운영</p>
         </div>
-        <h1><span class="home-built-with"><img class="home-antigravity-logo" src="/assets/logos/antigravity-icon-full-color.png" alt="Antigravity" width="32" height="32"><span><span class="home-ai-word"><span class="google-blue">G</span><span class="google-red">o</span><span class="google-yellow">o</span><span class="google-blue">g</span><span class="google-green">l</span><span class="google-red">e</span> <span class="google-blue">A</span><span class="google-green">I</span></span>로 만든</span></span><span class="home-game-title">공룡 게임</span></h1>
+        <h1><span class="home-built-with"><img class="home-antigravity-logo" src="/assets/logos/antigravity-icon-full-color.png" alt="Antigravity" width="32" height="32"><span><span class="home-ai-word"><span class="google-blue">G</span><span class="google-red">o</span><span class="google-yellow">o</span><span class="google-blue">g</span><span class="google-green">l</span><span class="google-red">e</span> <span class="google-blue">AI</span></span>로 만든</span></span><span class="home-game-title">공룡 게임</span></h1>
         <p class="home-campaign-line">추억의 공룡 게임 한 판 하고 삼텐바이미 받자!</p>
         <img class="hero-dino" src="/assets/icons/Dino-Dark.png" alt="달리는 공룡">
         <div class="stat-grid">
