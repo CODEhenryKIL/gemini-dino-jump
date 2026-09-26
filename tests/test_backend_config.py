@@ -29,13 +29,12 @@ class ConfigTest(unittest.TestCase):
         self.assertFalse(any("*" in origin for origin in settings.allowed_origins))
         with patch.dict(os.environ,{**preview,"VERCEL_URL":"*.vercel.app"},clear=True):
             with self.assertRaises(ConfigurationError):Settings.from_env()
-    def test_preview_unlimited_participant_allowlist_is_validated_and_private(self):
-        first="p_"+"a"*32;second="p_"+"0"*32
-        with patch.dict(os.environ,{**BASE,"PREVIEW_UNLIMITED_PARTICIPANT_IDS":f" {first}, {second}, {first} "},clear=True):settings=Settings.from_env()
-        self.assertEqual(settings.preview_unlimited_participant_ids,frozenset({first,second}))
-        self.assertNotIn("preview_unlimited_participant_ids",settings.public())
-        self.assertNotIn(first,json.dumps(settings.public()))
-        for invalid in ("p_short","participant_"+"a"*32,"p_"+"A"*32,"p_"+"a"*31+"z"):
-            with patch.dict(os.environ,{**BASE,"PREVIEW_UNLIMITED_PARTICIPANT_IDS":invalid},clear=True):
-                with self.assertRaisesRegex(ConfigurationError,"PREVIEW_UNLIMITED_PARTICIPANT_IDS_INVALID"):Settings.from_env()
+    def test_preview_unlimited_flag_is_explicit_and_private(self):
+        for value,expected in (("true",True),("false",False)):
+            with patch.dict(os.environ,{**BASE,"PREVIEW_UNLIMITED_PLAY":value},clear=True):settings=Settings.from_env()
+            self.assertEqual(settings.preview_unlimited_play,expected)
+            self.assertNotIn("preview_unlimited_play",settings.public())
+        with patch.dict(os.environ,BASE,clear=True):self.assertFalse(Settings.from_env().preview_unlimited_play)
+        with patch.dict(os.environ,{**BASE,"PREVIEW_UNLIMITED_PLAY":"yes"},clear=True):
+            with self.assertRaisesRegex(ConfigurationError,"PREVIEW_UNLIMITED_PLAY_INVALID"):Settings.from_env()
 if __name__=="__main__":unittest.main()

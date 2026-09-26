@@ -1,6 +1,5 @@
 import { api } from '../api.js';
 import { analytics } from '../analytics.js';
-import { ResultView } from './result_view.js';
 
 const rankingRequests = new WeakMap();
 
@@ -18,16 +17,31 @@ export const RankingView = {
       const data = await api.getLeaderboard();
       if (!router.isCurrent(renderToken) || rankingRequests.get(container) !== request) return;
       container.replaceChildren();
-      const intro = document.createElement('section'); intro.className = 'card compact-card';
-      const title = document.createElement('h1'); title.textContent = '검증된 최고 점수 랭킹';
-      const note = document.createElement('p'); note.textContent = '동점자는 같은 순위로 표시합니다. 최종 동점 수상 정책은 아직 확정하지 않았습니다.';
-      const mine = document.createElement('strong'); mine.textContent = data.me?.rank ? `내 순위 ${data.me.rank}위 · ${data.me.best_score}점` : '아직 내 기록이 없어요';
-      const gap = document.createElement('p'); gap.className = 'result-gap'; gap.textContent = ResultView.top3GapMessage({ rank: data.me?.rank, top3_gap: data.top3_gap ?? data.me?.top3_gap });
-      intro.append(title, note, mine, gap); container.appendChild(intro);
-      const contact = document.createElement('section'); contact.id = 'top3-request';
-      contact.className = 'card compact-card';
-      container.appendChild(contact);
-      this.updateState(container, router, renderToken);
+      const prizes = document.createElement('section'); prizes.className = 'ranking-prizes';
+      const title = document.createElement('h1'); title.textContent = '랭킹 TOP3 선물';
+      const rewards = document.createElement('div'); rewards.className = 'ranking-rewards';
+      for (const [index, amount] of ['5만원', '3만원', '1만원'].entries()) {
+        const reward = document.createElement('div'); reward.className = `ranking-reward ranking-reward-${index + 1}`;
+        const medal = document.createElement('span'); medal.className = 'ranking-medal'; medal.textContent = ['🥇', '🥈', '🥉'][index]; medal.setAttribute('aria-hidden', 'true');
+        const place = document.createElement('span'); place.textContent = `${index + 1}위`;
+        const value = document.createElement('strong'); value.textContent = amount;
+        reward.append(medal, place, value); rewards.appendChild(reward);
+      }
+      const awardNote = document.createElement('p'); awardNote.className = 'ranking-award-note'; awardNote.textContent = '행사 종료 시 최종 순위 기준 · 동점 수상 기준은 추후 안내';
+      prizes.append(title, rewards, awardNote); container.appendChild(prizes);
+      const stats = document.createElement('section'); stats.className = 'card ranking-my-record'; stats.setAttribute('aria-label', '내 랭킹과 참가 현황');
+      const gap = data.top3_gap ?? data.me?.top3_gap ?? {};
+      const metrics = document.createElement('div'); metrics.className = 'ranking-metrics';
+      const count = Number.isInteger(gap.participant_count) ? `${gap.participant_count.toLocaleString('ko-KR')}명` : '집계 중';
+      for (const [label, value] of [['내 순위', data.me?.rank ? `${data.me.rank}위` : '기록 없음'], ['내 최고 점수', data.me?.rank ? `${Number(data.me.best_score).toLocaleString('ko-KR')}점` : '—'], ['랭킹 참가자', count]]) {
+        const item = document.createElement('div');
+        const caption = document.createElement('span'); caption.textContent = label;
+        const number = document.createElement('strong'); number.textContent = value;
+        item.append(caption, number); metrics.appendChild(item);
+      }
+      const comparison = document.createElement('p'); comparison.className = 'ranking-time-gap'; comparison.textContent = this.timeGapMessage(data);
+      const explanation = document.createElement('p'); explanation.className = 'ranking-comparison-note'; explanation.textContent = '랭킹은 코인을 포함한 점수순이에요. 시간은 각 최고점 기록의 플레이 시간을 비교해요.';
+      stats.append(metrics, comparison, explanation); container.appendChild(stats);
       const list = document.createElement('section'); list.className = 'card ranking-list';
       if (!data.leaderboard?.length) { const empty = document.createElement('p'); empty.textContent = '등록된 기록이 없습니다.'; list.appendChild(empty); }
       for (const entry of data.leaderboard || []) {
@@ -54,8 +68,20 @@ export const RankingView = {
   },
 
   updateState(container, router, renderToken) {
-    if (!router.isCurrent(renderToken)) return;
-    const target = container.querySelector('#top3-request');
-    if (target) ResultView.renderTop3Request(target, router, router.state.top3Profile);
+    if (router.isCurrent(renderToken)) return this.load(container, router, renderToken);
+  },
+
+  timeGapMessage(data) {
+    if (!data.me?.rank) return '첫 게임을 마치면 내 순위와 3위와의 시간 차이를 볼 수 있어요.';
+    const gap = data.top3_gap ?? data.me.top3_gap ?? {};
+    if (gap.third_score == null) return '아직 3위 기록이 없어요. 먼저 TOP3에 도전해 보세요!';
+    const own = data.me.best_elapsed_seconds;
+    const third = gap.third_elapsed_seconds;
+    if (!Number.isFinite(own) || !Number.isFinite(third)) return '플레이 시간 기록을 확인하고 있어요.';
+    const difference = own - third;
+    const seconds = Math.abs(difference).toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const same = Math.abs(difference) < 0.05;
+    const comparison = same ? '3위 기록과 플레이 시간이 같아요.' : `3위 기록보다 ${seconds}초 ${difference < 0 ? '짧게' : '더'} 달렸어요.`;
+    return `${comparison} (3위 대표 기록 ${third.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}초)`;
   },
 };

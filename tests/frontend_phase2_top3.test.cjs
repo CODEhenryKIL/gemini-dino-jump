@@ -155,7 +155,7 @@ test('TOP3 request renderer replaces stale content and represents requested, sub
   assert.equal(target.children.length, 0);
 });
 
-test('ranking reconnect renders a submitted TOP3 card without relying on lastResult', async () => {
+test('ranking shows prizes without old TOP3 information request cards', async () => {
   const { view: ResultView } = loadResult();
   const RankingView = loadRanking(ResultView);
   const container = new Element('main');
@@ -167,12 +167,12 @@ test('ranking reconnect renders a submitted TOP3 card without relying on lastRes
 
   await RankingView.render(container, router, 4);
   const holder = container.querySelector('#top3-request');
-  assert.ok(holder, 'ranking always renders the persistent TOP3 state holder');
-  assert.match(holder.textContent, /TOP3 정보 접수 완료/);
-  assert.equal(descendants(holder).find((node) => node.tag === 'button').disabled, true);
+  assert.equal(holder, null);
+  assert.match(container.textContent, /5만원.*3만원.*1만원/);
+  assert.doesNotMatch(container.textContent, /이전 게임 규칙|합성 테스트 정보|검증된 최고 점수 랭킹/);
 });
 
-test('ranking failure retries in place once and keeps the TOP3 contact state after recovery', async () => {
+test('ranking failure retries in place once and shows recovered results', async () => {
   const { view: ResultView } = loadResult();
   const retryRequest = deferred();
   let calls = 0;
@@ -205,7 +205,7 @@ test('ranking failure retries in place once and keeps the TOP3 contact state aft
   await recovering;
 
   assert.match(container.textContent, /재접속 러너/);
-  assert.match(container.querySelector('#top3-request').textContent, /TOP3 정보 접수 완료/);
+  assert.equal(container.querySelector('#top3-request'), null);
   assert.doesNotMatch(container.textContent, /랭킹 연결 실패/);
 });
 
@@ -321,10 +321,10 @@ test('result ignores reverse-order supplemental responses and completion after l
   assert.equal(nodes.get('#result-top3-gap').textContent, '다른 화면 상태');
 });
 
-test('result and ranking passive updates replace TOP3 state and ignore stale render tokens', async () => {
+test('result passive updates replace TOP3 state and ignore stale render tokens', async () => {
   const { view: ResultView } = loadResult();
   const RankingView = loadRanking(ResultView);
-  for (const [name, view] of [['result', ResultView], ['ranking', RankingView]]) {
+  for (const [name, view] of [['result', ResultView]]) {
     const holder = new Element('div'); holder.id = 'top3-request';
     const container = new Element('main'); container.append(holder);
     let currentToken = 9;
@@ -433,4 +433,25 @@ test('draw claims retain prize-result copy and prize sharing', () => {
   drawShare.onclick({ preventDefault() {} });
   assert.equal(router.shareContext, 'prize_share');
   assert.deepEqual(routes, ['invite']);
+});
+
+test('ranking displays actual time gaps, participant count, and safe empty states', async () => {
+  const data = { me: { rank: 4, best_score: 450, best_elapsed_seconds: 30 }, top3_gap: { third_score: 600, third_elapsed_seconds: 42.3, participant_count: 1234 }, leaderboard: [] };
+  const view = loadRanking(null, { api: { getLeaderboard: async () => data } });
+  const container = new Element('main');
+  await view.render(container, { isCurrent: () => true }, 1);
+  assert.match(container.textContent, /4위/);
+  assert.match(container.textContent, /450점/);
+  assert.match(container.textContent, /1,234명/);
+  assert.match(container.textContent, /12.3초 짧게/);
+  data.me.best_elapsed_seconds = 45;
+  assert.match(view.timeGapMessage(data), /2.7초 더/);
+  data.me.best_elapsed_seconds = 42.3;
+  assert.match(view.timeGapMessage(data), /시간이 같아요/);
+  data.me.best_elapsed_seconds = null;
+  assert.match(view.timeGapMessage(data), /시간 기록을 확인/);
+  data.top3_gap.third_score = null;
+  assert.match(view.timeGapMessage(data), /아직 3위 기록이 없어요/);
+  data.me = null;
+  assert.match(view.timeGapMessage(data), /첫 게임/);
 });

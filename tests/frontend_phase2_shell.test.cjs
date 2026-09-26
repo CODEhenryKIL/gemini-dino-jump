@@ -245,16 +245,6 @@ test('render promises are race guarded and an older route cannot become current 
   assert.equal(loaded.router.currentView, 'benefit');
 });
 
-test('ticket header shows unlimited only for an explicit server flag and resets after revocation', () => {
-  const { router, context } = loadRouter('https://example.test/');
-  router.state.tickets = { initial: 0, invitation: 0, available_total: 0, unlimited_play: true };
-  router.updateNav();
-  assert.equal(context.document.getElementById('header-ticket-pill').textContent, '🎟️ 무제한');
-  router.state.tickets = { initial: 0, invitation: 0, available_total: 0 };
-  router.updateNav();
-  assert.equal(context.document.getElementById('header-ticket-pill').textContent, '🎟️ 0장');
-});
-
 test('overlapping resume refreshes share one server read', async () => {
   const loaded = loadRouter('https://example.test/');
   let reads = 0;
@@ -433,3 +423,24 @@ test('leaving during countdown resolves the pending start and clears timers', as
   context.GameView.cleanup();
   assert.equal(await pending, false);
 });
+
+ test('header logo uses home navigation and keeps native modified-link behavior', () => {
+  const { router, context } = loadRouter('https://example.test/?view=ranking');
+  const logo = { dataset: { view: 'home' }, addEventListener(_event, fn) { this.click = fn; } };
+  context.document.querySelectorAll = (selector) => selector.includes('.brand-logo-area') ? [logo] : [];
+  const routes = []; router.navigate = (view) => routes.push(view); router.initialized = true;
+  router.bindNavigation();
+  let prevented = false;
+  logo.click({ button: 0, preventDefault() { prevented = true; } });
+  assert.equal(prevented, true); assert.deepEqual(routes, ['home']);
+  logo.click({ button: 0, ctrlKey: true, preventDefault() { throw new Error('modified link intercepted'); } });
+  assert.deepEqual(routes, ['home']);
+  assert.match(read('public/index.html'), /<a class="brand-logo-area" data-view="home" href="\/" aria-label="홈으로 이동">/);
+ });
+ test('server unlimited flag controls header and disappears when test mode ends', () => {
+  const { router } = loadRouter('https://example.test/');
+  router.state.tickets = { initial: 0, invitation: 0, unlimited_play: true };
+  router.updateNav(); assert.match(router.ticketPill.textContent, /무제한/);
+  router.state.tickets.unlimited_play = false;
+  router.updateNav(); assert.match(router.ticketPill.textContent, /0장/);
+ });

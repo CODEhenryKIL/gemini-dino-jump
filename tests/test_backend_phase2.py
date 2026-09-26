@@ -149,27 +149,35 @@ class BackendPhase2Test(unittest.TestCase):
 
     def test_dense_rank_ties_private_name_and_gap_use_same_rules(self):
         participants=[]
-        for score in (500,500,400,300,200):
+        scores=(500,500,400,300,300,200)
+        elapsed_ticks=(600,540,480,720,180,360)
+        for index,(score,ticks) in enumerate(zip(scores,elapsed_ticks)):
             raw,_,p=self.make_participant();pid=p['participant']['id'];ctx,s=self.started(raw)
             with fixtures.app_tx() as conn:
-                conn.execute("update dino_dev.game_session set status='FINISHED',score=%s,valid_ticks=600,finished_at=clock_timestamp() where id=%s",(score,s['session_id']))
-                conn.execute('insert into dino_dev.versioned_best_score values(%s,%s,%s,%s,clock_timestamp())',(pid,'2.0.0',s['session_id'],score))
+                conn.execute("update dino_dev.game_session set status='FINISHED',score=%s,valid_ticks=%s,finished_at=clock_timestamp() where id=%s",(score,ticks,s['session_id']))
+                conn.execute("insert into dino_dev.versioned_best_score values(%s,%s,%s,%s,timestamptz '2026-01-01 00:00:00+00'+make_interval(secs=>%s))",(pid,'2.0.0',s['session_id'],score,index))
             participants.append((raw,pid))
         with fixtures.app_tx() as conn:
             conn.execute('update dino_dev.participant set is_public=false where id=%s',(participants[0][1],))
             ctx=self.ctx(participants[-1][0]);data=operations.leaderboard(conn,{},ctx)[1]
             self.assertEqual(data['me']['rank'],4)
+            self.assertEqual(data['me']['best_elapsed_seconds'],6.0)
             self.assertEqual(data['top3_gap']['third_score'],300)
+            self.assertEqual(data['top3_gap']['third_elapsed_seconds'],12.0)
             self.assertEqual(data['top3_gap']['score_needed'],100)
             self.assertEqual(data['top3_gap']['status'],'CHASING')
+            conn.execute("update dino_dev.versioned_best_score set achieved_at=timestamptz '2026-01-01 00:00:03+00' where score=300")
+            tied_third=operations.leaderboard(conn,{},ctx)[1]['top3_gap']
+            expected_tied_seconds=12.0 if participants[3][1]<participants[4][1] else 3.0
+            self.assertEqual(tied_third['third_elapsed_seconds'],expected_tied_seconds)
             top=operations.get_me(conn,self.ctx(participants[1][0]))[1]
             self.assertEqual(top['rank'],1);self.assertTrue(top['top3_gap']['tied'])
-            self.assertEqual(len(data['leaderboard']),4)
+            self.assertEqual(len(data['leaderboard']),5)
             self.assertEqual(sum(x['score']==500 for x in data['leaderboard']),1)
         admin=self.make_admin(['ranking:write']);admin['game_version']='2.0.0'
         with fixtures.app_tx() as conn:
             _,snapshot=operations.create_admin_ranking_snapshot(conn,{'event_id':'evt_snapshot_v2'},admin)
-            self.assertEqual(snapshot['game_version'],'2.0.0');self.assertEqual(snapshot['entry_count'],5)
+            self.assertEqual(snapshot['game_version'],'2.0.0');self.assertEqual(snapshot['entry_count'],6)
 
     def test_old_top3_request_provenance_preserved_and_upgraded_without_reset(self):
         raw,_,p=self.make_participant();pid=p['participant']['id'];ctx,s=self.started(raw)

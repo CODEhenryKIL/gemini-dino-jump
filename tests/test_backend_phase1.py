@@ -63,12 +63,11 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             with self.assertRaises(operations.DomainError) as caught:operations.participant_init(conn,{},context(participant_token_hash=h("invalid"),invite_nonce="x",invite_nonce_hash=h("x")))
         self.assertEqual(caught.exception.code,"SESSION_INVALID")
-    def test_allowlisted_participant_can_replay_without_ticket_or_ledger_changes(self):
+    def test_all_participants_can_replay_without_ticket_or_ledger_changes(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
         with app_tx() as conn:conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
-        allowlist=frozenset({pid})
         for index in range(2):
-            ctx=context(participant_token_hash=h(raw),idempotency_key=f"unlimited-{index}-{secrets.token_hex(8)}",preview_unlimited_participant_ids=allowlist)
+            ctx=context(participant_token_hash=h(raw),idempotency_key=f"unlimited-{index}-{secrets.token_hex(8)}",preview_unlimited_play=True)
             with app_tx() as conn:
                 _,me=operations.get_me(conn,ctx);self.assertTrue(me["tickets"]["unlimited_play"]);self.assertEqual(me["tickets"]["available_total"],0)
                 status,session=operations.create_session(conn,{},ctx);self.assertEqual(status,201)
@@ -79,7 +78,20 @@ class BackendPhase1Test(unittest.TestCase):
             participant=conn.execute("select initial_balance,invitation_balance,invitation_refund_pending from dino_dev.participant where id=%s",(pid,)).fetchone()
             charged=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME'",(pid,)).fetchone()["n"]
         self.assertEqual((participant["initial_balance"],participant["invitation_balance"],participant["invitation_refund_pending"],charged),(0,0,0,0))
-    def test_unlisted_participant_cannot_spoof_unlimited_play_in_request_body(self):
+    def test_preview_unlimited_applies_to_multiple_unlisted_participants_only_in_test_environments(self):
+        for _ in range(2):
+            raw,_,created=self.make_participant();pid=created["participant"]["id"]
+            ctx=context(participant_token_hash=h(raw),idempotency_key=secrets.token_urlsafe(32),preview_unlimited_play=True)
+            with app_tx() as conn:
+                conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
+                self.assertTrue(operations.get_me(conn,ctx)[1]["tickets"]["unlimited_play"])
+                self.assertEqual(operations.create_session(conn,{},ctx)[0],201)
+        row={"id":"p_anyone","status":"ACTIVE","synthetic":True}
+        self.assertFalse(operations._unlimited_play(row,{"environment":"production","preview_unlimited_play":True}))
+        self.assertFalse(operations._unlimited_play(dict(row,synthetic=False),ctx))
+        self.assertFalse(operations._unlimited_play(dict(row,status="BLOCKED"),ctx))
+        self.assertFalse(operations._unlimited_play(row,dict(ctx,preview_unlimited_play="true")))
+    def test_disabled_preview_cannot_spoof_unlimited_play_in_request_body(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
         with app_tx() as conn:
             conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
@@ -89,7 +101,7 @@ class BackendPhase1Test(unittest.TestCase):
         self.assertEqual(caught.exception.code,"NO_TICKETS")
     def test_free_session_fault_review_does_not_mint_ticket_or_refund_ledger(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
-        ctx=context(participant_token_hash=h(raw),idempotency_key=secrets.token_urlsafe(32),preview_unlimited_participant_ids=frozenset({pid}))
+        ctx=context(participant_token_hash=h(raw),idempotency_key=secrets.token_urlsafe(32),preview_unlimited_play=True)
         with app_tx() as conn:
             conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
             _,created_session=operations.create_session(conn,{},ctx);sid=created_session["session_id"]
@@ -102,10 +114,10 @@ class BackendPhase1Test(unittest.TestCase):
             refunds=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where participant_id=%s and source_type='FAULT_REFUND'",(pid,)).fetchone()["n"]
         self.assertEqual((reviewed["status"],reviewed["refund"]["status"],reviewed["fault_review"]["status"]),("ABORTED","NOT_DUE","AUTO_APPROVED"))
         self.assertEqual((participant["initial_balance"],participant["invitation_balance"],refunds),(0,0,0))
-    def test_allowlist_revocation_keeps_reserved_session_but_blocks_next_free_session(self):
+    def test_disabling_unlimited_keeps_reserved_session_but_blocks_next_free_session(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"];key=secrets.token_urlsafe(32)
-        allowed=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_participant_ids=frozenset({pid}))
-        revoked=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_participant_ids=frozenset())
+        allowed=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_play=True)
+        revoked=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_play=False)
         with app_tx() as conn:
             conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
             first_status,first=operations.create_session(conn,{},allowed)

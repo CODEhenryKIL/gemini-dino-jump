@@ -176,7 +176,7 @@ class AppRouter {
   bindNavigation() {
     if (this.navigationBound) return;
     this.navigationBound = true;
-    document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => {
+    document.querySelectorAll('.bottom-nav .nav-item, .brand-logo-area[data-view]').forEach((item) => {
       item.addEventListener('click', (event) => {
         if (event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
@@ -232,7 +232,7 @@ class AppRouter {
     const tickets = this.state.tickets;
     const available = Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0)));
     this.ticketPill.textContent = tickets.unlimited_play === true ? '🎟️ 무제한' : `🎟️ ${available}장`;
-    this.ticketPill.title = tickets.unlimited_play === true ? '이 브라우저의 테스트 플레이는 게임권을 차감하지 않습니다.' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
+    this.ticketPill.title = tickets.unlimited_play === true ? '테스트 기간에는 누구나 게임권 차감 없이 플레이할 수 있어요.' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
   }
 
   navigate(viewName, { history: writeHistory = true, replace = false } = {}) {

@@ -28,8 +28,12 @@ export const HomeView = {
       </section>`;
     this.updateState(container, router);
     container.querySelector('#btn-start-jump').onclick = () => {
-      if (typeof analytics !== 'undefined') analytics.track('game_cta_clicked', { source: 'home' });
+      if (container.querySelector('#btn-start-jump').disabled) return;
       if (router.state.pendingGameSession) { router.navigate('game'); return; }
+      const tickets = router.state.tickets || {};
+      const available = Number(tickets.available_total ?? ((tickets.initial || 0) + (tickets.invitation || 0)));
+      if (tickets.unlimited_play !== true && available < 1) { router.navigate('invite'); return; }
+      analytics.track('game_cta_clicked', { source: 'home' });
       let seen = false;
       try { seen = Boolean(localStorage.getItem('gemini_dino_guide_seen')); } catch (_) {}
       if (seen) router.navigate('game');
@@ -64,7 +68,7 @@ export const HomeView = {
     note.textContent = '';
     if (unlimited) {
       note.hidden = false;
-      note.textContent = '이 브라우저는 게임권 차감 없이 테스트할 수 있어요.';
+      note.textContent = '테스트 기간에는 누구나 게임권 차감 없이 플레이할 수 있어요.';
     } else if (tickets.invitation_reserved) {
       note.hidden = false;
       note.textContent = `장애 복구 중인 초대권 ${tickets.invitation_reserved}장이 별도로 보호되고 있어요.`;
@@ -73,9 +77,9 @@ export const HomeView = {
       note.textContent = `초대권 추가 적립 대기: ${new Date(tickets.cooldown_until).toLocaleString('ko-KR')}까지 · 가진 게임권은 사용할 수 있어요.`;
     } else if (!pendingSession && available < 1) {
       note.hidden = false;
-      note.textContent = '사용 가능한 게임권이 없어요. 친구의 새 유효 방문으로 초대권을 받을 수 있어요.';
+      note.textContent = '게임권이 필요해요. 친구가 초대 링크로 방문하면 게임권을 받을 수 있어요.';
     }
-    start.disabled = !pendingSession && (campaignStatus !== 'ACTIVE' || (!unlimited && available < 1));
+    start.disabled = !pendingSession && campaignStatus !== 'ACTIVE';
     start.textContent = '게임 시작';
     if (pendingSession) start.textContent = pendingSession.status === 'FAULT_REPORTED' ? '장애 복구 상태 확인' : '진행 중 게임 복원';
     else if (campaignStatus !== 'ACTIVE') {
@@ -83,7 +87,7 @@ export const HomeView = {
       note.hidden = false;
       note.textContent = campaignStatus === 'ENDED' ? '행사가 종료되어 새 게임을 시작할 수 없어요. 기존 기록과 수령 상태는 확인할 수 있어요.' : '운영자가 행사를 다시 시작하면 게임에 참여할 수 있어요.';
     }
-    else if (!unlimited && available < 1) start.textContent = '게임권이 필요해요';
+    else if (!unlimited && available < 1) start.textContent = '친구에게 공유하고 게임권 받기';
   },
   showGuideModal(router, autoStart = true) {
     showGameGuide(router, autoStart);

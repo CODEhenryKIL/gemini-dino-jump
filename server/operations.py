@@ -39,21 +39,29 @@ def _score_source(version):
 def _ranking_info(conn,pid,version,campaign_id):
     source=_score_source(version)
     row=_one(conn,f"""with scores as (
-      select b.* from {source} b join dino_dev.participant p on p.id=b.participant_id
+      select b.*,s.valid_ticks from {source} b join dino_dev.participant p on p.id=b.participant_id
+      join dino_dev.game_session s on s.id=b.session_id and s.participant_id=b.participant_id and s.campaign_id=p.campaign_id and s.version=%s
       where p.campaign_id=%s and p.status='ACTIVE'
-    ), mine as (select score from scores where participant_id=%s)
+    ), mine as (select score,valid_ticks from scores where participant_id=%s),
+    third_score as (select distinct score from scores order by score desc offset 2 limit 1),
+    third as (
+      select score,valid_ticks from scores where score=(select score from third_score)
+      order by achieved_at,participant_id limit 1
+    )
     select (select score from mine) best_score,
+      (select valid_ticks::double precision/60.0 from mine) best_elapsed_seconds,
       case when exists(select 1 from mine) then 1+(select count(distinct score)::int from scores where score>(select score from mine)) end rank,
-      (select score from (select distinct score from scores order by score desc offset 2 limit 1) t) third_score,
+      (select score from third) third_score,
+      (select valid_ticks::double precision/60.0 from third) third_elapsed_seconds,
       (select count(*)::int from scores) participant_count,
-      (select count(*)>1 from scores where score=(select score from mine)) tied""",(campaign_id,pid))
+      (select count(*)>1 from scores where score=(select score from mine)) tied""",(version,campaign_id,pid))
     own=row["best_score"];rank=row["rank"];third=row["third_score"]
     state="IN_TOP3" if rank is not None and rank<=3 else "TOO_FEW" if third is None else "NO_SCORE" if own is None else "CHASING"
-    return {"best_score":own or 0,"rank":rank,"game_version":version,
-      "top3_gap":{"status":state,"third_score":third,"score_needed":max(0,third-(own or 0)) if third is not None else None,
+    return {"best_score":own or 0,"best_elapsed_seconds":row["best_elapsed_seconds"],"rank":rank,"game_version":version,
+      "top3_gap":{"status":state,"third_score":third,"third_elapsed_seconds":row["third_elapsed_seconds"],"score_needed":max(0,third-(own or 0)) if third is not None else None,
                   "rank":rank,"tied":row["tied"],"participant_count":row["participant_count"]}}
 def _unlimited_play(row,ctx):
-    return bool(row["status"]=="ACTIVE" and row["synthetic"] and ctx.get("environment") in {"local","test","preview"} and row["id"] in ctx.get("preview_unlimited_participant_ids",frozenset()))
+    return bool(row["status"]=="ACTIVE" and row["synthetic"] and ctx.get("environment") in {"local","test","preview"} and ctx.get("preview_unlimited_play") is True)
 def _tickets(row,ctx):
     return {"initial":row["initial_balance"],"invitation":row["invitation_balance"],"invitation_reserved":row["invitation_refund_pending"],"available_total":row["initial_balance"]+row["invitation_balance"],"cooldown_until":_iso(row["cooldown_until"]),"cooldown_notice_pending":row["cooldown_notice_pending"],"unlimited_play":_unlimited_play(row,ctx)}
 def _event(conn,name,ctx,participant_id=None,event_id=None,screen=None,game_session_id=None,dimensions=None,observation_id=None,visit_session_id=None):
@@ -392,7 +400,7 @@ def leaderboard(conn,query,ctx):
       where is_public order by score desc,achieved_at limit %s""",(campaign["id"],limit))
     mine=_ranking_info(conn,p["id"] if p else None,version,campaign["id"])
     return 200,{"leaderboard":[{"rank":r["rank"],"nickname":r["nickname"],"score":r["score"],"tied":r["tied"],"is_me":bool(p and r["participant_id"]==p["id"])} for r in rows],
-      "me":{k:mine[k] for k in ("rank","best_score","top3_gap")} if mine["rank"] is not None else None,
+      "me":{k:mine[k] for k in ("rank","best_score","best_elapsed_seconds","top3_gap")} if mine["rank"] is not None else None,
       "top3_gap":mine["top3_gap"],"game_version":version,"tie_policy":"UNDECIDED"}
 def ranking_profile_get(conn,ctx):
     p=_participant(conn,ctx); row=_one(conn,"select status,game_version,submitted_at from dino_dev.ranking_contact where participant_id=%s",(p["id"],))

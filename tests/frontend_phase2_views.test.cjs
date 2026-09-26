@@ -40,7 +40,8 @@ test('home enables a newly earned ticket and uses the latest pending game after 
   const router = { state: { tickets: { initial: 0, invitation: 0 }, bestScore: 32 }, navigate: (route) => routes.push(route) };
   view.render(container, router);
   const start = nodes.get('#btn-start-jump');
-  assert.equal(start.disabled, true);
+  assert.equal(start.disabled, false);
+  assert.match(start.textContent, /친구에게 공유하고 게임권 받기/);
   router.state.tickets = { initial: 0, invitation: 1 };
   view.updateState(container, router);
   assert.equal(start.disabled, false);
@@ -88,7 +89,8 @@ test('home restores a draw route without requiring another ticket or another gam
   assert.deepEqual(routes, []);
   router.state.draw.status = 'AVAILABLE';
   view.updateState(container, router);
-  assert.equal(nodes.get('#btn-start-jump').disabled, true);
+  assert.equal(nodes.get('#btn-start-jump').disabled, false);
+  assert.match(nodes.get('#btn-start-jump').textContent, /친구에게 공유하고 게임권 받기/);
   assert.equal(draw.hidden, false);
   assert.equal(draw.textContent, '복주머니 열기');
   draw.onclick();
