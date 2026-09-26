@@ -204,7 +204,8 @@ body {
 .inline-notice { padding: 14px; background: #fff8df; border-radius: 14px; text-align: left; }
 .inline-notice p { font-size: 12px; margin: 6px 0 10px; }
 .ranking-list, .admin-claims { display: flex; flex-direction: column; gap: 8px; }
-.ranking-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; padding: 10px; border-bottom: 1px solid #eee; }
+.ranking-row { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 8px; padding: 10px; border-bottom: 1px solid #eee; }
+.ranking-row > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
 .ranking-row.is-me { background: var(--primary-light); border-radius: 10px; }
 .share-card { display: flex; flex-direction: column; gap: 10px; text-align: center; }
 .claim-card { display: flex; flex-direction: column; gap: 10px; }
@@ -348,6 +349,10 @@ body {
   padding: 24px;
   width: 100%;
   max-width: 380px;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
   transform: translateY(20px);
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);

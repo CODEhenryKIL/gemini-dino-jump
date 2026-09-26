@@ -51,12 +51,19 @@ export const PrizeView = {
 
   renderEmpty(container, router) {
     const card = document.createElement('section'); card.className = 'card empty-state';
-    const title = document.createElement('h2'); title.textContent = '접수할 경품이 아직 없어요';
-    const button = document.createElement('button'); button.className = 'btn btn-primary'; button.textContent = '복주머니 확인'; button.onclick = () => {
-      analytics.track('draw_cta_clicked', { source: 'claims', draw_status: router.state?.draw?.status || 'LOCKED' });
+    const status = router.state?.draw?.status || 'LOCKED';
+    const title = document.createElement('h2'); title.textContent = status === 'LOCKED' ? '복주머니가 아직 잠겨 있어요' : '접수할 경품이 아직 없어요';
+    const detail = document.createElement('p');
+    detail.textContent = status === 'LOCKED' ? '정상 검증된 게임을 한 번 완료하면 행사당 한 번 열 수 있어요.' : status === 'DRAWN' ? '이미 저장된 복주머니 결과를 다시 확인할 수 있어요.' : '첫 게임을 완료했으니 복주머니를 열 수 있어요.';
+    const button = document.createElement('button'); button.className = 'btn btn-primary';
+    button.textContent = status === 'LOCKED' ? '홈에서 게임 시작하기' : status === 'DRAWN' ? '내 복주머니 결과 보기' : '복주머니 열기';
+    button.onclick = () => {
+      const latest = router.state?.draw?.status || 'LOCKED';
+      if (!['AVAILABLE', 'DRAWN'].includes(latest)) { router.navigate('home'); return; }
+      analytics.track('draw_cta_clicked', { source: 'claims', draw_status: latest });
       router.navigate('draw');
     };
-    card.append(title, button); container.appendChild(card);
+    card.append(title, button, detail); container.appendChild(card);
   },
 
   claimCard(claim, router, renderToken) {
