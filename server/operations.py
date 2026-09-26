@@ -153,7 +153,12 @@ def _invite_visit(conn,p,invite_code,ctx,share_id=None):
 def participant_init(conn,body,ctx):
     share_id=str(body.get("share_id") or "")
     if share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id):raise DomainError("VALIDATION_ERROR","공유 식별자를 확인해 주세요.")
-    if ctx.get("participant_token_hash"):
+    # A test-data reset removes participants, while their browser cookies remain.
+    # Only a fresh bootstrap may replace a missing participant; existing blocked
+    # or expired accounts still pass through the normal authentication checks.
+    token_hash=ctx.get("participant_token_hash")
+    recover_missing=bool(token_hash and body.get("bootstrap_token") and ctx.get("bootstrap_token_hash") and not _one(conn,"select id from dino_dev.participant where token_hash=%s",(token_hash,)))
+    if token_hash and not recover_missing:
         p=_participant(conn,ctx,active=True)
         bootstrap=str(body.get("bootstrap_token") or "");oid=str(body.get("observation_id") or "")
         if bootstrap and oid and ctx.get("bootstrap_token_hash"):

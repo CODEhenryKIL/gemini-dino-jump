@@ -63,6 +63,28 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             with self.assertRaises(operations.DomainError) as caught:operations.participant_init(conn,{},context(participant_token_hash=h("invalid"),invite_nonce="x",invite_nonce_hash=h("x")))
         self.assertEqual(caught.exception.code,"SESSION_INVALID")
+    def test_reset_cookie_recovers_with_fresh_bootstrap_only(self):
+        eid="event_"+secrets.token_hex(8);oid="obs_"+secrets.token_hex(8)
+        bootstrap=secrets.token_urlsafe(32);raw=auth.deterministic_participant_token(bootstrap,PEPPER)
+        ctx=context(idempotency_key=secrets.token_urlsafe(32),bootstrap_token=bootstrap,bootstrap_token_hash=h(bootstrap),new_participant_token=raw,new_participant_token_hash=h(raw),participant_token_hash=h("deleted-participant-cookie"),invite_nonce="unused",invite_nonce_hash=h("unused"))
+        body={"bootstrap_token":bootstrap,"observation_id":oid}
+        with app_tx() as conn:
+            operations.create_observation(conn,{"event_id":eid,"observation_id":oid},ctx)
+            status,result=operations.participant_init(conn,body,ctx)
+            replay_status,replay=operations.participant_init(conn,body,ctx)
+            count=conn.execute("select count(*) n from dino_dev.ticket_ledger").fetchone()["n"]
+        self.assertEqual((status,replay_status,count),(201,200,1))
+        self.assertEqual(result["_set_cookie_token"],raw)
+        self.assertEqual(result["participant"]["id"],replay["participant"]["id"])
+    def test_fresh_bootstrap_does_not_replace_blocked_or_expired_account(self):
+        raw,_,result=self.make_participant();pid=result["participant"]["id"]
+        for expired,expected in ((False,"PARTICIPANT_BLOCKED"),(True,"SESSION_INVALID")):
+            with psycopg.connect(DSN) as conn:
+                conn.execute("update dino_dev.participant set status='BLOCKED',token_expires_at=clock_timestamp()+make_interval(secs=>%s) where id=%s",(-60 if expired else 3600,pid))
+            with app_tx() as conn:
+                with self.assertRaises(operations.DomainError) as caught:
+                    operations.participant_init(conn,{"bootstrap_token":"fresh"},context(participant_token_hash=h(raw),bootstrap_token_hash=h("fresh")))
+            self.assertEqual(caught.exception.code,expected)
     def test_all_participants_can_replay_without_ticket_or_ledger_changes(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
         with app_tx() as conn:conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
