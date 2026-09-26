@@ -125,12 +125,9 @@ export const DrawView = {
     const showResult = () => {
       if (!router.isCurrent(renderToken)) return;
       ui.text(container.querySelector('#scratch-title'), '복주머니 결과를 확인하세요');
-      ui.text(
-        container.querySelector('#scratch-instruction'),
-        draw.is_won
-          ? '이미 정해진 결과예요. 수령함에서 접수·진행 상태를 확인할 수 있어요.'
-          : '이미 정해진 결과예요. 게임 기록과 Gemini 혜택은 계속 확인할 수 있어요.',
-      );
+      const instruction = container.querySelector('#scratch-instruction');
+      ui.text(instruction, '');
+      instruction.hidden = true;
       resultContent.inert = false;
       resultContent.removeAttribute('inert');
       resultContent.setAttribute('aria-hidden', 'false');

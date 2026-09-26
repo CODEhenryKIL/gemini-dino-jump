@@ -256,7 +256,8 @@ test('restored scratched draw reveals the same server result without another dra
   assert.match(nodes.get('#restored-pouch').textContent, /3번 주머니/);
   assert.equal(nodes.get('#post-reveal-actions').hidden, false);
   assert.equal(nodes.get('#scratch-title').textContent, '복주머니 결과를 확인하세요');
-  assert.equal(nodes.get('#scratch-instruction').textContent, '이미 정해진 결과예요. 게임 기록과 Gemini 혜택은 계속 확인할 수 있어요.');
+  assert.equal(nodes.get('#scratch-instruction').textContent, '');
+  assert.equal(nodes.get('#scratch-instruction').hidden, true);
   assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);
   assert.equal(nodes.get('#btn-after-draw').textContent, '혜택 안내 보기');
 });
@@ -305,7 +306,8 @@ test('scratch result enters the accessibility tree only when revealed and canvas
   assert.equal(canvas.getAttribute('aria-hidden'), 'true');
   assert.equal(document.activeElement, nodes.get('#btn-after-draw'));
   assert.equal(nodes.get('#scratch-title').textContent, '복주머니 결과를 확인하세요');
-  assert.equal(nodes.get('#scratch-instruction').textContent, '이미 정해진 결과예요. 수령함에서 접수·진행 상태를 확인할 수 있어요.');
+  assert.equal(nodes.get('#scratch-instruction').textContent, '');
+  assert.equal(nodes.get('#scratch-instruction').hidden, true);
   assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);
   assert.equal(nodes.get('#btn-after-draw').textContent, '수령함에서 확인하기');
   assert.equal(nodes.get('#scratch-save-status').textContent, '결과는 그대로 유지됩니다. 저장 연결을 다시 시도해 주세요.');
