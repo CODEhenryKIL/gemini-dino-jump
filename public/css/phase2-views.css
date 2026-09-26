@@ -138,6 +138,7 @@
 }
 
 .result-gap {
+  white-space: pre-line;
   padding: 11px 13px;
   border-radius: 12px;
   background: #eef5ff;

@@ -163,7 +163,7 @@ test('prize claim preserves the form and rejects an empty school before sending 
 test('TOP3 gap copy handles server states without promising a prize', () => {
   const view = loadView('public/js/views/result_view.js', 'ResultView');
   assert.match(view.top3GapMessage({ rank: 2, top3_gap: { status: 'IN_TOP3', rank: 2, tied: false, participant_count: 8 } }), /현재 2위로 TOP3/);
-  assert.match(view.top3GapMessage({ rank: 3, top3_gap: { status: 'IN_TOP3', rank: 3, tied: true, participant_count: 8 } }), /같은 순위의 동점 기록/);
+  assert.equal(view.top3GapMessage({ rank: 3, top3_gap: { status: 'IN_TOP3', rank: 3, tied: true, participant_count: 8 } }), '현재 3위로 TOP3예요.\n최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.');
   assert.match(view.top3GapMessage({ rank: null, top3_gap: { status: 'TOO_FEW', participant_count: 2 } }), /현재 참가자는 2명/);
   assert.match(view.top3GapMessage({ rank: null, top3_gap: { status: 'NO_SCORE' } }), /검증된 점수/);
   assert.equal(view.top3GapMessage({ rank: 6, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 42, tied: false, participant_count: 8 } }), '현재 3위까지 42점이 더 필요해요.');

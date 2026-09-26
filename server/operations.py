@@ -29,12 +29,12 @@ def _participant(conn,ctx,lock=False,active=False):
 def _public(row): return {"id":row["id"],"nickname":row["nickname"],"is_public":row["is_public"],"referral_code":row["referral_code"]}
 def _game_version(conn,ctx):
     version=ctx.get("game_version") or _campaign(conn)["game_version"]
-    if version not in {"1.2.0","2.0.0"}:raise DomainError("GAME_VERSION_UNSUPPORTED","게임 업데이트를 확인해 주세요.",409)
+    if version not in {"1.2.0","2.0.0","2.1.0"}:raise DomainError("GAME_VERSION_UNSUPPORTED","게임 업데이트를 확인해 주세요.",409)
     return version
 def _score_source(version):
     # Static SQL fragments only. Old deployments can keep writing the v1 table.
     if version=="1.2.0":return "dino_dev.best_score"
-    if version=="2.0.0":return "(select participant_id,session_id,score,achieved_at from dino_dev.versioned_best_score where game_version='2.0.0')"
+    if version in {"2.0.0","2.1.0"}:return f"(select participant_id,session_id,score,achieved_at from dino_dev.versioned_best_score where game_version='{version}')"
     raise DomainError("GAME_VERSION_UNSUPPORTED","게임 업데이트를 확인해 주세요.",409)
 def _ranking_info(conn,pid,version,campaign_id):
     source=_score_source(version)
@@ -280,7 +280,7 @@ def start_session(conn,sid,ctx):
     p=_participant(conn,ctx,True,True); s=_owned_session(conn,sid,p["id"],True)
     if s["status"]=="ACTIVE": return 200,_session(s)
     if s["status"]!="RESERVED" or s["expires_at"]<=dt.datetime.now(UTC): raise DomainError("SESSION_NOT_STARTABLE","게임 시작 시간이 만료되었습니다.",409)
-    s=_one(conn,"update dino_dev.game_session set status='ACTIVE',started_at=clock_timestamp(),expires_at=clock_timestamp()+make_interval(secs=>%s) where id=%s returning *",(720 if s["version"]=="2.0.0" else 600,sid))
+    s=_one(conn,"update dino_dev.game_session set status='ACTIVE',started_at=clock_timestamp(),expires_at=clock_timestamp()+make_interval(secs=>%s) where id=%s returning *",(720 if s["version"] in {"2.0.0","2.1.0"} else 600,sid))
     return 200,{**_session(s),"started_at":_iso(s["started_at"])}
 def checkpoint(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
@@ -324,7 +324,9 @@ def finish_session(conn,sid,body,ctx):
     rank=_ranking_info(conn,p["id"],s["version"],p["campaign_id"])["rank"]
     if rank<=3:
         conn.execute("""insert into dino_dev.ranking_contact(participant_id,game_version) values(%s,%s)
-          on conflict(participant_id) do update set game_version=case when dino_dev.ranking_contact.game_version='2.0.0' then '2.0.0' else excluded.game_version end""",(p["id"],s["version"]))
+          on conflict(participant_id) do update set game_version=case
+            when excluded.game_version='2.1.0' or dino_dev.ranking_contact.game_version='1.2.0' then excluded.game_version
+            else dino_dev.ranking_contact.game_version end""",(p["id"],s["version"]))
     _event(conn,"game_finish_verified",ctx,p["id"],"game_finished:"+sid,game_session_id=sid,dimensions={"score":score,"rank":rank,"game_version":s["version"],"end_reason":end_reason,**summary})
     return 200,finish_response(conn,s)
 def finish_response(conn,s):
@@ -508,7 +510,7 @@ ENUM_DIMENSIONS={
     "INVITER_BALANCE_FULL_AT_ISSUE","QUALIFIED","PAIR_ALREADY_REWARDED","ACTIVE_TIME_OR_INTERACTION_REQUIRED",
     "INVITER_COOLDOWN","INVITER_BALANCE_FULL","INVALID_NONCE","NOT_ELIGIBLE","QUALIFICATION_REJECTED",
     "NETWORK_ERROR","CLIENT_ERROR","SERVER_ERROR","CAMPAIGN_UNAVAILABLE","RATE_LIMITED"},
-  "stage":{"stage_1","stage_2","stage_3","stage_4","stage_5","stage_6"},
+  "stage":{"stage_1","stage_2","stage_3","stage_4","stage_5","stage_6","stage_7","stage_8","stage_9","stage_10"},
   "bucket":{"0-1s","1-2s","2-3s","3s+","unknown"},
   "result_type":{"won","no_prize","unknown"},
   "prize_kind":{"COUPON","DIGITAL","SHIPPING","NO_PRIZE","NONE"},

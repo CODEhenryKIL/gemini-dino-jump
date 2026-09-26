@@ -19,7 +19,7 @@ const slides = [
   {
     title: '하트는 한 번 더 살아날 기회',
     description: '하트가 있으면 부딪혀도 다시 달려요.',
-    detail: '최대 1개 보관 · 쓰고 다시 얻을 수 있어요.',
+    detail: '부활할 때마다 −100점 · 하트는 최대 1개 보관해요.',
     scene: `<div class="guide-item-demo guide-heart-demo" aria-hidden="true"><img class="guide-item-dino" src="/assets/icons/Dino-Dark.png" alt=""><img class="guide-pickup" src="/assets/icons/Heart-Light.png" alt=""><span class="guide-pickup-result">부활 +1</span><span class="guide-revive-ring"></span><span class="guide-demo-ground"></span></div>`,
     className: 'guide-slide-heart',
   },

@@ -70,7 +70,7 @@ export const GameView = {
               <div class="hud-right"><strong id="hud-current-score" class="current-score">0</strong><button id="btn-toggle-sound" class="sound-toggle-btn" aria-label="소리 켜기 또는 끄기">🔊</button></div>
             </div>
             <div id="stage-flash-badge"><div class="stage-name">STAGE 1</div><div class="stage-sub">가볍게 시작!</div></div>
-            <div id="revive-flash" class="revive-flash" role="status" aria-live="polite"><img src="/assets/icons/Heart-Light.png" alt=""><strong>부활!</strong><span>보호막이 잠시 유지돼요</span></div>
+            <div id="revive-flash" class="revive-flash" role="status" aria-live="polite"><img src="/assets/icons/Heart-Light.png" alt=""><strong>부활!</strong><span id="revive-penalty-note">보호막이 잠시 유지돼요</span></div>
             <div id="countdown-overlay" class="countdown-overlay active"><div id="countdown-num" class="countdown-number">3</div><div>탭하여 점프하세요!</div></div>
           </div>
           <div class="jump-hint-box">탭: 낮게 점프 · 꾹 누르기: 높게 점프 · 높은 새: 점프 금지</div>
@@ -187,7 +187,7 @@ export const GameView = {
   validateResumeSnapshot(snapshot, state) {
     if (!snapshot) return '이 브라우저에 저장된 진행 데이터가 없습니다.';
     if (state?.status !== 'ACTIVE' && state?.status !== 'RESERVED') return '이어갈 수 있는 활성 게임이 아닙니다.';
-    if (state.version !== '2.0.0' || snapshot.version !== state.version) return '게임 버전이 일치하지 않습니다.';
+    if (!['2.0.0', '2.1.0'].includes(state.version) || snapshot.version !== state.version) return '게임 버전이 일치하지 않습니다.';
     if (snapshot.sessionId !== (state.session_id || state.id) || Number(snapshot.seed) !== Number(state.seed)) return '게임 세션 정보가 일치하지 않습니다.';
     const tick = Number(snapshot.tick);
     const checkpoint = Number(state.last_checkpoint_tick || 0);
@@ -261,7 +261,7 @@ export const GameView = {
     if (!router.isCurrent(renderToken)) return;
     this.sessionId = session.session_id;
     this.ticketKind = session.ticket_kind || null;
-    this.gameVersion = session.version || router.config?.game_version || '2.0.0';
+    this.gameVersion = session.version || router.config?.campaign?.game_version || '2.1.0';
     storageSet(`${CHECKPOINT_PREFIX}${this.sessionId}`, '0');
     storageSet(`${SNAPSHOT_PREFIX}${this.sessionId}`, JSON.stringify({ sessionId: this.sessionId, version: this.gameVersion, seed: session.seed, tick: 0, jumpTicks: [] }));
     await router.refreshState({ quiet: true });
@@ -368,6 +368,8 @@ export const GameView = {
         const revives = Number(event.revive_count || 0);
         ui.text(heartCount, Math.max(0, Math.min(1, Number(event.hearts || 0))));
         ui.text(reviveCount, revives);
+        const penaltyNote = container.querySelector('#revive-penalty-note');
+        if (penaltyNote) ui.text(penaltyNote, event.penalty ? `−${event.penalty}점 · 이번 판 총 −${event.total_penalty}점` : '보호막이 잠시 유지돼요');
         reviveFlash.classList.remove('show');
         void reviveFlash.offsetWidth;
         reviveFlash.classList.add('show');
@@ -455,7 +457,7 @@ export const GameView = {
     const key = `finish_${sessionId}`;
     const summary = result.summary || this.engine?.getSummary?.() || {};
     const payload = {
-      version: result.version || this.gameVersion || '2.0.0',
+      version: result.version || this.gameVersion || '2.1.0',
       end_reason: result.end_reason || 'COLLISION',
       score: result.score,
       ticks: result.ticks,

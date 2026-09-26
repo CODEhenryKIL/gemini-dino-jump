@@ -18,9 +18,7 @@ function obstacleAtDino() {
 }
 
 test('shared v2 constants match the browser simulation contract', () => {
-  const constants = JSON.parse(fs.readFileSync(path.join(root, 'shared/game_constants.json'), 'utf8'));
-  const frozen = JSON.parse(fs.readFileSync(path.join(root, 'shared/game_constants_v2.json'), 'utf8'));
-  assert.deepEqual(frozen, constants, 'the frozen v2 verifier constants start as an exact copy');
+  const constants = JSON.parse(fs.readFileSync(path.join(root, 'shared/game_constants_v2.json'), 'utf8'));
   assert.equal(constants.version, context.V2_RULES.version);
   assert.deepEqual(JSON.parse(JSON.stringify(context.OBSTACLE_TYPES)), constants.obstacleTypes.map((obstacle) => ({
     type: obstacle.type, w: obstacle.width, h: obstacle.height, altitude: obstacle.altitude,

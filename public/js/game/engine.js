@@ -8,7 +8,7 @@
  */
 
 import { audio } from './audio.js';
-import { V2GameSimulation, V2_RULES } from './simulation.js';
+import { V2GameSimulation, V2_RULES, V21_RULES, V21_STAGES } from './simulation.js';
 
 class PRNG {
   constructor(seed) {
@@ -119,7 +119,7 @@ export class DinoGameEngine {
     this.onCoinCollected = options.onCoinCollected || (() => {});
     this.onHeartChange = options.onHeartChange || (() => {});
     this.onRevive = options.onRevive || (() => {});
-    this.gameVersion = options.version || V2_RULES.version;
+    this.gameVersion = options.version || V21_RULES.version;
     this.reducedMotion = options.reducedMotion ?? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
     // Canonical Logical Dimensions (16:10 ratio)
@@ -171,6 +171,14 @@ export class DinoGameEngine {
       { stage: 5, start: 60, end: 75, spd1: 710, spd2: 800, minGap: 0.68, title: "STAGE 5", sub: "별빛과 달빛의 밤하늘" },
       { stage: 6, start: 75, end: 999999, spd1: 800, spd2: 880, minGap: 0.62, title: "STAGE 6", sub: "신비로운 제미나이 은하수" }
     ];
+
+    if (this.gameVersion === V21_RULES.version) {
+      this.stages = V21_STAGES.map((stage) => ({
+        stage: stage.stage, start: stage.startTime, end: stage.endTime,
+        spd1: stage.startSpeed, spd2: stage.endSpeed ?? stage.maxSpeed,
+        minGap: stage.minIntervalSec, title: stage.title, sub: stage.subtitle,
+      }));
+    }
 
     // Obstacle Definitions
     this.obstacleTypes = [
@@ -235,7 +243,7 @@ export class DinoGameEngine {
   start(seed) {
     this.seed = seed;
     this.prng = new PRNG(seed);
-    this.simulation = this.gameVersion === V2_RULES.version ? new V2GameSimulation(seed) : null;
+    this.simulation = [V2_RULES.version, V21_RULES.version].includes(this.gameVersion) ? new V2GameSimulation(seed, this.gameVersion) : null;
 
     this.isRunning = true;
     this.isPaused = false;
@@ -271,7 +279,7 @@ export class DinoGameEngine {
     const tick = Number(snapshot?.tick);
     const seed = Number(snapshot?.seed);
     const jumps = snapshot?.jumpTicks;
-    if (this.gameVersion !== V2_RULES.version || snapshot?.version !== this.gameVersion) throw new Error('지원하지 않는 게임 버전의 복원 데이터입니다.');
+    if (![V2_RULES.version, V21_RULES.version].includes(this.gameVersion) || snapshot?.version !== this.gameVersion) throw new Error('지원하지 않는 게임 버전의 복원 데이터입니다.');
     if (!Number.isInteger(seed) || seed < 0 || !Number.isInteger(tick) || tick < 0 || tick >= V2_RULES.maxTicks || !Array.isArray(jumps)) throw new Error('게임 복원 데이터가 올바르지 않습니다.');
     let previousTick = -1;
     const jumpByTick = new Map();
@@ -284,7 +292,7 @@ export class DinoGameEngine {
 
     this.seed = seed;
     this.prng = new PRNG(seed);
-    this.simulation = new V2GameSimulation(seed);
+    this.simulation = new V2GameSimulation(seed, this.gameVersion);
     while (this.simulation.currentTick < tick && !this.simulation.ended) {
       const high = jumpByTick.get(this.simulation.currentTick);
       this.simulation.step(high === undefined ? {} : { jump: true, high });
@@ -467,6 +475,11 @@ export class DinoGameEngine {
   }
 
   getSpeed(timeSec) {
+    if (this.gameVersion === V21_RULES.version) {
+      const stage = this.stages.find((entry) => timeSec >= entry.start && timeSec < entry.end) || this.stages[this.stages.length - 1];
+      const progress = Math.min(1, Math.max(0, (timeSec - stage.start) / 15));
+      return stage.spd1 + progress * (stage.spd2 - stage.spd1);
+    }
     for (const s of this.stages) {
       if (timeSec >= s.start && timeSec < s.end) {
         if (s.stage <= 5) {
@@ -708,7 +721,7 @@ export class DinoGameEngine {
         audio.playCollision();
         this.spawnReviveEffect();
         this.onHeartChange({ hearts: 0, hearts_collected: this.simulation.hearts, reason: 'consumed' });
-        this.onRevive({ revive_count: this.simulation.revives, hearts: 0, invulnerable_until_tick: event.invulnerableUntilTick });
+        this.onRevive({ revive_count: this.simulation.revives, hearts: 0, penalty: event.penalty || 0, total_penalty: event.totalPenalty || 0, invulnerable_until_tick: event.invulnerableUntilTick });
       }
     }
     this.groundOffset = (this.groundOffset + speed * this.dt) % 40;

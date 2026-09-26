@@ -84,8 +84,7 @@ export const ResultView = {
       if (status === 'NO_SCORE') return '검증된 점수가 생기면 TOP3와의 차이를 보여드려요.';
       if (status === 'TOO_FEW') return `현재 참가자는 ${Number(gap.participant_count) || 0}명이에요. 3위 점수가 생기면 차이를 보여드려요.`;
       if (status === 'IN_TOP3') {
-        const tie = gap.tied ? ' 현재 같은 순위의 동점 기록이 있어요.' : '';
-        return `현재 ${Number(gap.rank) || Number(result.rank) || 3}위로 TOP3예요.${tie} 최종 경품 지급 순위와 동점 수상 기준은 이벤트 종료 시점에 확정돼요.`;
+        return `현재 ${Number(gap.rank) || Number(result.rank) || 3}위로 TOP3예요.\n최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.`;
       }
       if (status === 'CHASING') {
         const points = Number(gap.score_needed);
@@ -94,7 +93,7 @@ export const ResultView = {
       }
       return 'TOP3 기준을 계산하는 중이에요.';
     }
-    if (result.rank && result.rank <= 3) return '현재 TOP3예요. 최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.';
+    if (result.rank && result.rank <= 3) return `현재 ${result.rank}위로 TOP3예요.\n최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.`;
     const points = Number(gap);
     if (Number.isFinite(points) && points > 0) return `현재 3위까지 ${points}점 차이예요.`;
     if (points === 0) return '현재 3위 점수와 동점이에요. 최종 동점 수상 기준은 이벤트 종료 시점에 확정돼요.';

@@ -78,6 +78,41 @@ class BackendPhase2Test(unittest.TestCase):
             again=operations.finish_session(conn,s['session_id'],{},dict(ctx,verification=self.verification))[1]
             self.assertEqual(result,again)
 
+    def test_v21_finish_uses_penalized_score_and_separate_leaderboard(self):
+        play = json.loads(subprocess.check_output([
+            'node', str(ROOT/'tests/js_v2_fixture_runner.cjs'),
+            json.dumps({'mode':'bot','seed':4,'target_revives':2,'version':'2.1.0'}),
+        ], text=True, cwd=ROOT))
+        verification = game_verifier.verify_game(
+            '2.1.0', 4, play['jump_ticks'], play['score'], play['ticks'],
+        )
+        self.assertTrue(verification['valid'])
+        self.assertEqual(verification['summary']['revive_penalty'], verification['summary']['revives'] * 100)
+        raw,_,participant = self.make_participant()
+        ctx = fixtures.context(
+            participant_token_hash=fixtures.h(raw), game_version='2.1.0',
+            idempotency_key=secrets.token_urlsafe(24),
+        )
+        with fixtures.app_tx() as conn:
+            _,reserved = operations.create_session(conn,{},ctx)
+            _,started = operations.start_session(conn,reserved['session_id'],ctx)
+            conn.execute(
+                "update dino_dev.game_session set seed=4,started_at=clock_timestamp()-make_interval(secs=>%s) where id=%s",
+                (play['ticks']/60+1, started['session_id']),
+            )
+            _,finished = operations.finish_session(
+                conn, started['session_id'], {}, dict(ctx,verification=verification),
+            )
+            self.assertEqual((started['version'],finished['game_version']), ('2.1.0','2.1.0'))
+            self.assertEqual((finished['score'],finished['summary']), (play['score'],play['summary']))
+            stored = conn.execute(
+                "select game_version,score from dino_dev.versioned_best_score where participant_id=%s",
+                (participant['participant']['id'],),
+            ).fetchone()
+            self.assertEqual(dict(stored), {'game_version':'2.1.0','score':play['score']})
+            old = operations.get_me(conn,dict(ctx,game_version='2.0.0'))[1]
+            self.assertEqual((old['best_score'],old['rank']), (0,None))
+
     def test_expired_active_game_cannot_submit_or_rank(self):
         raw,_,_=self.make_participant();ctx,s=self.started(raw)
         with fixtures.app_tx() as conn:
