@@ -26,6 +26,20 @@ export const GameView = {
   countdownRunId: 0,
   heartsCollected: 0,
   expiryTimer: null,
+  lifecycleId: 0,
+
+  isOperationCurrent(lifecycleId, sessionId) {
+    return this.lifecycleId === lifecycleId && this.sessionId === sessionId;
+  },
+
+  removePendingResult(sessionId, key) {
+    const raw = storageGet(PENDING_RESULT_KEY);
+    if (!raw) return;
+    try {
+      const pending = JSON.parse(raw);
+      if (pending?.sessionId === sessionId && pending?.key === key) storageRemove(PENDING_RESULT_KEY);
+    } catch (_) {}
+  },
 
   async render(container, router, renderToken) {
     this.resetRuntime();
@@ -76,7 +90,7 @@ export const GameView = {
       const state = await api.getSession(pending.sessionId);
       if (!router.isCurrent(renderToken)) return true;
       if (state.status === 'FINISHED') {
-        storageRemove(PENDING_RESULT_KEY);
+        this.removePendingResult(pending.sessionId, pending.key);
         storageRemove(`${SNAPSHOT_PREFIX}${pending.sessionId}`);
         this.acceptResult(state.result || state, router);
         analytics.track('game_recovered', { status: 'FINISHED' }, { gameSessionId: pending.sessionId });
@@ -84,13 +98,14 @@ export const GameView = {
         return true;
       }
       const result = await api.finishSession(pending.sessionId, pending.payload, pending.key);
-      storageRemove(PENDING_RESULT_KEY);
+      if (!router.isCurrent(renderToken)) return true;
+      this.removePendingResult(pending.sessionId, pending.key);
       storageRemove(`${SNAPSHOT_PREFIX}${pending.sessionId}`);
       this.acceptResult(result, router);
       router.navigate('result');
       return true;
     } catch (error) {
-      if (error.status && error.status < 500) storageRemove(PENDING_RESULT_KEY);
+      if (router.isCurrent(renderToken) && error.status && error.status < 500) this.removePendingResult(pending.sessionId, pending.key);
       throw error;
     }
   },
@@ -105,11 +120,14 @@ export const GameView = {
     const detail = document.createElement('p'); detail.textContent = pending.status === 'FAULT_REPORTED' ? '장애 기록을 확인하고 사용한 게임권을 복구하는 중입니다. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.' : faultMarker ? '이 브라우저에 저장된 장애 시점과 서버 체크포인트를 확인해 복구를 요청합니다. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.' : snapshot ? '저장된 진행 시점과 서버 체크포인트를 확인한 뒤 같은 게임을 이어갑니다.' : '이 브라우저에 이어하기 데이터가 없어 게임을 처음부터 다시 시작할 수 없습니다. 세션 만료 또는 복구 상태를 확인해 주세요. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.';
     const check = document.createElement('button'); check.className = 'btn btn-primary'; check.textContent = pending.status === 'FAULT_REPORTED' ? '복구 상태 확인' : faultMarker ? '장애 복구 요청' : snapshot ? '같은 게임 이어하기' : '복구 상태 확인';
     check.onclick = async () => {
+      const operationLifecycle = this.lifecycleId;
+      const operationIsCurrent = () => router.isCurrent(renderToken) && this.lifecycleId === operationLifecycle;
       check.disabled = true;
       try {
         if (pending.status !== 'FAULT_REPORTED' && faultMarker) {
           this.sessionId = id;
-          await this.reportFault(faultMarker.reason, faultMarker.tick, faultMarker.key);
+          await this.reportFault(faultMarker.reason, faultMarker.tick, faultMarker.key, operationIsCurrent);
+          if (!operationIsCurrent()) return;
           pending.status = 'FAULT_REPORTED';
           router.state.pendingGameSession = { ...pending, status: 'FAULT_REPORTED' };
           detail.textContent = '장애 기록이 접수됐습니다. 서버 확인 뒤 게임권 복구 상태를 확인할 수 있어요.';
@@ -119,9 +137,16 @@ export const GameView = {
         }
         if (pending.status !== 'FAULT_REPORTED') {
           const state = await api.getSession(id);
-          if (!router.isCurrent(renderToken)) return;
+          if (!operationIsCurrent()) return;
           if (state.status === 'FINISHED') { storageRemove(`${SNAPSHOT_PREFIX}${id}`); this.acceptResult(state.result || state, router); router.navigate('result'); return; }
-          if (state.status === 'ABORTED' || state.status === 'EXPIRED') { this.clearSessionStorage(id); await router.refreshState(); analytics.track('game_recovered', { status: state.status }, { gameSessionId: id }); router.navigate('home'); return; }
+          if (state.status === 'ABORTED' || state.status === 'EXPIRED') {
+            this.clearSessionStorage(id);
+            await router.refreshState();
+            if (!operationIsCurrent()) return;
+            analytics.track('game_recovered', { status: state.status }, { gameSessionId: id });
+            router.navigate('home');
+            return;
+          }
           const currentSnapshot = this.readResumeSnapshot(id);
           const invalidReason = this.validateResumeSnapshot(currentSnapshot, state);
           if (invalidReason) {
@@ -135,11 +160,19 @@ export const GameView = {
           return;
         }
         const state = await api.getSession(id);
+        if (!operationIsCurrent()) return;
         if (state.status === 'FINISHED') { this.acceptResult(state.result || state, router); router.navigate('result'); return; }
-        if (state.status === 'ABORTED') { this.clearSessionStorage(id); await router.refreshState(); analytics.track('game_recovered', { status: 'ABORTED' }, { gameSessionId: id }); router.navigate('home'); return; }
+        if (state.status === 'ABORTED') {
+          this.clearSessionStorage(id);
+          await router.refreshState();
+          if (!operationIsCurrent()) return;
+          analytics.track('game_recovered', { status: 'ABORTED' }, { gameSessionId: id });
+          router.navigate('home');
+          return;
+        }
         detail.textContent = '서버가 장애 기록을 확인 중입니다. 잠시 후 다시 확인해 주세요.';
-      } catch (error) { ui.showToast(error.message); }
-      check.disabled = false;
+      } catch (error) { if (operationIsCurrent()) ui.showToast(error.message); }
+      if (operationIsCurrent()) check.disabled = false;
     };
     const home = document.createElement('button'); home.className = 'btn btn-secondary'; home.textContent = '홈으로'; home.onclick = () => router.navigate('home');
     card.append(title, detail, check, home); container.appendChild(card);
@@ -248,15 +281,22 @@ export const GameView = {
 
   async sendCheckpoint() {
     if (!this.sessionId || !this.engine?.isRunning || this.completing) return;
-    const tick = Number(this.engine.currentTick || 0);
+    const sessionId = this.sessionId;
+    const engine = this.engine;
+    const stage = this.currentStage;
+    const lifecycleId = this.lifecycleId;
+    const tick = Number(engine.currentTick || 0);
     if (tick <= 0) return;
     this.persistResumeSnapshot();
     try {
-      await api.checkpointSession(this.sessionId, tick, this.currentStage);
-      storageSet(`${CHECKPOINT_PREFIX}${this.sessionId}`, String(tick));
-      storageRemove(`${FAULT_PREFIX}${this.sessionId}`);
+      await api.checkpointSession(sessionId, tick, stage);
+      if (!this.isOperationCurrent(lifecycleId, sessionId) || this.engine !== engine || this.completing || this.normalEnd) return;
+      const checkpointKey = `${CHECKPOINT_PREFIX}${sessionId}`;
+      storageSet(checkpointKey, String(Math.max(tick, Number(storageGet(checkpointKey) || 0))));
+      const fault = this.readFaultMarker(sessionId);
+      if (!fault || Number(fault.tick || 0) <= tick) storageRemove(`${FAULT_PREFIX}${sessionId}`);
     } catch (error) {
-      if (!error.status || error.status >= 500) this.persistFaultMarker('NETWORK_ERROR', tick);
+      if (this.isOperationCurrent(lifecycleId, sessionId) && this.engine === engine && !this.completing && !this.normalEnd && (!error.status || error.status >= 500)) this.persistFaultMarker('NETWORK_ERROR', tick);
     }
   },
 
@@ -336,7 +376,7 @@ export const GameView = {
         analytics.track('game_revived', { game_version: this.gameVersion, revive_count: revives, hearts: Number(event.hearts || 0), tick: Number(this.engine?.currentTick || 0) }, { gameSessionId: this.sessionId });
       },
       onGameOver: (result) => {
-        if (router.isCurrent(renderToken)) this.handleGameOver(result, router, container);
+        if (router.isCurrent(renderToken)) this.handleGameOver(result, router, container, renderToken);
       },
     });
     const press = (event) => { event?.preventDefault?.(); this.engine?.jumpPress(); };
@@ -405,12 +445,14 @@ export const GameView = {
     });
   },
 
-  async handleGameOver(result, router, container) {
+  async handleGameOver(result, router, container, renderToken = router.renderToken) {
     if (this.completing) return;
+    const sessionId = this.sessionId;
+    const lifecycleId = this.lifecycleId;
     this.completing = true;
     this.normalEnd = true;
     this.stopEngine();
-    const key = `finish_${this.sessionId}`;
+    const key = `finish_${sessionId}`;
     const summary = result.summary || this.engine?.getSummary?.() || {};
     const payload = {
       version: result.version || this.gameVersion || '2.0.0',
@@ -426,19 +468,20 @@ export const GameView = {
         revives: Number(summary.revives || 0),
       },
     };
-    storageSet(PENDING_RESULT_KEY, JSON.stringify({ sessionId: this.sessionId, payload, key }));
+    storageSet(PENDING_RESULT_KEY, JSON.stringify({ sessionId, payload, key }));
     try {
-      const response = await api.finishSession(this.sessionId, payload, key);
-      storageRemove(PENDING_RESULT_KEY);
-      storageRemove(`${CHECKPOINT_PREFIX}${this.sessionId}`);
-      storageRemove(`${FAULT_PREFIX}${this.sessionId}`);
-      storageRemove(`${SNAPSHOT_PREFIX}${this.sessionId}`);
+      const response = await api.finishSession(sessionId, payload, key);
+      if (!router.isCurrent(renderToken) || !this.isOperationCurrent(lifecycleId, sessionId)) return;
+      this.removePendingResult(sessionId, key);
+      storageRemove(`${CHECKPOINT_PREFIX}${sessionId}`);
+      storageRemove(`${FAULT_PREFIX}${sessionId}`);
+      storageRemove(`${SNAPSHOT_PREFIX}${sessionId}`);
       this.acceptResult(response, router);
-      analytics.track('game_completed', { game_version: payload.version, end_reason: payload.end_reason, score: response.score, rank: response.rank || 0, status: response.verification, coin_count: payload.summary.coins, coin_score: payload.summary.coin_score, revive_count: payload.summary.revives }, { gameSessionId: this.sessionId });
+      analytics.track('game_completed', { game_version: payload.version, end_reason: payload.end_reason, score: response.score, rank: response.rank || 0, status: response.verification, coin_count: payload.summary.coins, coin_score: payload.summary.coin_score, revive_count: payload.summary.revives }, { gameSessionId: sessionId });
       router.announceStateChange();
       router.navigate('result');
     } catch (error) {
-      this.renderFinishRetry(container, router, error);
+      if (router.isCurrent(renderToken) && this.isOperationCurrent(lifecycleId, sessionId)) this.renderFinishRetry(container, router, error);
     }
   },
 
@@ -509,30 +552,46 @@ export const GameView = {
     return marker;
   },
 
-  async reportFault(reason, lastTick = 0, existingKey = null) {
+  async reportFault(reason, lastTick = 0, existingKey = null, externalGuard = null) {
     if (!this.sessionId || this.normalEnd) return;
+    const sessionId = this.sessionId;
+    const stage = this.currentStage;
+    const lifecycleId = this.lifecycleId;
+    const operationIsCurrent = () => this.isOperationCurrent(lifecycleId, sessionId) && !this.normalEnd && (!externalGuard || externalGuard());
     const marker = this.persistFaultMarker(reason, lastTick);
     const key = existingKey || marker?.key || api.createRequestId('fault');
-    let tick = Math.max(Number(lastTick || 0), Number(storageGet(`${CHECKPOINT_PREFIX}${this.sessionId}`) || 0));
+    let tick = Math.max(Number(lastTick || 0), Number(storageGet(`${CHECKPOINT_PREFIX}${sessionId}`) || 0));
     try {
       if (tick >= 60) {
         try {
-          await api.checkpointSession(this.sessionId, tick, this.currentStage);
-          storageSet(`${CHECKPOINT_PREFIX}${this.sessionId}`, String(tick));
+          await api.checkpointSession(sessionId, tick, stage);
+          if (!operationIsCurrent()) return false;
+          const checkpointKey = `${CHECKPOINT_PREFIX}${sessionId}`;
+          storageSet(checkpointKey, String(Math.max(tick, Number(storageGet(checkpointKey) || 0))));
         } catch (error) {
+          if (!operationIsCurrent()) return false;
           if (error.status === 409) {
-            const state = await api.getSession(this.sessionId);
+            const state = await api.getSession(sessionId);
+            if (!operationIsCurrent()) return false;
             const accepted = Number(state.last_checkpoint_tick || 0);
             if (accepted < 60) throw error;
             tick = Math.max(tick, accepted);
           } else throw error;
         }
       }
-      await api.reportSessionFault(this.sessionId, { reason, last_tick: tick }, key);
-      storageRemove(`${FAULT_PREFIX}${this.sessionId}`);
-      analytics.track('game_fault_reported', { reason }, { gameSessionId: this.sessionId });
+      if (!operationIsCurrent()) return false;
+      await api.reportSessionFault(sessionId, { reason, last_tick: tick }, key);
+      if (!operationIsCurrent()) return false;
+      const currentMarker = this.readFaultMarker(sessionId);
+      if (!currentMarker || currentMarker.key === key) storageRemove(`${FAULT_PREFIX}${sessionId}`);
+      analytics.track('game_fault_reported', { reason }, { gameSessionId: sessionId });
+      return true;
     } catch (error) {
-      if (error.status && error.status < 500 && error.status !== 408 && error.status !== 429) storageRemove(`${FAULT_PREFIX}${this.sessionId}`);
+      if (!operationIsCurrent()) return false;
+      if (error.status && error.status < 500 && error.status !== 408 && error.status !== 429) {
+        const currentMarker = this.readFaultMarker(sessionId);
+        if (!currentMarker || currentMarker.key === key) storageRemove(`${FAULT_PREFIX}${sessionId}`);
+      }
       throw error;
     }
   },
@@ -577,6 +636,7 @@ export const GameView = {
     clearInterval(this.checkpointTimer);
     clearInterval(this.expiryTimer);
     this.persistResumeSnapshot();
+    this.lifecycleId += 1;
     this.stopEngine();
     for (const cleanup of this.cleanupTasks || []) cleanup();
     this.cleanupTasks = [];

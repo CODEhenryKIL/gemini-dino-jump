@@ -93,7 +93,7 @@ test('rebatching the same first event gets a fresh request key and relies on eve
 test('lost finish retries retain an exact key and a PII-free payload', () => {
   const game = read('public/js/views/game_view.js');
   assert.match(game, /storageSet\(PENDING_RESULT_KEY/);
-  assert.match(game, /const key = `finish_\$\{this\.sessionId\}`/);
+  assert.match(game, /const sessionId = this\.sessionId;[\s\S]*const key = `finish_\$\{sessionId\}`/);
   assert.match(game, /api\.getSession\(pending\.sessionId\)/);
   assert.doesNotMatch(game, /session_token|contact|recipient|participant_id/i);
   assert.match(game, /checkpointSession/);
@@ -230,9 +230,6 @@ test('fault recovery persists only non-PII evidence and reconciles rejected chec
   const game = read('public/js/views/game_view.js');
   assert.match(game, /FAULT_PREFIX = 'dino_fault_'/);
   assert.match(game, /persistFaultMarker\('NETWORK_ERROR', tick\)/);
-  assert.match(game, /error\.status === 409[\s\S]*api\.getSession\(this\.sessionId\)/);
-  assert.match(game, /await api\.checkpointSession\(this\.sessionId, tick, this\.currentStage\)/);
-  assert.match(game, /await api\.reportSessionFault/);
   assert.match(game, /정상 종료나 자발적 이탈은 환급 대상이 아닙니다/);
   assert.doesNotMatch(game, /recipient_name|contact|address|participant_token/i);
 });

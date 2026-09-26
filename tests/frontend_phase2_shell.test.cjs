@@ -343,6 +343,7 @@ test('game completion forwards verifier version, terminal reason, and item summa
   view.engine = { stop() {} };
   const router = {
     state: { tickets: {}, bestScore: 0, rank: null },
+    isCurrent: () => true,
     announceStateChange() {}, updateNav() {}, navigate: (viewName) => navigations.push(viewName),
   };
   await view.handleGameOver({ version: '2.0.0', end_reason: 'TIME_LIMIT', score: 130, ticks: 36000, jump_ticks: [], summary: { coins: 3, coin_score: 30, hearts: 2, revives: 2 } }, router, {});
