@@ -17,6 +17,7 @@
 .ranking-reward-3 { background: #e6f4ea; }
 .ranking-reward strong { font-size: clamp(16px, 4.7vw, 20px); letter-spacing: -.04em; }
 .ranking-reward > span { font-size: 12px; font-weight: 600; }
+.ranking-reward > .ranking-reward-medal { font-size: 19px; line-height: 1; }
 .ranking-award-note { margin: 8px 0 0; color: #5f6368; font-size: 12px; line-height: 1.6; }
 .ranking-my-record { padding: 22px 16px; box-shadow: none; border: 1px solid #e8eaed; }
 .ranking-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; text-align: center; }

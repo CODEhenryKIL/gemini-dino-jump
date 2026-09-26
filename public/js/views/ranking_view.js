@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { analytics } from '../analytics.js';
 
 const rankingRequests = new WeakMap();
+const rankLabel = (rank) => ['🥇', '🥈', '🥉'][rank - 1] || `${rank}위`;
 
 export const RankingView = {
   render(container, router, renderToken) {
@@ -22,7 +23,7 @@ export const RankingView = {
       const rewards = document.createElement('div'); rewards.className = 'ranking-rewards';
       for (const [index, amount] of ['5만원', '3만원', '1만원'].entries()) {
         const reward = document.createElement('div'); reward.className = `ranking-reward ranking-reward-${index + 1}`;
-        const place = document.createElement('span'); place.textContent = `${index + 1}위`;
+        const place = document.createElement('span'); place.textContent = rankLabel(index + 1); place.className = 'ranking-reward-medal'; place.setAttribute('role', 'img'); place.setAttribute('aria-label', `${index + 1}위`);
         const value = document.createElement('strong'); value.textContent = amount;
         reward.append(place, value); rewards.appendChild(reward);
       }
@@ -32,7 +33,7 @@ export const RankingView = {
       const gap = data.top3_gap ?? data.me?.top3_gap ?? {};
       const metrics = document.createElement('div'); metrics.className = 'ranking-metrics';
       const count = Number.isInteger(gap.participant_count) ? `${gap.participant_count.toLocaleString('ko-KR')}명` : '집계 중';
-      for (const [label, value] of [['내 순위', data.me?.rank ? `${data.me.rank}위` : '기록 없음'], ['내 최고 점수', data.me?.rank ? `${Number(data.me.best_score).toLocaleString('ko-KR')}점` : '—'], ['랭킹 참가자', count]]) {
+      for (const [label, value] of [['내 순위', data.me?.rank ? rankLabel(data.me.rank) : '기록 없음'], ['내 최고 점수', data.me?.rank ? `${Number(data.me.best_score).toLocaleString('ko-KR')}점` : '—'], ['랭킹 참가자', count]]) {
         const item = document.createElement('div');
         const caption = document.createElement('span'); caption.textContent = label;
         const number = document.createElement('strong'); number.textContent = value;
@@ -44,7 +45,7 @@ export const RankingView = {
       if (!data.leaderboard?.length) { const empty = document.createElement('p'); empty.textContent = '등록된 기록이 없습니다.'; list.appendChild(empty); }
       for (const entry of data.leaderboard || []) {
         const row = document.createElement('div'); row.className = `ranking-row${entry.is_me ? ' is-me' : ''}`;
-        const rank = document.createElement('strong'); rank.textContent = `${entry.rank}위${entry.tied ? ' (동점)' : ''}`;
+        const rank = document.createElement('strong'); rank.textContent = `${rankLabel(entry.rank)}${entry.tied ? ' (동점)' : ''}`; rank.setAttribute('aria-label', `${entry.rank}위${entry.tied ? ' 동점' : ''}`);
         const nickname = document.createElement('span'); nickname.textContent = entry.nickname;
         const score = document.createElement('span'); score.textContent = `${entry.score}점`;
         row.append(rank, nickname, score); list.appendChild(row);
