@@ -4,7 +4,7 @@
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
 상태: **2차 화면·기능 개선 진행 중. 원격 migration 및 Smile/Heart 적용 완료. 아래 복귀·수령·메뉴·노출 보완을 Preview에 반영하고 기본 화면·노출 저장을 확인했다. 2차 부하는 사용자 지시로 보류.**
 
-최신 개선 Preview: https://dino-nanobanana-dgwikzmje-henry-kils-projects.vercel.app (`dpl_8gsBd3YjYVqceQgmdRaMtdBkYHrq`, 코드 `4b50d9c`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
+최신 개선 Preview: https://dino-nanobanana-ofz9z1dhx-henry-kils-projects.vercel.app (`dpl_2rCfC9dnJ6yZ8C33EtdeS8uybZnZ`, 코드 `8404e6d`). 이후 검증 보고서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
 
 ## 가이드 실제 클릭·고유 사용자 집계 확인
 
@@ -12,6 +12,7 @@
 - 기존 합성 관리자 인증으로 `phase2_guides` 채널의 통계를 조회했다. 두 콘텐츠 모두 노출 1회·클릭 1회·노출/클릭 참가자 1명이었다. 같은 참가자가 공부 가이드를 한 번 더 누른 뒤에는 공부 클릭만 2회가 되고 고유 클릭 참가자는 1명으로 유지됐다. 미연결 이벤트·경유 요청은 0이었다.
 - 이 확인은 앱의 실제 버튼 → 원격 이벤트 저장 → 인증된 관리자 API 집계를 대조한 것이다. 단일 기능 확인의 CTR 100%를 실제 서비스 전환 성과로 사용하지 않는다. 앱은 Notion 본문 도착/열람 완료나 Gemini 가입 완료를 수집하지 않는다.
 - 신규 이벤트 카드의 표시가 원시 영문 코드로 남은 누락을 보완했다. `content_viewed`는 `가이드 카드 노출`, `content_clicked`는 `가이드 링크 클릭`, `scratch_reveal_requested`는 `긁기 보조 공개 요청`으로 표시한다. 집계 SQL·권한·이벤트 차원은 유지했다. 관련 로컬 PostgreSQL 회귀 **4개**와 Python 문법·diff 검사를 통과했다.
+- 수정 `8404e6d` Preview는 READY, `database=ready`, `synthetic_only=true`다. 기존 `phase2_guides`·`phase2_scratch` 기록을 관리자 API로 다시 읽어 세 한글 라벨을 확인했다. 가이드 노출 총 2·클릭 총 3·고유 참가자 1, 긁기 보조 공개 요청 1·고유 참가자 1로 기존 집계를 유지했다. 새 Preview 검증에서는 참가자·추첨 기록을 추가하지 않았다. 관리자 카드 렌더러는 이 응답의 `label`을 그대로 표시하며, 이번 확인은 원격 API 값 대조다.
 
 ## 공유 응답 지연·화면 이동 보완
 
