@@ -63,6 +63,57 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             with self.assertRaises(operations.DomainError) as caught:operations.participant_init(conn,{},context(participant_token_hash=h("invalid"),invite_nonce="x",invite_nonce_hash=h("x")))
         self.assertEqual(caught.exception.code,"SESSION_INVALID")
+    def test_allowlisted_participant_can_replay_without_ticket_or_ledger_changes(self):
+        raw,_,created=self.make_participant();pid=created["participant"]["id"]
+        with app_tx() as conn:conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
+        allowlist=frozenset({pid})
+        for index in range(2):
+            ctx=context(participant_token_hash=h(raw),idempotency_key=f"unlimited-{index}-{secrets.token_hex(8)}",preview_unlimited_participant_ids=allowlist)
+            with app_tx() as conn:
+                _,me=operations.get_me(conn,ctx);self.assertTrue(me["tickets"]["unlimited_play"]);self.assertEqual(me["tickets"]["available_total"],0)
+                status,session=operations.create_session(conn,{},ctx);self.assertEqual(status,201)
+                row=conn.execute("select ticket_kind,ticket_refund_status from dino_dev.game_session where id=%s",(session["session_id"],)).fetchone()
+                self.assertEqual((row["ticket_kind"],row["ticket_refund_status"]),("INITIAL","NOT_DUE"))
+                conn.execute("update dino_dev.game_session set status='FINISHED',score=0,valid_ticks=60,verification_result='VERIFIED',finished_at=clock_timestamp() where id=%s",(session["session_id"],))
+        with app_tx() as conn:
+            participant=conn.execute("select initial_balance,invitation_balance,invitation_refund_pending from dino_dev.participant where id=%s",(pid,)).fetchone()
+            charged=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME'",(pid,)).fetchone()["n"]
+        self.assertEqual((participant["initial_balance"],participant["invitation_balance"],participant["invitation_refund_pending"],charged),(0,0,0,0))
+    def test_unlisted_participant_cannot_spoof_unlimited_play_in_request_body(self):
+        raw,_,created=self.make_participant();pid=created["participant"]["id"]
+        with app_tx() as conn:
+            conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
+            ctx=context(participant_token_hash=h(raw),idempotency_key=secrets.token_urlsafe(32))
+            _,me=operations.get_me(conn,ctx);self.assertFalse(me["tickets"]["unlimited_play"])
+            with self.assertRaises(operations.DomainError) as caught:operations.create_session(conn,{"unlimited_play":True,"participant_id":pid},ctx)
+        self.assertEqual(caught.exception.code,"NO_TICKETS")
+    def test_free_session_fault_review_does_not_mint_ticket_or_refund_ledger(self):
+        raw,_,created=self.make_participant();pid=created["participant"]["id"]
+        ctx=context(participant_token_hash=h(raw),idempotency_key=secrets.token_urlsafe(32),preview_unlimited_participant_ids=frozenset({pid}))
+        with app_tx() as conn:
+            conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
+            _,created_session=operations.create_session(conn,{},ctx);sid=created_session["session_id"]
+            operations.start_session(conn,sid,ctx)
+            conn.execute("update dino_dev.game_session set started_at=clock_timestamp()-interval '3 seconds' where id=%s",(sid,))
+            operations.checkpoint(conn,sid,{"tick":120},ctx);operations.report_fault(conn,sid,{"reason":"NETWORK_ERROR","last_tick":120},ctx)
+            conn.execute("update dino_dev.game_session set fault_reported_at=clock_timestamp()-interval '11 seconds' where id=%s",(sid,))
+            _,reviewed=operations.get_session(conn,sid,ctx)
+            participant=conn.execute("select initial_balance,invitation_balance from dino_dev.participant where id=%s",(pid,)).fetchone()
+            refunds=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where participant_id=%s and source_type='FAULT_REFUND'",(pid,)).fetchone()["n"]
+        self.assertEqual((reviewed["status"],reviewed["refund"]["status"],reviewed["fault_review"]["status"]),("ABORTED","NOT_DUE","AUTO_APPROVED"))
+        self.assertEqual((participant["initial_balance"],participant["invitation_balance"],refunds),(0,0,0))
+    def test_allowlist_revocation_keeps_reserved_session_but_blocks_next_free_session(self):
+        raw,_,created=self.make_participant();pid=created["participant"]["id"];key=secrets.token_urlsafe(32)
+        allowed=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_participant_ids=frozenset({pid}))
+        revoked=context(participant_token_hash=h(raw),idempotency_key=key,preview_unlimited_participant_ids=frozenset())
+        with app_tx() as conn:
+            conn.execute("update dino_dev.participant set initial_balance=0 where id=%s",(pid,))
+            first_status,first=operations.create_session(conn,{},allowed)
+            replay_status,replay=operations.create_session(conn,{},revoked)
+            started_status,started=operations.start_session(conn,first["session_id"],revoked)
+            conn.execute("update dino_dev.game_session set status='FINISHED',score=0,valid_ticks=60,verification_result='VERIFIED',finished_at=clock_timestamp() where id=%s",(first["session_id"],))
+            with self.assertRaises(operations.DomainError) as caught:operations.create_session(conn,{},dict(revoked,idempotency_key=secrets.token_urlsafe(32)))
+        self.assertEqual((first_status,replay_status,started_status),(201,200,200));self.assertEqual(first["session_id"],replay["session_id"]);self.assertEqual(started["status"],"ACTIVE");self.assertEqual(caught.exception.code,"NO_TICKETS")
     def test_valid_cookie_links_second_tab_only_with_matching_bootstrap_proof(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
         event_id="event_second_tab";observation_id="obs_second_tab";bootstrap="bootstrap_second_tab_proof";nonce=secrets.token_urlsafe(32)

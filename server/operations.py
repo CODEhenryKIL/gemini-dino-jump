@@ -52,8 +52,10 @@ def _ranking_info(conn,pid,version,campaign_id):
     return {"best_score":own or 0,"rank":rank,"game_version":version,
       "top3_gap":{"status":state,"third_score":third,"score_needed":max(0,third-(own or 0)) if third is not None else None,
                   "rank":rank,"tied":row["tied"],"participant_count":row["participant_count"]}}
-def _tickets(row):
-    return {"initial":row["initial_balance"],"invitation":row["invitation_balance"],"invitation_reserved":row["invitation_refund_pending"],"available_total":row["initial_balance"]+row["invitation_balance"],"cooldown_until":_iso(row["cooldown_until"]),"cooldown_notice_pending":row["cooldown_notice_pending"]}
+def _unlimited_play(row,ctx):
+    return bool(row["status"]=="ACTIVE" and row["synthetic"] and ctx.get("environment") in {"local","test","preview"} and row["id"] in ctx.get("preview_unlimited_participant_ids",frozenset()))
+def _tickets(row,ctx):
+    return {"initial":row["initial_balance"],"invitation":row["invitation_balance"],"invitation_reserved":row["invitation_refund_pending"],"available_total":row["initial_balance"]+row["invitation_balance"],"cooldown_until":_iso(row["cooldown_until"]),"cooldown_notice_pending":row["cooldown_notice_pending"],"unlimited_play":_unlimited_play(row,ctx)}
 def _event(conn,name,ctx,participant_id=None,event_id=None,screen=None,game_session_id=None,dimensions=None,observation_id=None,visit_session_id=None):
     conn.execute("""insert into dino_dev.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,visit_session_id,game_session_id,dimensions,environment,deployment,event_version,synthetic,source,occurred_at)
       values(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,true,'server',clock_timestamp()) on conflict(event_id) do nothing""",
@@ -150,7 +152,7 @@ def participant_init(conn,body,ctx):
             proof=_one(conn,"select observation_id from dino_dev.bootstrap where token_hash=%s and expires_at>clock_timestamp()",(ctx["bootstrap_token_hash"],))
             if proof and proof["observation_id"]==oid:conn.execute("update dino_dev.observation set participant_id=%s,linked_at=coalesce(linked_at,clock_timestamp()) where id=%s and participant_id is null",(p["id"],oid))
         visit=_invite_visit(conn,p,str(body.get("invite_code") or "")[:64],ctx,share_id or None)
-        return 200,{"participant":_public(p),"tickets":_tickets(p),"invite_visit":visit}
+        return 200,{"participant":_public(p),"tickets":_tickets(p,ctx),"invite_visit":visit}
     bootstrap=str(body.get("bootstrap_token") or "")
     if not bootstrap or ctx.get("bootstrap_token_hash") is None: raise DomainError("BOOTSTRAP_REQUIRED","초기 접속을 다시 시도해 주세요.",401)
     proof=_one(conn,"select * from dino_dev.bootstrap where token_hash=%s and expires_at>clock_timestamp() for update",(ctx["bootstrap_token_hash"],))
@@ -167,7 +169,7 @@ def participant_init(conn,body,ctx):
     oid=str(body.get("observation_id") or "")
     if oid and oid==proof["observation_id"]: conn.execute("update dino_dev.observation set participant_id=%s,linked_at=coalesce(linked_at,clock_timestamp()) where id=%s and participant_id is null",(p["id"],oid))
     visit=_invite_visit(conn,p,str(body.get("invite_code") or "")[:64],ctx,share_id or None)
-    return (201 if created else 200),{"participant":_public(p),"tickets":_tickets(p),"invite_visit":visit,"_set_cookie_token":ctx["new_participant_token"]}
+    return (201 if created else 200),{"participant":_public(p),"tickets":_tickets(p,ctx),"invite_visit":visit,"_set_cookie_token":ctx["new_participant_token"]}
 
 def get_me(conn,ctx):
     p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
@@ -177,7 +179,7 @@ def get_me(conn,ctx):
     eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
     contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
     claims=_one(conn,"select count(*)::int n from dino_dev.claim where participant_id=%s",(p["id"],))["n"]
-    return 200,{"participant":_public(p),"tickets":_tickets(p),**ranking,"pending_game_session":dict(live) if live else None,"draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":{"status":contact["status"] if contact else "NOT_REQUIRED","game_version":contact["game_version"] if contact else None},"claim_count":claims}
+    return 200,{"participant":_public(p),"tickets":_tickets(p,ctx),**ranking,"pending_game_session":dict(live) if live else None,"draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":{"status":contact["status"] if contact else "NOT_REQUIRED","game_version":contact["game_version"] if contact else None},"claim_count":claims}
 
 def patch_profile(conn,body,ctx):
     p=_participant(conn,ctx,True,True); nickname=str(body.get("nickname") or "").strip(); public=body.get("is_public",p["is_public"])
@@ -251,15 +253,19 @@ def create_session(conn,body,ctx):
     if old:return 200,_session(old)
     live=_one(conn,"select * from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1 for update",(p["id"],))
     if live:return 200,_session(live)
-    kind="INITIAL" if p["initial_balance"]>0 else "INVITATION" if p["invitation_balance"]>0 else None
+    unlimited=_unlimited_play(p,ctx)
+    kind="INITIAL" if unlimited or p["initial_balance"]>0 else "INVITATION" if p["invitation_balance"]>0 else None
     if not kind: raise DomainError("NO_TICKETS","게임권이 부족합니다.",409)
-    if kind=="INITIAL":
+    if unlimited:
+        after=None
+    elif kind=="INITIAL":
         conn.execute("update dino_dev.participant set initial_balance=initial_balance-1,updated_at=clock_timestamp() where id=%s",(p["id"],)); after=p["initial_balance"]-1
     else:
         conn.execute("update dino_dev.participant set invitation_balance=invitation_balance-1,invitation_refund_pending=invitation_refund_pending+1,updated_at=clock_timestamp() where id=%s",(p["id"],)); after=p["invitation_balance"]-1
-    sid=_id("gs"); conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after) values(%s,%s,-1,'PLAY_CONSUME',%s,%s)",(p["id"],kind,sid,after))
-    row=_one(conn,"""insert into dino_dev.game_session(id,participant_id,campaign_id,idempotency_key,seed,version,ticket_kind,expires_at,environment)
-      values(%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '2 minutes',%s) returning *""",(sid,p["id"],campaign["id"],ctx["idempotency_key"],secrets.randbelow(2147483646)+1,_game_version(conn,ctx),kind,ctx["environment"]))
+    sid=_id("gs")
+    if not unlimited:conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after) values(%s,%s,-1,'PLAY_CONSUME',%s,%s)",(p["id"],kind,sid,after))
+    row=_one(conn,"""insert into dino_dev.game_session(id,participant_id,campaign_id,idempotency_key,seed,version,ticket_kind,ticket_refund_status,expires_at,environment)
+      values(%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '2 minutes',%s) returning *""",(sid,p["id"],campaign["id"],ctx["idempotency_key"],secrets.randbelow(2147483646)+1,_game_version(conn,ctx),kind,"NOT_DUE" if unlimited else "PENDING",ctx["environment"]))
     _event(conn,"game_start_approved",ctx,p["id"],"game_reserved:"+sid,game_session_id=sid,observation_id=observation_id,visit_session_id=visit_session_id)
     return 201,_session(row)
 def start_session(conn,sid,ctx):
@@ -338,8 +344,11 @@ def report_fault(conn,sid,body,ctx):
     _event(conn,"game_fault_reported",ctx,p["id"],"fault:"+sid,game_session_id=sid,dimensions={"reason":reason})
     return 202,_session(s)
 def _refund_fault(conn,s,review_status,reviewed_by=None,reason=None):
-    p=_one(conn,"select * from dino_dev.participant where id=%s for update",(s["participant_id"],))
     if s["ticket_refund_status"]=="REFUNDED":return s
+    if s["ticket_refund_status"]=="NOT_DUE":
+        return _one(conn,"""update dino_dev.game_session set status='ABORTED',ticket_refund_status='NOT_DUE',finished_at=clock_timestamp(),fault_review_status=%s,
+          fault_review_version=fault_review_version+1,fault_reviewed_by=%s,fault_reviewed_at=clock_timestamp(),fault_review_reason=%s where id=%s returning *""",(review_status,reviewed_by,reason,s["id"]))
+    p=_one(conn,"select * from dino_dev.participant where id=%s for update",(s["participant_id"],))
     if s["ticket_kind"]=="INITIAL":
         conn.execute("update dino_dev.participant set initial_balance=least(1,initial_balance+1) where id=%s",(p["id"],)); after=min(1,p["initial_balance"]+1)
     else:

@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-function loadHome(guideSeen = false) {
+function loadHome(guideSeen = false, tickets = { initial: 1, invitation: 0, available_total: 1 }, campaignStatus = 'ACTIVE') {
   const source = fs.readFileSync(path.join(root, 'public/js/views/home.js'), 'utf8')
     .replace(/^import .*;\s*$/gm, '')
     .replace('export const HomeView', 'const HomeView');
@@ -35,7 +35,8 @@ function loadHome(guideSeen = false) {
     },
   };
   const router = {
-    state: { tickets: 1, bestScore: 42 },
+    state: { tickets, bestScore: 42 },
+    config: { campaign: { status: campaignStatus } },
     navigate: (view) => navigations.push(view),
   };
   context.home.render(container, router);
@@ -62,6 +63,17 @@ test('returning players start Dino Jump directly', () => {
   page.elements.get('#btn-start-jump').onclick();
   assert.deepEqual(page.navigations, ['game']);
   assert.equal(page.getModal(), undefined);
+});
+
+test('only an explicit server unlimited flag enables zero-ticket play and keeps campaign pause rules', () => {
+  for (const flag of [false, undefined, 'true', true]) {
+    const page = loadHome(true, { initial: 0, invitation: 0, available_total: 0, unlimited_play: flag });
+    assert.equal(page.elements.get('#btn-start-jump').disabled, flag !== true);
+    assert.equal(page.elements.get('#home-basic-ticket').textContent, flag === true ? '무제한' : '0장');
+  }
+  const paused = loadHome(true, { initial: 0, invitation: 0, available_total: 0, unlimited_play: true }, 'PAUSED');
+  assert.equal(paused.elements.get('#btn-start-jump').disabled, true);
+  assert.match(paused.elements.get('#btn-start-jump').textContent, /잠시 중단/);
 });
 
 test('Dino Jump runtime has no Gate Runner navigation or port dependency', () => {

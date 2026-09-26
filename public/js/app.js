@@ -231,8 +231,8 @@ class AppRouter {
   updateNav() {
     const tickets = this.state.tickets;
     const available = Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0)));
-    this.ticketPill.textContent = `🎟️ ${available}장`;
-    this.ticketPill.title = `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
+    this.ticketPill.textContent = tickets.unlimited_play === true ? '🎟️ 무제한' : `🎟️ ${available}장`;
+    this.ticketPill.title = tickets.unlimited_play === true ? '이 브라우저의 테스트 플레이는 게임권을 차감하지 않습니다.' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
   }
 
   navigate(viewName, { history: writeHistory = true, replace = false } = {}) {
