@@ -80,3 +80,11 @@
 - 기존 3차 범위인 개인정보 보관 기간·파기 정책은 아직 확정하지 않았다. 미완료 수령 초안에는 자동 만료/파기 작업이 없으며 최종 접수 시 삭제된다. 실제 개인정보 수집을 공개 운영하기 전에 이 정책과 자동 파기를 구현해야 한다.
 - 실제 경품·재고·확률·행사 일정은 아직 테스트 캠페인 값이다. 이번 배포는 기존 검토 주소의 갱신이다.
 - 기존 public 함수 및 Auth 보안 경고는 위 링크의 기존 사항이며, 이번 private 초안 테이블에는 새 경고가 없다.
+
+### 통합 배포 확인 결과
+
+- 제품 커밋: `1d6b3e3`. Vercel 배포: `dpl_48XHGSD99uptruKAncM67oKjA5KN` (`READY`).
+- 기존 검토 주소 https://google-korea-team-gemini.vercel.app/ 를 새 배포에 연결했다. 원래 production 주소는 변경하지 않았다.
+- 배포 후 `/api/health` DB ready, 게임 규칙 2.1.0, Kakao 키 존재, 새 혜택 주소를 확인했다. 변경한 화면·CSS·JS 12개 원문이 로컬과 일치했다(index에는 Vercel 기본 피드백 스크립트가 추가됨).
+- 롤백 참조: 이전 배포 `dpl_HTf8tv97fSSTnVddtEwutRqrZjcr` / `dino-nanobanana-85uvb3p5f-henry-kils-projects.vercel.app`.
+- GitHub 작업 브랜치 `codex/ranking-ticket-ui`에 올렸다. main 병합은 이번 요청에 포함하지 않았다.
