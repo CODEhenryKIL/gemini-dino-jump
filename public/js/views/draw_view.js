@@ -93,7 +93,7 @@ export const DrawView = {
     container.innerHTML = `
       <section class="card scratch-stage-container">
         <span class="sticker-badge badge-blue">결과 공개</span>
-        <h2>복권을 긁어 결과를 확인하세요</h2>
+        <h2 id="scratch-title">복권을 긁어 결과를 확인하세요</h2>
         <div class="scratch-ticket">
           <div class="ticket-header"><span>Team Gemini Lucky Ticket</span><span>행사당 1회</span></div>
           <div class="ticket-scratch-area">
@@ -120,10 +120,17 @@ export const DrawView = {
     ui.text(container.querySelector('#result-prize-sub'), draw.is_won ? '운영자가 정보를 확인하고 직접 연락해 지급합니다.' : '게임 기록과 초대 도전은 계속 이용할 수 있어요.');
     if (Number.isInteger(draw.pouch_index)) ui.text(container.querySelector('#restored-pouch'), `${draw.pouch_index + 1}번 주머니에서 정해진 결과예요. 새로고침해도 같아요.`);
     const after = container.querySelector('#btn-after-draw');
-    after.textContent = draw.is_won ? '수령 정보 입력하기' : '혜택 안내 보기';
+    after.textContent = draw.is_won ? '수령함에서 확인하기' : '혜택 안내 보기';
     after.onclick = () => router.navigate(draw.is_won ? 'claims' : 'benefit');
     const showResult = () => {
       if (!router.isCurrent(renderToken)) return;
+      ui.text(container.querySelector('#scratch-title'), '복주머니 결과를 확인하세요');
+      ui.text(
+        container.querySelector('#scratch-instruction'),
+        draw.is_won
+          ? '이미 정해진 결과예요. 수령함에서 접수·진행 상태를 확인할 수 있어요.'
+          : '이미 정해진 결과예요. 게임 기록과 Gemini 혜택은 계속 확인할 수 있어요.',
+      );
       resultContent.inert = false;
       resultContent.removeAttribute('inert');
       resultContent.setAttribute('aria-hidden', 'false');

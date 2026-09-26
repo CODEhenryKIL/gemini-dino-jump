@@ -235,7 +235,7 @@ test('record sharing emits a public URL with explicit context and authoritative 
 });
 
 test('restored scratched draw reveals the same server result without another draw or completion request', async () => {
-  const selectors = ['#result-prize-img', '#result-prize-title', '#result-prize-sub', '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status', '#scratch-canvas', '#scratch-result-content'];
+  const selectors = ['#scratch-title', '#scratch-instruction', '#result-prize-img', '#result-prize-title', '#result-prize-sub', '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status', '#scratch-canvas', '#scratch-result-content'];
   const nodes = new Map(selectors.map((selector) => [selector, node()]));
   let completeCalls = 0;
   let restored = false;
@@ -260,16 +260,19 @@ test('restored scratched draw reveals the same server result without another dra
   assert.equal(restored, true, 'restoring a server result must not count as a new scratch');
   assert.match(nodes.get('#restored-pouch').textContent, /3번 주머니/);
   assert.equal(nodes.get('#post-reveal-actions').hidden, false);
+  assert.equal(nodes.get('#scratch-title').textContent, '복주머니 결과를 확인하세요');
+  assert.equal(nodes.get('#scratch-instruction').textContent, '이미 정해진 결과예요. 게임 기록과 Gemini 혜택은 계속 확인할 수 있어요.');
+  assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);
   assert.equal(nodes.get('#btn-after-draw').textContent, '혜택 안내 보기');
 });
 
 test('scratch result enters the accessibility tree only when revealed and canvas leaves keyboard order', async () => {
-  const selectors = ['#result-prize-img', '#result-prize-title', '#result-prize-sub', '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status', '#scratch-canvas', '#scratch-result-content'];
+  const selectors = ['#scratch-title', '#scratch-instruction', '#result-prize-img', '#result-prize-title', '#result-prize-sub', '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status', '#scratch-canvas', '#scratch-result-content'];
   const nodes = new Map(selectors.map((selector) => [selector, node()]));
   const exposureStates = [];
   class ScratchCardMock {
     constructor(_canvas, options) { this.options = options; }
-    revealInstantly() { this.options.onReveal(); }
+    revealInstantly() { this.revealPromise = this.options.onReveal(); return this.revealPromise; }
     destroy() {}
   }
   const resultContent = nodes.get('#scratch-result-content');
@@ -283,26 +286,37 @@ test('scratch result enters the accessibility tree only when revealed and canvas
   };
   const view = loadView('public/js/views/draw_view.js', 'DrawView', {
     document,
-    api: { createRequestId: () => 'scratch-event-1', completeScratch: async () => ({}) },
+    api: { createRequestId: () => 'scratch-event-1', completeScratch: async () => { throw new Error('save unavailable'); } },
     analytics: { track(name) { if (name === 'draw_result_viewed') exposureStates.push({ hidden: resultContent.getAttribute('aria-hidden'), inert: resultContent.inert, tabIndex: canvas.tabIndex }); } },
     ui: { text: (target, value) => { target.textContent = String(value); }, showToast() {} },
     ScratchCard: ScratchCardMock,
     sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
   });
   const container = { innerHTML: '', querySelector: (selector) => nodes.get(selector) };
-  const router = { isCurrent: () => true, navigate() {}, announceStateChange() {} };
+  const routes = [];
+  const router = { isCurrent: () => true, navigate: (route) => routes.push(route), announceStateChange() {} };
   view.renderToken = 1;
   view.renderScratch(container, router, { draw_id: 'draw-2', pouch_index: 0, is_won: true, scratch_completed: false, prize: { name: '테스트 경품' } });
+  assert.match(container.innerHTML, /복권을 긁어 결과를 확인하세요/);
+  assert.match(container.innerHTML, /화면을 긁거나 아래 버튼/);
   assert.equal(resultContent.getAttribute('aria-hidden'), 'true');
   assert.equal(resultContent.inert, true);
   assert.equal(canvas.tabIndex, 0);
   nodes.get('#btn-instant-reveal').onclick();
-  await Promise.resolve();
+  await view.scratchCard.revealPromise;
   assert.equal(resultContent.getAttribute('aria-hidden'), 'false');
   assert.equal(resultContent.inert, false);
   assert.equal(canvas.tabIndex, -1);
   assert.equal(canvas.getAttribute('aria-hidden'), 'true');
   assert.equal(document.activeElement, nodes.get('#btn-after-draw'));
+  assert.equal(nodes.get('#scratch-title').textContent, '복주머니 결과를 확인하세요');
+  assert.equal(nodes.get('#scratch-instruction').textContent, '이미 정해진 결과예요. 수령함에서 접수·진행 상태를 확인할 수 있어요.');
+  assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);
+  assert.equal(nodes.get('#btn-after-draw').textContent, '수령함에서 확인하기');
+  assert.equal(nodes.get('#scratch-save-status').textContent, '결과는 그대로 유지됩니다. 저장 연결을 다시 시도해 주세요.');
+  assert.equal(nodes.get('#btn-instant-reveal').textContent, '저장 다시 시도');
+  nodes.get('#btn-after-draw').onclick();
+  assert.deepEqual(routes, ['claims']);
   assert.deepEqual(JSON.parse(JSON.stringify(exposureStates)), [{ hidden: 'false', inert: false, tabIndex: -1 }]);
 });
 

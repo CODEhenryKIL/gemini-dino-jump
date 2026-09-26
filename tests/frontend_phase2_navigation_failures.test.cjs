@@ -280,7 +280,7 @@ test('an old scratch save cannot complete after draw is re-entered', async () =>
   const request = deferred();
   let currentToken = 3;
   const events = [];
-  const selectors = ['#result-prize-img', '#result-prize-title', '#result-prize-sub', '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status', '#scratch-canvas', '#scratch-result-content'];
+  const selectors = ['#scratch-title', '#scratch-instruction', '#result-prize-img', '#result-prize-title', '#result-prize-sub', '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status', '#scratch-canvas', '#scratch-result-content'];
   const nodes = new Map(selectors.map((selector) => [selector, element()]));
   class ScratchCardMock {
     constructor(_canvas, options) { this.options = options; }
