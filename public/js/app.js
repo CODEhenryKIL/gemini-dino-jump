@@ -284,7 +284,7 @@ class AppRouter {
     if (splash) { splash.setAttribute('aria-hidden', 'true'); splash.inert = true; }
     document.querySelectorAll('[data-splash-inert]').forEach((element) => { element.inert = false; });
     splash?.classList.add('fade-out');
-    setTimeout(() => { if (splash) splash.hidden = true; }, 250);
+    setTimeout(() => { if (splash) splash.hidden = true; }, 500);
   }
 
   setSplashState(state) {

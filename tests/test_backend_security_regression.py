@@ -441,7 +441,13 @@ class BackendSecurityRegressionTest(unittest.TestCase):
             headers={"Idempotency-Key": self.idem("analytics-dimensions")},
         )
         self.assertEqual(status, 202, result)
-        self.assertEqual(result, {"accepted": len(valid), "duplicates": 0, "rejected": len(rejected)})
+        self.assertEqual(result, {
+            "accepted": len(valid), "duplicates": 0, "rejected": len(rejected),
+            "rejections": [
+                {"index": index, "reason": "INVALID_DIMENSIONS"}
+                for index in range(len(valid), len(events))
+            ],
+        })
         with psycopg.connect(DSN, row_factory=dict_row) as conn:
             stored = conn.execute("select dimensions from dino_dev.analytics_event where source='client'").fetchall()
         encoded = json.dumps([row["dimensions"] for row in stored], ensure_ascii=False)

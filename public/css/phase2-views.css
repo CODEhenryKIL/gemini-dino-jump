@@ -1,9 +1,30 @@
+/* Shared typography for the loading and home surfaces. */
+@font-face { font-family: 'Google Sans'; font-style: normal; font-weight: 500; font-display: swap; src: url('/assets/fonts/google-sans-medium.ttf') format('truetype'); }
+#splash-screen, .hero-card { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; -webkit-font-smoothing: antialiased; }
+.hero-card .btn-primary { background: #1a73e8; border-radius: 12px; box-shadow: none; font-family: inherit; font-size: 16px; font-weight: 500; letter-spacing: 0; }
+.hero-card .btn-primary:hover { background: #1765cc; }
 .brand-logo-area img { width: 130px; max-width: 130px; height: 70px; }
-.hero-card { gap: 18px; padding: 28px 22px 22px; box-shadow: 0 4px 18px rgba(25, 103, 210, .04); }
-.hero-card > .sticker-badge { align-self: center; }
-.hero-card h1 { font-size: clamp(29px, 8.4vw, 36px); font-weight: 800; line-height: 1.3; letter-spacing: -.055em; }
-.home-ai-word { color: #1967d2; }
-.home-campaign-line { max-width: 275px; margin: -6px auto 0; font-size: 15px; line-height: 1.7; letter-spacing: -.035em; color: #3c4043; text-wrap: balance; }
+.hero-card { gap: 20px; padding: 30px 22px 24px; box-shadow: none; border: 1px solid #e8eaed; background: linear-gradient(155deg, #f6f9ff 0%, #fff 38%, #fff 80%, #f4faf6 100%); }
+.home-event-header { display: grid; justify-items: center; gap: 12px; width: 100%; }
+.home-event-badges { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.home-event-badge { display: inline-flex; align-items: center; padding: 5px 10px; border: 1px solid; border-radius: 999px; background: #fff; font-size: 12px; font-weight: 700; line-height: 1.4; white-space: nowrap; box-shadow: 0 2px 6px rgba(60, 64, 67, .08); }
+.home-event-badge-team { color: #4285f4; border-color: #c6d7ff; }
+.home-event-badge-campus { color: #b07800; border-color: #fdd57a; }
+.home-event-organizer { margin: 0; color: #5f6368; font-size: 13px; font-weight: 600; line-height: 1.5; text-align: center; }
+.hero-card h1 { font-size: clamp(28px, 8vw, 34px); font-weight: 600; line-height: 1.4; letter-spacing: -.025em; }
+.home-ai-word { font-family: 'Google Sans', sans-serif; font-weight: 500; color: #4285f4; letter-spacing: 0; margin-right: 4px; }
+.home-ai-word .google-blue { color: #4285f4; }
+.home-ai-word .google-red { color: #ea4335; }
+.home-ai-word .google-yellow { color: #fbbc04; }
+.home-ai-word .google-green { color: #34a853; }
+.home-built-with { display: inline-flex; align-items: center; justify-content: center; gap: 10px; font-size: clamp(21px, 6.2vw, 27px); font-weight: 400; color: #3c4043; letter-spacing: -.015em; white-space: nowrap; }
+.home-antigravity-logo { width: 32px; height: 32px; flex: 0 0 32px; object-fit: contain; }
+.home-game-title { display: block; margin-top: 3px; }
+.hero-card h1::after { content: ''; display: block; width: 76px; height: 4px; margin: 16px auto 0; border-radius: 4px; background: linear-gradient(90deg, #4285f4 0 25%, #ea4335 25% 50%, #fbbc04 50% 75%, #34a853 75% 100%); }
+.hero-card .stat-grid > div:nth-child(1) strong { color: #1967d2; }
+.hero-card .stat-grid > div:nth-child(2) strong { color: #188038; }
+.hero-card .stat-grid > div:nth-child(3) strong { color: #b06000; }
+.home-campaign-line { max-width: 275px; margin: -6px auto 0; font-size: 15px; line-height: 1.7; letter-spacing: -.015em; color: #3c4043; text-wrap: balance; }
 .home-eligibility { font-size: 10px; line-height: 1.6; color: #747b85; }
 .hero-card .hero-dino { width: 118px; height: 118px; margin: 3px auto 6px; }
 .hero-card .stat-grid { gap: 0; padding: 12px 0; border-top: 1px solid #edf0f4; border-bottom: 1px solid #edf0f4; }
@@ -13,6 +34,87 @@
 .hero-card .stat-grid strong { font-size: 17px; }
 .hero-card #btn-how-to-play { min-height: 38px; border: 0; color: #5f6368; font-size: 12px; font-weight: 550; }
 .hero-card .status-note { margin: 0; }
+
+/* Short, swipeable game onboarding. Each scene animates only while mounted. */
+.game-guide-dialog .modal-card { width: 100%; max-width: 400px; padding: 24px; position: relative; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+.game-guide-dialog .modal-title { margin-bottom: 16px; padding-right: 40px; min-height: 24px; font-size: 15px; font-weight: 600; color: #5f6368; }
+.game-guide-dialog .modal-body { margin-bottom: 12px; }
+.game-guide-dialog .modal-actions .btn { flex: 1; min-height: 48px; }
+.guide-close { position: absolute; top: 12px; right: 12px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #5f6368; font: 30px/1 sans-serif; cursor: pointer; }
+.guide-close:hover { background: #f1f3f4; }
+.game-guide { color: #202124; touch-action: pan-y; }
+.guide-step-indicator { display: flex; align-items: center; gap: 5px; margin-bottom: 24px; }
+.guide-step-indicator > span { flex: 1; height: 3px; background: #e8eaed; border-radius: 3px; }
+.guide-step-indicator > span.active { background: #4285f4; }
+.guide-step-indicator small { margin-left: 8px; color: #80868b; font-size: 13px; white-space: nowrap; }
+.guide-slide { min-height: 305px; text-align: center; }
+.guide-slide-title { margin: 0 0 8px; font-size: clamp(22px, 6vw, 25px); font-weight: 700; line-height: 1.4; letter-spacing: -.035em; text-wrap: balance; }
+.guide-slide-title:focus { outline: none; }
+.guide-slide-description { margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #5f6368; text-wrap: balance; }
+.guide-slide-detail { margin: 16px 0 0; font-size: 14px; color: #5f6368; line-height: 1.6; text-wrap: balance; }
+.guide-game-demo, .guide-item-demo { position: relative; height: 158px; overflow: hidden; border: 1px solid #e8edf5; border-radius: 16px; background: linear-gradient(#f1f6ff, #fff); }
+.guide-demo-stage, .guide-demo-score { position: absolute; top: 15px; font-size: 10px; font-weight: 600; color: #80868b; letter-spacing: .06em; }
+.guide-demo-stage { left: 16px; }
+.guide-demo-score { right: 16px; font-variant-numeric: tabular-nums; }
+.guide-demo-ground { position: absolute; left: 0; right: 0; bottom: 25px; height: 1px; background: #dadce0; }
+.guide-demo-dino, .guide-item-dino { position: absolute; bottom: 26px; left: 22%; width: 52px; height: 52px; object-fit: contain; z-index: 1; }
+.guide-demo-dino { animation: guide-jump 2.6s ease-in-out infinite; }
+.guide-demo-obstacle { position: absolute; bottom: 26px; left: 100%; width: 13px; height: 24px; background: #5f6368; border-radius: 3px 3px 0 0; animation: guide-obstacle 2.6s linear infinite; }
+.guide-demo-obstacle::after { content: ''; position: absolute; top: 7px; left: -5px; width: 22px; height: 7px; border-radius: 2px; background: #5f6368; }
+.guide-touch-ring, .guide-button-touch { position: absolute; width: 24px; height: 24px; border: 2px solid #4285f4; background: #4285f426; border-radius: 50%; animation: guide-tap 2.6s ease-out infinite; }
+.guide-touch-ring { right: 24%; top: 58px; }
+.guide-demo-jump { position: relative; width: 130px; padding: 9px 0; margin: 10px auto 0; border: 1px solid #d2e3fc; border-radius: 999px; background: #e8f0fe; color: #1967d2; font-size: 13px; font-weight: 700; }
+.guide-button-touch { top: 8px; right: 21px; animation-delay: 1.3s; }
+.guide-item-demo { height: 190px; margin-top: 26px; }
+.guide-item-dino { left: 24%; bottom: 32px; width: 62px; height: 62px; }
+.guide-item-demo .guide-demo-ground { bottom: 31px; }
+.guide-pickup { position: absolute; width: 49px; height: 49px; object-fit: contain; bottom: 48px; left: 74%; animation: guide-pickup 3s ease-in-out infinite; }
+.guide-pickup-result { position: absolute; left: 26%; top: 34px; color: #b06000; font-size: 23px; font-weight: 700; animation: guide-result 3s ease-out infinite; }
+.guide-heart-demo { background: linear-gradient(#fff3f3, #fff); border-color: #fce8e6; }
+.guide-heart-demo .guide-pickup-result { color: #d93025; font-size: 20px; }
+.guide-revive-ring { position: absolute; left: calc(24% - 9px); bottom: 22px; width: 80px; height: 80px; border: 2px solid #ea4335; border-radius: 50%; animation: guide-revive 3s ease-out infinite; }
+.guide-text-button { display: block; min-height: 40px; padding: 8px 12px; border: 0; background: transparent; color: #5f6368; font: inherit; font-size: 14px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.guide-text-button[hidden] { display: none; }
+.game-guide-dialog .guide-previous { margin: 0; }
+.guide-skip { margin: 10px auto -4px; }
+.guide-rank-rewards { display: grid; grid-template-columns: repeat(3, 1fr); padding: 17px 0; margin: 0 0 22px; border-top: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; }
+.guide-rank-rewards > div { display: grid; gap: 5px; }
+.guide-rank-rewards > div + div { border-left: 1px solid #e8eaed; }
+.guide-rank-rewards span { color: #5f6368; font-size: 15px; }
+.guide-rank-rewards strong { color: #1967d2; font-size: 28px; font-weight: 600; letter-spacing: -.04em; }
+.guide-rank-rewards > div:nth-child(2) strong { color: #188038; }
+.guide-rank-rewards > div:nth-child(3) strong { color: #b06000; }
+.guide-live-ranking { text-align: left; }
+.guide-live-ranking h4 { margin: 0 0 10px; font-size: 17px; font-weight: 600; }
+.guide-ranking-list { list-style: none; margin: 0; padding: 0; max-height: 156px; overflow-y: auto; }
+.guide-ranking-list li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 49px; padding: 7px 4px; border-bottom: 1px solid #f1f3f4; font-size: 15px; }
+.guide-ranking-list li.is-me { background: #e8f0fe; }
+.guide-ranking-list strong { font-weight: 600; color: #1967d2; font-size: 14px; }
+.guide-ranking-list li > span:nth-child(2) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.guide-ranking-list li > span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.guide-ranking-message { padding: 18px 8px; margin: 0; font-size: 14px; color: #5f6368; text-align: center; }
+.guide-my-ranking { margin: 12px 0 0; font-size: 14px; color: #5f6368; }
+@keyframes guide-jump { 0%, 27%, 78%, 100% { transform: translateY(0); } 48%, 54% { transform: translateY(-54px); } }
+@keyframes guide-obstacle { from { transform: translateX(0); } to { transform: translateX(-360px); } }
+@keyframes guide-tap { 0%, 24%, 60%, 100% { opacity: 0; transform: scale(.65); } 30% { opacity: 1; transform: scale(1); } 52% { opacity: 0; transform: scale(1.9); } }
+@keyframes guide-pickup { 0%, 12% { transform: translateX(0); opacity: 1; } 57% { transform: translateX(-110px); opacity: 1; } 65%, 100% { transform: translateX(-120px) scale(.65); opacity: 0; } }
+@keyframes guide-result { 0%, 57% { transform: translateY(12px); opacity: 0; } 66%, 85% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-12px); opacity: 0; } }
+@keyframes guide-revive { 0%, 58% { opacity: 0; transform: scale(.8); } 66% { opacity: .6; transform: scale(1); } 90%, 100% { opacity: 0; transform: scale(1.4); } }
+@media (max-width: 350px), (max-height: 650px) {
+  .game-guide-dialog { padding: 12px; }
+  .game-guide-dialog .modal-card { padding: 20px 16px; max-height: calc(100dvh - 24px); }
+  .guide-step-indicator { margin-bottom: 17px; }
+  .guide-slide { min-height: 280px; }
+  .guide-game-demo { height: 140px; }
+  .guide-item-demo { height: 164px; margin-top: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-guide *, .game-guide *::after { animation: none !important; }
+  .guide-demo-dino { transform: translateY(-40px); }
+  .guide-demo-obstacle { left: 46%; }
+  .guide-pickup { left: 67%; }
+  .guide-revive-ring { opacity: .3; }
+}
 
 .result-gap {
   padding: 11px 13px;

@@ -11,10 +11,11 @@ function loadHome(guideSeen = false) {
     .replace(/^import .*;\s*$/gm, '')
     .replace('export const HomeView', 'const HomeView');
   let modal;
+  const guides = [];
   const navigations = [];
   const context = {
-    api: { participant: {} },
-    ui: { showModal: (options) => { modal = options; } },
+    showGameGuide: (router, autoStart) => guides.push({ router, autoStart }),
+    analytics: { track() {} },
     window: { location: { hostname: 'localhost', protocol: 'http:' } },
     localStorage: {
       getItem: () => guideSeen ? 'true' : null,
@@ -38,7 +39,7 @@ function loadHome(guideSeen = false) {
     navigate: (view) => navigations.push(view),
   };
   context.home.render(container, router);
-  return { container, elements, navigations, getModal: () => modal };
+  return { container, elements, navigations, guides, getModal: () => modal };
 }
 
 test('home presents only Dino Jump and starts it after the guide', () => {
@@ -51,9 +52,9 @@ test('home presents only Dino Jump and starts it after the guide', () => {
   const start = page.elements.get('#btn-start-jump');
   assert.ok(start, 'a direct Dino Jump start button is present');
   start.onclick();
-  assert.ok(page.getModal(), 'first play opens the existing guide');
-  page.getModal().onConfirm();
-  assert.deepEqual(page.navigations, ['game']);
+  assert.equal(page.guides.length, 1, 'first play opens the game guide');
+  assert.equal(page.guides[0].autoStart, true);
+  assert.deepEqual(page.navigations, []);
 });
 
 test('returning players start Dino Jump directly', () => {

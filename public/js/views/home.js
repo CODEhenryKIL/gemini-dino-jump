@@ -1,31 +1,18 @@
-import { ui } from '../ui.js';
+import { showGameGuide } from '../components/game_guide.js';
 import { analytics } from '../analytics.js';
-
-function guideContent() {
-  if (typeof document === 'undefined') return '모바일은 화면을 눌러 점프하고, PC는 Space 또는 ↑ 키를 사용합니다.';
-  const wrapper = document.createElement('div');
-  wrapper.className = 'guide-list';
-  for (const text of [
-    '모바일은 화면이나 JUMP 버튼을 눌러 점프해요.',
-    'PC는 Space 또는 ↑ 키를 사용해요.',
-    'Preview 규칙: 코인 1개는 10점이고, 하트 부활권은 최대 1개만 보유해요.',
-    '충돌하면 하트를 소비해 부활해요. 이후 하트를 다시 얻으면 같은 판에서 또 부활할 수 있어요.',
-    '하트 없이 충돌하면 게임이 끝나고 점수가 서버에서 검증돼요.',
-    '첫 정상 게임 뒤 행사당 한 번 복주머니를 열 수 있어요.',
-  ]) {
-    const row = document.createElement('p');
-    row.textContent = text;
-    wrapper.appendChild(row);
-  }
-  return wrapper;
-}
 
 export const HomeView = {
   render(container, router) {
     container.innerHTML = `
       <section class="card hero-card">
-        <span class="sticker-badge badge-blue">전국 대학생 이벤트</span>
-        <h1><span class="home-ai-word"><span class="google-word"><span>G</span><span>o</span><span>o</span><span>g</span><span>l</span><span>e</span></span> AI</span>로 만든<br>공룡 게임</h1>
+        <div class="home-event-header">
+          <div class="home-event-badges">
+            <span class="home-event-badge home-event-badge-team">#TeamGemini</span>
+            <span class="home-event-badge home-event-badge-campus">2026 캠퍼스 챌린지</span>
+          </div>
+          <p class="home-event-organizer">공식 Google Student Ambassador 운영</p>
+        </div>
+        <h1><span class="home-built-with"><img class="home-antigravity-logo" src="/assets/logos/antigravity-icon-full-color.png" alt="Antigravity" width="32" height="32"><span><span class="home-ai-word"><span class="google-blue">G</span><span class="google-red">o</span><span class="google-yellow">o</span><span class="google-blue">g</span><span class="google-green">l</span><span class="google-red">e</span> <span class="google-blue">A</span><span class="google-green">I</span></span>로 만든</span></span><span class="home-game-title">공룡 게임</span></h1>
         <p class="home-campaign-line">추억의 공룡 게임 한 판 하고 삼텐바이미 받자!</p>
         <img class="hero-dino" src="/assets/icons/Dino-Dark.png" alt="달리는 공룡">
         <div class="stat-grid">
@@ -94,10 +81,6 @@ export const HomeView = {
     else if (available < 1) start.textContent = '게임권이 필요해요';
   },
   showGuideModal(router, autoStart = true) {
-    ui.showModal({
-      title: '공룡 점프 조작 가이드', content: guideContent(), confirmText: autoStart ? '게임 시작' : '확인',
-      cancelText: autoStart ? '취소' : null,
-      onConfirm: () => { try { localStorage.setItem('gemini_dino_guide_seen', 'true'); } catch (_) {} if (autoStart) router.navigate('game'); },
-    });
+    showGameGuide(router, autoStart);
   },
 };

@@ -29,29 +29,42 @@
     
     <div id="splash-screen" role="status" aria-live="polite" aria-label="게임 준비 중">
       <div class="splash-ambassador"><span class="google-color-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Google Student Ambassador</div>
-      <div class="splash-story" role="group" aria-label="Google AI로 만든 게임입니다. 게임하고, 복주머니에서 복권 뽑고, 긁으면 선물! 최대 삼텐바이미!">
-        <div class="splash-title-group">
-          <strong class="splash-main-title"><span class="google-ink"><span class="google-word"><span>G</span><span>o</span><span>o</span><span>g</span><span>l</span><span>e</span></span> AI</span>로 만든<br>추억의 공룡 게임</strong>
-        </div>
-        <div class="splash-scene" aria-hidden="true">
-          <span class="splash-orbit orbit-blue"></span><span class="splash-orbit orbit-red"></span>
-          <span class="splash-orbit orbit-yellow"></span><span class="splash-orbit orbit-green"></span>
-          <div class="splash-dino-wrap"><img class="splash-dino" src="/assets/icons/Dino-Dark.png" alt="" width="128" height="128"></div>
-          <span class="splash-dino-shadow"></span>
-          <div class="splash-runway"><i></i><i></i><i></i><i></i></div>
-        </div>
-        <div class="splash-chapters" aria-hidden="true">
-          <div class="splash-chapter chapter-play"><span class="splash-chapter-number">01 / PLAY</span><strong>가볍게, 한 판.</strong><span>게임하고</span></div>
-          <div class="splash-chapter chapter-draw"><span class="splash-chapter-number">02 / PICK</span><strong>골라봐, 너의 행운.</strong><span>복주머니에서 복권 뽑고</span></div>
-          <div class="splash-chapter chapter-prize"><span class="splash-chapter-number">03 / REVEAL</span><strong>긁으면 선물!</strong><span>최대 <b>삼텐바이미!</b></span></div>
-        </div>
-        <div class="splash-event-copy"><span class="splash-event-title">전국 대학생 한정 이벤트</span><span class="splash-eligibility">게임은 누구나 참여 가능 · 경품은 대학생 대상</span></div>
-      </div>
-      <div class="splash-footer">
-        <div class="splash-team-logo-wrap">
+      <div class="splash-story" role="group" aria-label="게임하고, 복주머니를 고르고, 복권을 긁어 결과를 확인하세요. 삼텐바이미, 소니 ULT WEAR, 오쏘몰 이뮨, 상품권과 간식 경품이 준비되어 있어요.">
+        <div class="splash-logos">
           <img class="splash-team-logo" src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
+          <img class="splash-gemini-lockup" src="/assets/logos/googlegemini_lockup_fullcolor.png" alt="Google Gemini" onerror="this.style.display='none'">
         </div>
-        <p class="splash-preview-note">경품은 Preview 시안이며, 추첨 결과에 따라 미당첨될 수 있어요.</p>
+        <div class="splash-title-group">
+          <span class="splash-eyebrow">Google AI로 만든 공룡 게임</span>
+          <strong class="splash-main-title">한 판 즐기고,<br>경품에 도전하세요.</strong>
+        </div>
+        <div class="splash-explainer" aria-hidden="true">
+          <div class="splash-frame splash-frame-play">
+            <div class="splash-demo splash-demo-game"><div class="splash-game-ground"></div><img class="splash-runner" src="/assets/icons/Dino-Dark.png" alt=""><span class="splash-obstacle"></span></div>
+            <strong>공룡 게임 한 판!</strong><span>장애물을 넘고 기록에 도전해요.</span>
+          </div>
+          <div class="splash-frame splash-frame-pick">
+            <div class="splash-demo splash-demo-pouches"><div class="pouch-grid">
+              <div class="pouch-item"><span class="pouch-icon">🧧</span><span class="pouch-label">1번</span></div>
+              <div class="pouch-item selected splash-pouch-picked"><span class="pouch-icon">🧧</span><span class="pouch-label">2번</span></div>
+              <div class="pouch-item"><span class="pouch-icon">🧧</span><span class="pouch-label">3번</span></div>
+            </div></div>
+            <strong>복주머니를 고르고</strong><span>마음에 드는 주머니를 선택해요.</span>
+          </div>
+          <div class="splash-frame splash-frame-scratch">
+            <div class="splash-demo splash-demo-scratch"><div class="scratch-ticket">
+              <div class="ticket-header"><span>Team Gemini Lucky Ticket</span><span>행사당 1회</span></div>
+              <div class="ticket-scratch-area"><div class="ticket-result-underlay"><img src="/assets/icons/Smile-Light.png" alt=""></div><span class="splash-scratch-cover">✨ 살살 긁어서 행운 확인 ✨</span><span class="splash-scratch-sweep"></span></div>
+            </div></div>
+            <strong>복권을 긁어 결과 확인!</strong><span>어떤 행운이 기다리고 있을까요?</span>
+          </div>
+          <div class="splash-frame splash-frame-prizes">
+            <div class="splash-demo splash-demo-prizes">
+              <img class="splash-prize-lineup" src="/assets/prizes/prize-lineup-cutout-v2.webp" alt="" width="1280" height="1280">
+            </div>
+            <strong>삼텐바이미부터 상품권까지</strong><span>다양한 경품에 도전해 보세요.</span>
+          </div>
+        </div>
         <div class="splash-progress-container" aria-hidden="true"><div id="splash-progress-bar" class="splash-progress-bar"></div></div>
         <div id="splash-status-text" class="splash-status-text">게임을 준비하고 있어요</div>
         <button id="splash-retry" class="btn btn-primary splash-retry" type="button" hidden>다시 연결</button>
