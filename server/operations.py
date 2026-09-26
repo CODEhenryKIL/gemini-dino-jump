@@ -90,7 +90,7 @@ def _revalidate_idempotent_replay(conn,method,path,ctx):
     active=(method,path) in {
       ("PATCH","/api/me/profile"),("POST","/api/referrals/qualify"),("POST","/api/referrals/cooldown-notice/ack"),
       ("POST","/api/game-sessions"),("POST","/api/ranking/profile"),("POST","/api/draws"),
-    } or bool(re.fullmatch(r"/api/game-sessions/[^/]+/(?:start|checkpoint|finish|fault)",path)) or bool(re.fullmatch(r"/api/claims/[^/]+/submit",path))
+    } or bool(re.fullmatch(r"/api/game-sessions/[^/]+/(?:start|checkpoint|finish|fault)",path)) or bool(re.fullmatch(r"/api/claims/[^/]+/(?:draft|submit)",path))
     _participant(conn,ctx,active=active)
 def _idempotent(conn,method,path,body,ctx,fn):
     key=ctx.get("idempotency_key")
@@ -184,6 +184,11 @@ def participant_init(conn,body,ctx):
     visit=_invite_visit(conn,p,str(body.get("invite_code") or "")[:64],ctx,share_id or None)
     return (201 if created else 200),{"participant":_public(p),"tickets":_tickets(p,ctx),"invite_visit":visit,"_set_cookie_token":ctx["new_participant_token"]}
 
+def _ranking_profile_state(contact,rank,version):
+    eligible=bool(contact and contact["game_version"]==version and isinstance(rank,int) and 1<=rank<=3)
+    status=contact["status"] if contact and (eligible or contact["status"]=="SUBMITTED") else "NOT_REQUIRED"
+    return {"required":eligible and status=="REQUESTED","eligible":eligible,"status":status,"game_version":contact["game_version"] if contact else None}
+
 def get_me(conn,ctx):
     p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
     ranking=_ranking_info(conn,p["id"],_game_version(conn,ctx),p["campaign_id"])
@@ -192,7 +197,7 @@ def get_me(conn,ctx):
     eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
     contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
     claims=_one(conn,"select count(*)::int n from dino_dev.claim where participant_id=%s",(p["id"],))["n"]
-    return 200,{"participant":_public(p),"tickets":_tickets(p,ctx),**ranking,"pending_game_session":dict(live) if live else None,"draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":{"status":contact["status"] if contact else "NOT_REQUIRED","game_version":contact["game_version"] if contact else None},"claim_count":claims}
+    return 200,{"participant":_public(p),"tickets":_tickets(p,ctx),**ranking,"pending_game_session":dict(live) if live else None,"draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":_ranking_profile_state(contact,ranking["rank"],_game_version(conn,ctx)),"claim_count":claims}
 
 def patch_profile(conn,body,ctx):
     p=_participant(conn,ctx,True,True); nickname=str(body.get("nickname") or "").strip(); public=body.get("is_public",p["is_public"])
@@ -208,7 +213,9 @@ def referral_me(conn,ctx):
       count(*) filter(where source_type='PLAY_CONSUME')::int used,
       count(*) filter(where source_type='FAULT_REFUND')::int refunded
       from dino_dev.ticket_ledger where participant_id=%s and ticket_kind='INVITATION'""",(p["id"],))
-    return 200,{"invite_url":ctx["base_url"]+"/invite/"+p["referral_code"],"referral_code":p["referral_code"],"invitation_balance":p["invitation_balance"],"invitation_reserved":p["invitation_refund_pending"],"cooldown_until":_iso(p["cooldown_until"]),"cooldown_notice_pending":p["cooldown_notice_pending"],"rewarded_pairs":pairs,"ticket_totals":dict(totals),**dict(counts)}
+    ranking=_ranking_info(conn,p["id"],_game_version(conn,ctx),p["campaign_id"])
+    won=_one(conn,"select pr.name from dino_dev.draw d join dino_dev.prize pr on pr.id=d.prize_id where d.participant_id=%s and d.campaign_id=%s and d.is_won",(p["id"],p["campaign_id"]))
+    return 200,{"participant_count":ranking["top3_gap"]["participant_count"],"won_prize_name":won["name"] if won else None,"invite_url":ctx["base_url"]+"/invite/"+p["referral_code"],"referral_code":p["referral_code"],"invitation_balance":p["invitation_balance"],"invitation_reserved":p["invitation_refund_pending"],"cooldown_until":_iso(p["cooldown_until"]),"cooldown_notice_pending":p["cooldown_notice_pending"],"rewarded_pairs":pairs,"ticket_totals":dict(totals),**dict(counts)}
 
 def qualify_referral(conn,body,ctx):
     visitor=_participant(conn,ctx,active=True); raw=str(body.get("visit_nonce") or "")
@@ -342,7 +349,7 @@ def finish_response(conn,s):
     eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' limit 1",(s["participant_id"],s["campaign_id"]))
     return {"session_id":s["id"],"status":s["status"],"verification":s["verification_result"],"score":s["score"],**ranking,
       "summary":s.get("game_summary") or {},"end_reason":s.get("end_reason"),
-      "draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":{"required":bool(contact and contact["status"]=="REQUESTED"),"status":contact["status"] if contact else "NOT_REQUIRED","game_version":contact["game_version"] if contact else None}}
+      "draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":_ranking_profile_state(contact,ranking["rank"],s["version"])}
 
 def report_fault(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
@@ -416,7 +423,8 @@ def leaderboard(conn,query,ctx):
       "top3_gap":mine["top3_gap"],"game_version":version,"tie_policy":"UNDECIDED"}
 def ranking_profile_get(conn,ctx):
     p=_participant(conn,ctx); row=_one(conn,"select status,game_version,submitted_at from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
-    return 200,{"required":bool(row and row["status"]=="REQUESTED"),"status":row["status"] if row else "NOT_REQUIRED","submitted_at":_iso(row["submitted_at"]) if row else None,"game_version":row["game_version"] if row else None}
+    version=_game_version(conn,ctx);rank=_ranking_info(conn,p["id"],version,p["campaign_id"])["rank"]
+    return 200,{**_ranking_profile_state(row,rank,version),"submitted_at":_iso(row["submitted_at"]) if row else None}
 def _ranking_contact_values(body):
     name,contact,school=(str(body.get(k) or "").strip() for k in ("name","contact","school"))
     if body.get("consent") is not True or body.get("notice_version")!="top3-contact-v1":raise DomainError("CONSENT_REQUIRED","수령 정보 수집 내용을 확인하고 동의해 주세요.")
@@ -433,6 +441,8 @@ def ranking_profile_post(conn,body,ctx):
     if not row: raise DomainError("TOP3_PROFILE_NOT_REQUIRED","현재 잠정 TOP3 정보 등록 대상이 아닙니다.",409)
     existing=_one(conn,"select id from dino_dev.claim where campaign_id=%s and participant_id=%s and claim_type='RANKING'",(p["campaign_id"],p["id"]))
     if row["status"]=="SUBMITTED" and existing:return 200,{"status":"SUBMITTED","submitted_at":_iso(row["submitted_at"]),"claim_id":existing["id"]}
+    version=_game_version(conn,ctx);rank=_ranking_info(conn,p["id"],version,p["campaign_id"])["rank"]
+    if not _ranking_profile_state(row,rank,version)["eligible"]:raise DomainError("TOP3_PROFILE_NOT_REQUIRED","현재 TOP3 참가자만 수령 정보를 등록할 수 있어요.",409)
     name,contact,school=_ranking_contact_values(body)
     if row["status"]=="SUBMITTED" and row["recipient_name"]:name,contact,school=row["recipient_name"],row["contact"],row["school"]
     claim_id=existing["id"] if existing else _id("claim")
@@ -495,23 +505,69 @@ def scratch_complete(conn,did,ctx):
     claim=_one(conn,"select id from dino_dev.claim where draw_id=%s",(did,)); return 200,{"draw_id":did,"scratch_completed":True,"claim_id":claim["id"] if claim else None}
 
 def claims(conn,ctx):
-    p=_participant(conn,ctx); rows=_all(conn,"""select c.id,c.claim_type,c.status,c.created_at,c.contact_submitted_at,p.name prize_name,p.category
+    p=_participant(conn,ctx); rows=_all(conn,"""select c.id,c.claim_type,c.status,c.created_at,c.contact_submitted_at,p.name prize_name,p.category,
+      exists(select 1 from dino_dev.claim_contact_draft d where d.claim_id=c.id) draft_saved
       from dino_dev.claim c left join dino_dev.prize p on p.id=c.prize_id where c.participant_id=%s order by c.created_at desc""",(p["id"],))
-    return 200,{"claims":[{"id":r["id"],"type":r["claim_type"],"claim_type":r["claim_type"],"prize_name":r["prize_name"],"category":r["category"],"status":r["status"],"created_at":_iso(r["created_at"]),"contact_submitted":bool(r["contact_submitted_at"])} for r in rows]}
+    return 200,{"claims":[{"id":r["id"],"type":r["claim_type"],"claim_type":r["claim_type"],"prize_name":r["prize_name"],"category":r["category"],"status":r["status"],"created_at":_iso(r["created_at"]),"contact_submitted":bool(r["contact_submitted_at"]),"draft_saved":r["draft_saved"]} for r in rows]}
+
+def _claim_contact_values(body):
+    name,contact,school,address=(str(body.get(k) or "").strip() for k in ("name","contact","school","address"))
+    if body.get("consent") is not True or body.get("notice_version")!="claim-contact-v1":raise DomainError("CONSENT_REQUIRED","경품 수령 정보 수집 내용을 확인하고 동의해 주세요.")
+    if not name or not contact or not school:raise DomainError("VALIDATION_ERROR","이름, 연락처, 학교를 모두 입력해 주세요.")
+    limits=((name,80,"이름"),(contact,32,"연락처"),(school,120,"학교"),(address,300,"주소"))
+    for value,limit,label in limits:
+        if len(value)>limit:raise DomainError("VALIDATION_ERROR",f"{label}는 {limit}자 이하로 입력해 주세요.")
+    if any(re.search(r"[\x00-\x1f\x7f]",value) for value in (name,contact,school,address)):raise DomainError("VALIDATION_ERROR","입력값에 사용할 수 없는 문자가 있습니다.")
+    digits=re.sub(r"[^0-9]","",contact)
+    if not re.fullmatch(r"\+?[0-9][0-9 ()\-.]*[0-9]",contact) or not 7<=len(digits)<=15:raise DomainError("VALIDATION_ERROR","연락 가능한 전화번호를 확인해 주세요.")
+    synthetic=name.startswith("TEST_") and contact=="01000000000" and school.startswith("TEST_") and (not address or address.startswith("TEST_"))
+    return name,contact,school,address,synthetic
+
+def claim_draft_get(conn,cid,ctx):
+    p=_participant(conn,ctx); claim=_one(conn,"select id from dino_dev.claim where id=%s and participant_id=%s",(cid,p["id"]))
+    if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
+    row=_one(conn,"select recipient_name,contact,school,address,consent_version from dino_dev.claim_contact_draft where claim_id=%s",(cid,))
+    draft=None if not row else {"name":row["recipient_name"],"contact":row["contact"],"school":row["school"],"address":row["address"] or "","consent":True,"notice_version":row["consent_version"]}
+    return 200,{"draft":draft}
+
+def claim_draft_post(conn,cid,body,ctx):
+    p=_participant(conn,ctx,active=True); claim=_one(conn,"""select c.id,c.status,p.category
+      from dino_dev.claim c left join dino_dev.prize p on p.id=c.prize_id
+      where c.id=%s and c.participant_id=%s for update of c""",(cid,p["id"]))
+    if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
+    if _one(conn,"select claim_id from dino_dev.claim_contact where claim_id=%s",(cid,)):raise DomainError("CLAIM_ALREADY_SUBMITTED","이미 수령 정보가 접수되었습니다.",409)
+    if claim["status"] in {"PAID","INELIGIBLE"}:raise DomainError("CLAIM_CLOSED","종료된 수령 요청은 정보를 변경할 수 없습니다.",409)
+    name,contact,school,address,synthetic=_claim_contact_values(body)
+    if claim["category"]=="SHIPPING" and not address:raise DomainError("VALIDATION_ERROR","배송 경품 수령 주소를 입력해 주세요.")
+    conn.execute("""insert into dino_dev.claim_contact_draft
+      (claim_id,recipient_name,contact,school,address,synthetic,consent_at,consent_version)
+      values(%s,%s,%s,%s,%s,%s,clock_timestamp(),'claim-contact-v1')
+      on conflict(claim_id) do update set recipient_name=excluded.recipient_name,contact=excluded.contact,
+      school=excluded.school,address=excluded.address,synthetic=excluded.synthetic,consent_at=excluded.consent_at,
+      consent_version=excluded.consent_version,updated_at=clock_timestamp()""",
+      (cid,name,contact,school,address or None,synthetic))
+    return 200,{"draft_saved":True}
+
 def submit_claim(conn,cid,body,ctx):
     p=_participant(conn,ctx,active=True); claim=_one(conn,"select * from dino_dev.claim where id=%s and participant_id=%s for update",(cid,p["id"]))
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
     existing=_one(conn,"select claim_id from dino_dev.claim_contact where claim_id=%s",(cid,))
     if existing:return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
-    name,contact,school,address=(str(body.get(k) or "").strip() for k in ("name","contact","school","address"))
-    if not school:raise DomainError("VALIDATION_ERROR","학교를 입력해 주세요.")
-    if not name.startswith("TEST_") or contact!="01000000000" or not school.startswith("TEST_") or (address and not address.startswith("TEST_")): raise DomainError("SYNTHETIC_DATA_REQUIRED","개발 환경에서는 합성 정보만 입력할 수 있습니다.")
-    conn.execute("insert into dino_dev.claim_contact(claim_id,recipient_name,contact,school,address) values(%s,%s,%s,%s,%s)",(cid,name[:80],contact[:32],school[:120],address[:300] or None))
+    if claim["status"] in {"PAID","INELIGIBLE"}:raise DomainError("CLAIM_CLOSED","종료된 수령 요청은 접수할 수 없습니다.",409)
+    share_status=str(body.get("share_status") or "")
+    if share_status not in {"kakao_opened","share_sheet_closed","copied"}:raise DomainError("SHARE_STEP_REQUIRED","친구 공유 단계를 완료한 뒤 접수해 주세요.",409)
+    draft=_one(conn,"select * from dino_dev.claim_contact_draft where claim_id=%s for update",(cid,))
+    if not draft or not draft["consent_at"] or draft["consent_version"]!="claim-contact-v1":raise DomainError("CLAIM_DRAFT_REQUIRED","먼저 수령 정보를 저장하고 동의해 주세요.",409)
+    conn.execute("""insert into dino_dev.claim_contact
+      (claim_id,recipient_name,contact,school,address,synthetic,consent_at,consent_version)
+      values(%s,%s,%s,%s,%s,%s,%s,'claim-contact-v1')""",
+      (cid,draft["recipient_name"],draft["contact"],draft["school"],draft["address"],draft["synthetic"],draft["consent_at"]))
     claim=_one(conn,"""update dino_dev.claim set
       status=case when status='AWAITING_INFORMATION' then 'INFORMATION_RECEIVED' else status end,
       contact_submitted_at=coalesce(contact_submitted_at,clock_timestamp()),updated_at=clock_timestamp()
       where id=%s returning *""",(cid,))
     _event(conn,"claim_information_received",ctx,p["id"],"claim_submit:"+cid,dimensions={"claim_type":claim["claim_type"]})
+    conn.execute("delete from dino_dev.claim_contact_draft where claim_id=%s",(cid,))
     return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
 
 CLIENT_EVENTS={"entry_viewed","participant_ready","loading_data_ready","loading_intro_completed","loading_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","draw_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_coin_collected","game_heart_collected","game_revived","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_reveal_requested","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","content_viewed","notion_redirect_requested","page_view"}
@@ -735,6 +791,9 @@ def dispatch(conn,method,path,body,query,ctx):
         m=re.fullmatch(r"/api/draws/([^/]+)/scratch-complete",path)
         if method=="PATCH" and m:return scratch_complete(conn,m.group(1),ctx)
         if method=="GET" and path=="/api/claims":return claims(conn,ctx)
+        m=re.fullmatch(r"/api/claims/([^/]+)/draft",path)
+        if method=="GET" and m:return claim_draft_get(conn,m.group(1),ctx)
+        if method=="POST" and m:return claim_draft_post(conn,m.group(1),body,ctx)
         m=re.fullmatch(r"/api/claims/([^/]+)/submit",path)
         if method=="POST" and m:return submit_claim(conn,m.group(1),body,ctx)
         if method=="POST" and path=="/api/events/batch":return events_batch(conn,body,ctx)

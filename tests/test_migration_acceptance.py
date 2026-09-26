@@ -23,6 +23,7 @@ CLAIM_FIX = ROOT / "supabase/migrations/20260925125939_add_awaiting_claim_inform
 PHASE2 = ROOT / "supabase/migrations/20260925140902_phase2_game_versions_and_tracking.sql"
 GAME_V21 = ROOT / "supabase/migrations/20260926093414_game_rules_v21.sql"
 REAL_TOP3_CONTACT = ROOT / "supabase/migrations/20260926103809_allow_real_top3_contact.sql"
+CLAIM_DRAFT = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
 
 def _guard_admin_dsn():
     parsed = urlsplit(ADMIN_DSN)
@@ -128,6 +129,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(PHASE2)
         self.database.apply(GAME_V21)
         self.database.apply(REAL_TOP3_CONTACT)
+        self.database.apply(CLAIM_DRAFT)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -144,7 +146,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
 
         self.assertEqual(
             versions,
-            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",)],
+            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",), ("20260926215000",)],
         )
         self.assertTrue(
             {"participant", "game_session", "ranking_snapshot"}.issubset(
@@ -162,10 +164,12 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(PHASE2)
         self.database.apply(GAME_V21)
         self.database.apply(REAL_TOP3_CONTACT)
+        self.database.apply(CLAIM_DRAFT)
         self.database.apply(CLAIM_FIX)
         self.database.apply(PHASE2)
         self.database.apply(GAME_V21)
         self.database.apply(REAL_TOP3_CONTACT)
+        self.database.apply(CLAIM_DRAFT)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -190,6 +194,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
                 ("20260925140902", 1),
                 ("20260926093414", 1),
                 ("20260926103809", 1),
+                ("20260926215000", 1),
             ],
         )
         self.assertIn(("fault_review_status",), columns)
@@ -197,7 +202,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.assert_sentinel_preserved()
 
     def test_v21_extends_version_constraints_without_mixing_v2_scores(self):
-        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT):
             self.database.apply(migration)
         with psycopg.connect(self.database.dsn) as conn:
             conn.execute("""insert into dino_dev.campaign(id,title,game_version,benefit_url,probability_version)
@@ -223,7 +228,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.assert_sentinel_preserved()
 
     def test_real_top3_contact_requires_consent_metadata_but_keeps_synthetic_rows_compatible(self):
-        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT):
             self.database.apply(migration)
         with psycopg.connect(self.database.dsn) as conn:
             conn.execute("""insert into dino_dev.campaign(id,title,game_version,benefit_url,probability_version)

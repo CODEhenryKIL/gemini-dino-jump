@@ -16,13 +16,13 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null } = {}) {
+function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null, referral = null } = {}) {
   const events = [];
   const toasts = [];
   let requestIndex = 0;
   const api = {
     config: { share: { kakao_javascript_key: key } },
-    async getReferralInfo() { return { invite_url: '/invite/referralcode123' }; },
+    async getReferralInfo() { return referral || { invite_url: '/invite/referralcode123' }; },
     createRequestId() { requestIndex += 1; return `share_${requestIndex}`; },
   };
   const analytics = {
@@ -31,7 +31,7 @@ function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null } 
     track(name, dimensions, extra) { events.push({ name, dimensions, extra }); },
   };
   const context = {
-    console, URL, api, analytics, navigator: navigatorMock, Kakao,
+    console, URL, setTimeout, clearTimeout, api, analytics, navigator: navigatorMock, Kakao,
     ui: { showToast(message) { toasts.push(message); } },
     window: { location: { origin: 'https://game.example' }, prompt() {} },
     document: documentMock || { createElement() { throw new Error('unexpected SDK load'); }, head: { appendChild() {} } },
@@ -39,10 +39,12 @@ function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null } 
   context.globalThis = context;
   const source = fs.readFileSync(path.join(root, 'public/js/referral_share.js'), 'utf8')
     .replace(/^import .*;$/gm, '')
+    .replace('export function loadKakaoSdk', 'function loadKakaoSdk')
+    .replace('export function buildReferralShareText', 'globalThis.buildReferralShareText = function')
     .replace('export async function prepareResultReferralShare', 'globalThis.prepareResultReferralShare = async function');
   vm.runInNewContext(source, context, { filename: 'public/js/referral_share.js' });
   const router = { config: { share: { kakao_javascript_key: key } }, state: { bestScore: 4321 } };
-  return { analytics, api, context, events, prepare: context.prepareResultReferralShare, router, toasts };
+  return { analytics, api, buildText: context.buildReferralShareText, context, events, prepare: context.prepareResultReferralShare, router, toasts };
 }
 
 function shareEvents(events) {
@@ -68,7 +70,7 @@ test('configured Kakao share initializes once and opens sendDefault with an attr
   assert.equal(result.method, 'kakao');
   assert.equal(sent.length, 1);
   assert.equal(sent[0].objectType, 'text');
-  assert.match(sent[0].text, /4321/);
+  assert.equal(sent[0].text, '행사 종료 시 1위 달성하면 5만원\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
   assert.equal(sent[0].link.mobileWebUrl, sent[0].link.webUrl);
   assert.match(sent[0].link.webUrl, /^https:\/\/game\.example\/invite\/referralcode123\?/);
   assert.match(sent[0].link.webUrl, /(?:\?|&)link=record_share(?:&|$)/);
@@ -122,7 +124,55 @@ test('no sharing API copies the attributed invite URL without navigating away', 
 
   assert.equal(result.status, 'copied');
   assert.equal(copied.length, 1);
+  assert.match(copied[0], /^행사 종료 시 1위 달성하면 5만원/);
   assert.match(copied[0], /link=record_share/);
   assert.deepEqual(shareEvents(harness.events).map(({ dimensions }) => dimensions.status), ['attempted', 'copied']);
   assert.deepEqual(harness.toasts, ['초대 링크를 복사했어요. 카카오톡에 붙여 넣어 주세요.']);
+});
+
+test('ranking share copy includes participant count when the server provides it', () => {
+  const harness = loadShare();
+  assert.equal(harness.buildText('retry_invite', { participant_count: 37 }),
+    '행사 종료 시 1위 달성하면 5만원\n현재 참여 인원 37명, 도전해 볼 만하다!\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
+  assert.equal(harness.buildText('record_share', {}),
+    '행사 종료 시 1위 달성하면 5만원\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
+  assert.equal(harness.buildText('record_share', { participant_count: null }),
+    '행사 종료 시 1위 달성하면 5만원\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
+});
+
+test('general and non-winning prize shares never imply that the participant won', () => {
+  const harness = loadShare();
+  const expected = '나 게임 한 판 하고\n복주머니 열어봄!\n\n삼텐바이미 받을 수도 있다던데,\n너도 한번 해봐';
+  assert.equal(harness.buildText('general_share'), expected);
+  assert.equal(harness.buildText('prize_share', { won_prize_name: null }), expected);
+});
+
+test('winning prize share names the prize and always uses the requested Samtanbimi line', () => {
+  const harness = loadShare();
+  const expected = '나 소니 헤드셋 이거 받음\n아직 삼텐바이미 남았다는데\n\n너도 게임 한 판 하고\n상품 뽑아봐!';
+  assert.equal(harness.buildText('prize_share', { won_prize_name: '소니 헤드셋' }), expected);
+  assert.equal(harness.buildText('prize_share', { won_prize_name: '소니 헤드셋', samtan_available: false }), expected);
+});
+
+test('general share attributes analytics and URL as prize_share', async () => {
+  const copied = [];
+  const harness = loadShare({ navigatorMock: { clipboard: { async writeText(value) { copied.push(value); } } } });
+  const prepared = await harness.prepare(harness.router, { kind: 'general_share' });
+  await prepared.share();
+  assert.match(copied[0], /link=prize_share/);
+  assert.ok(shareEvents(harness.events).every(({ dimensions }) => dimensions.link_kind === 'prize_share'));
+});
+
+
+test('fresh SDK exposes Share only after init and still prepares Kakao sharing', async () => {
+  let script;
+  const harness = loadShare({ key: '0123456789abcdef0123456789abcdef', documentMock: { createElement: () => ({ remove() {} }), head: { appendChild(value) { script = value; } } } });
+  const preparing = harness.prepare(harness.router);
+  await new Promise(setImmediate);
+  let initialized = false;
+  harness.context.Kakao = { isInitialized: () => initialized, init() { initialized = true; this.Share = { sendDefault() {} }; } };
+  script.onload();
+  const prepared = await preparing;
+  assert.equal(initialized, true);
+  assert.equal(prepared.mode, 'kakao');
 });

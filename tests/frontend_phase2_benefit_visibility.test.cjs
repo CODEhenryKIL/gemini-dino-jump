@@ -21,7 +21,7 @@ function loadBenefit(globals) {
   const source = fs.readFileSync(path.join(root, 'public/js/views/benefit_view.js'), 'utf8')
     .replace(/^import .*;$/gm, '')
     .replace('export const BenefitView =', 'globalThis.__view =');
-  const context = { console, URL, ...globals };
+  const context = { console, URL, loadKakaoSdk: async () => null, ...globals };
   context.globalThis = context;
   vm.runInNewContext(source, context, { filename: 'benefit_view.js' });
   return context.__view;
@@ -56,6 +56,8 @@ test('foreground return rechecks hidden intersections once and cleanup rejects s
   const guideList = node();
   const nodes = new Map([
     ['#btn-go-benefit', link], ['#btn-copy-benefit', node('button')], ['#btn-share-benefit', node('button')],
+    ['#btn-kakao-benefit', node('button')],
+    ['#benefit-official-url', node('p')],
     ['#benefit-fallback', node('p')], ['#content-guide-list', guideList],
   ]);
   const view = loadBenefit({
@@ -96,6 +98,8 @@ test('missing IntersectionObserver does not fabricate measured exposure', () => 
   const link = node('a');
   const nodes = new Map([
     ['#btn-go-benefit', link], ['#btn-copy-benefit', node('button')], ['#btn-share-benefit', node('button')],
+    ['#btn-kakao-benefit', node('button')],
+    ['#benefit-official-url', node('p')],
     ['#benefit-fallback', node('p')], ['#content-guide-list', node()],
   ]);
   const view = loadBenefit({
@@ -140,6 +144,8 @@ test('foreground return discards queued positive snapshots and waits for a fresh
   const guideList = node();
   const nodes = new Map([
     ['#btn-go-benefit', link], ['#btn-copy-benefit', node('button')], ['#btn-share-benefit', node('button')],
+    ['#btn-kakao-benefit', node('button')],
+    ['#benefit-official-url', node('p')],
     ['#benefit-fallback', node('p')], ['#content-guide-list', guideList],
   ]);
   const view = loadBenefit({

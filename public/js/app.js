@@ -9,7 +9,7 @@ import { DrawView } from './views/draw_view.js';
 import { PrizeView } from './views/prize_view.js';
 import { RankingView } from './views/ranking_view.js';
 import { InviteView } from './views/invite_view.js';
-import { BenefitView } from './views/benefit_view.js';
+import { BenefitView } from './views/benefit_view.js?v=20260926-benefit';
 
 class AppRouter {
   constructor() {

@@ -247,12 +247,12 @@ test('scratch completion keeps a stable retry key and does not claim completion 
 
 test('share attribution uses an opaque approved parameter and records outcomes separately', () => {
   const app = read('public/js/app.js');
-  const invite = read('public/js/views/invite_view.js');
+  const sharing = read('public/js/referral_share.js');
   assert.match(app, /url\.searchParams\.get\('share'\)/);
   assert.match(app, /share_id: shareId/);
-  assert.match(invite, /url\.searchParams\.set\('share', shareId\)/);
-  assert.match(invite, /status: 'copied'/);
-  assert.match(invite, /status: 'failed'/);
+  assert.match(sharing, /url\.searchParams\.set\('share', shareId\)/);
+  assert.match(sharing, /trackShare\('copy', shareId, 'copied'/);
+  assert.match(sharing, /trackShare\('copy', shareId, 'failed'/);
   assert.match(read('public/js/analytics.js'), /'share_id'/);
 });
 
@@ -336,4 +336,6 @@ test('public metadata uses the deployment site name while retaining Dino Jump', 
   const index = read('public/index.html');
   assert.match(index, /<title>구글 코리아 팀 제미나이 \| 공룡 점프<\/title>/);
   assert.match(index, /property="og:site_name" content="구글 코리아 팀 제미나이"/);
+  assert.match(index, /href="\/css\/phase2-views\.css\?v=20260926-benefit"/);
+  assert.match(index, /src="\/js\/app\.js\?v=20260926-benefit"/);
 });

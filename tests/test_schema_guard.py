@@ -12,6 +12,8 @@ import db
 sys.path.insert(0, str(ROOT / "tests"))
 from test_migration_acceptance import ADDITIONS, CLAIM_FIX, FOUNDATION, GAME_V21, PHASE2, REAL_TOP3_CONTACT, PG_BIN, TemporaryAuditDatabase
 
+CLAIM_DRAFT = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
+
 import psycopg
 from psycopg.rows import dict_row
 
@@ -63,7 +65,7 @@ class SchemaGuardTest(unittest.TestCase):
     def test_all_required_versions_pass_and_schema_version_remains_latest(self):
         conn = FakeConnection(config.REQUIRED_SCHEMA_VERSIONS)
         guard = db.check_environment(conn, SETTINGS)
-        self.assertEqual(config.SCHEMA_VERSION, "20260926103809")
+        self.assertEqual(config.SCHEMA_VERSION, "20260926215000")
         self.assertNotIn("required_versions_present", guard)
         self.assertEqual(guard["campaign_id"], "phase2-test")
 
@@ -76,7 +78,7 @@ class IsolatedPostgresSchemaGuardTest(unittest.TestCase):
             self.audit_database.create()
         except psycopg.OperationalError as error:
             self.skipTest(f"isolated local PostgreSQL fixture is unavailable: {error}")
-        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT):
             self.audit_database.apply(migration)
         with psycopg.connect(self.audit_database.dsn, row_factory=dict_row) as conn:
             conn.execute("""insert into dino_dev.campaign(id,title,game_version,benefit_url,probability_version)

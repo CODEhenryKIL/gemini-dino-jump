@@ -115,12 +115,12 @@ export const DrawView = {
     scratchCanvas.tabIndex = 0;
     const img = container.querySelector('#result-prize-img');
     img.src = prize.image_url || (draw.is_won ? '/assets/icons/Heart-Dark.png' : '/assets/icons/Rocket-Dark.png');
-    img.alt = draw.is_won ? '당첨 경품' : '혜택 안내';
-    ui.text(container.querySelector('#result-prize-title'), draw.is_won ? prize.name : '이번 복주머니는 미당첨이에요');
-    ui.text(container.querySelector('#result-prize-sub'), draw.is_won ? '운영자가 정보를 확인하고 직접 연락해 지급합니다.' : '게임 기록과 초대 도전은 계속 이용할 수 있어요.');
+    img.alt = draw.is_won ? '당첨 경품' : 'Gemini 1년 무료 혜택';
+    ui.text(container.querySelector('#result-prize-title'), draw.is_won ? prize.name : '축하드려요!');
+    ui.text(container.querySelector('#result-prize-sub'), draw.is_won ? '운영자가 정보를 확인하고 직접 연락해 지급합니다.' : 'Gemini 1년 무료 당첨');
     if (Number.isInteger(draw.pouch_index)) ui.text(container.querySelector('#restored-pouch'), `${draw.pouch_index + 1}번 주머니에서 정해진 결과예요. 새로고침해도 같아요.`);
     const after = container.querySelector('#btn-after-draw');
-    after.textContent = draw.is_won ? '수령함에서 확인하기' : '혜택 안내 보기';
+    after.textContent = draw.is_won ? '수령함에서 확인하기' : '혜택 적용하기';
     after.onclick = () => router.navigate(draw.is_won ? 'claims' : 'benefit');
     const showResult = () => {
       if (!router.isCurrent(renderToken)) return;

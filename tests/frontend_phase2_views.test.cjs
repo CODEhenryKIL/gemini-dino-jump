@@ -10,7 +10,7 @@ function loadView(file, exportName, globals = {}) {
   const source = fs.readFileSync(path.join(root, file), 'utf8')
     .replace(/^import .*;$/gm, '')
     .replace(`export const ${exportName} =`, 'globalThis.__view =');
-  const context = { console, URL, ...globals };
+  const context = { console, URL, loadKakaoSdk: async () => null, ...globals };
   context.globalThis = context;
   vm.runInNewContext(source, context, { filename: file });
   return context.__view;
@@ -138,7 +138,12 @@ test('prize claim preserves the form and rejects an empty school before sending 
   const view = loadView('public/js/views/prize_view.js', 'PrizeView', {
     document: { createElement(tag) { const item = node(); if (tag === 'input') consent = item; return item; } },
     analytics: { track() {} },
-    api: { submitClaim: async () => { submitted += 1; } },
+    api: {
+      getClaimDraft: async () => ({ draft: { name: 'TEST_사용자', contact: '01000000000', school: '', consent: true } }),
+      saveClaimDraft: async () => ({ draft_saved: true }),
+      submitClaim: async () => { submitted += 1; },
+    },
+    prepareResultReferralShare: async () => ({ share: async () => ({ method: 'copy', status: 'copied' }) }),
     ui: {
       formField(_label, _type, name, options) {
         const input = { name, required: options.required, value: '' };
@@ -148,15 +153,16 @@ test('prize claim preserves the form and rejects an empty school before sending 
       showModal(value) { modal = value; }, showToast() {},
     },
   });
-  view.claimModal({ id: 'claim-1', claim_type: 'DRAW' }, { announceStateChange() {}, navigate() {} });
+  await view.claimModal({ id: 'claim-1', claim_type: 'DRAW' }, { announceStateChange() {}, navigate() {} });
+  await Promise.resolve();
   consent.checked = true;
   fields.get('school').value = '   ';
   assert.equal(await modal.onConfirm(), false);
   assert.equal(submitted, 0);
   assert.equal(fields.get('name').value, 'TEST_사용자');
   fields.get('school').value = 'TEST_학교';
-  fields.get('address').value = '';
   await modal.onConfirm();
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(submitted, 1);
 });
 
@@ -170,12 +176,13 @@ test('TOP3 gap copy handles server states without promising a prize', () => {
   assert.match(view.top3GapMessage({ rank: 4, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 0, tied: true, participant_count: 8 } }), /3위 점수와 동점/);
 });
 
-test('record sharing emits a public URL with explicit context and authoritative ticket totals', async () => {
+test('record sharing uses the prepared public share and preserves authoritative ticket totals', async () => {
   const selectors = ['#invite-title', '#invite-description', '#invite-score', '#invite-balance', '#ticket-granted', '#ticket-used', '#ticket-refunded', '#valid-visits', '#invite-cooldown', '#share-fallback', '#btn-share-native', '#btn-copy-link', '#btn-invite-draw'];
   const nodes = new Map(selectors.map((selector) => [selector, node()]));
   const copied = [];
   const events = [];
   let referral = { invite_url: '/invite/publiccode123', invitation_balance: 2, valid_visits: 7, ticket_totals: { granted: 5, used: 2, refunded: 1 } };
+  let preparedKind = null;
   const view = loadView('public/js/views/invite_view.js', 'InviteView', {
     api: {
       getReferralInfo: async () => referral,
@@ -184,6 +191,16 @@ test('record sharing emits a public URL with explicit context and authoritative 
     analytics: { track: (name, dimensions = {}) => events.push({ name, dimensions }) },
     ui: { text: (target, value) => { target.textContent = String(value); }, showToast() {} },
     navigator: { clipboard: { writeText: async (value) => copied.push(value) } },
+    prepareResultReferralShare: async (_router, { kind, referral: preparedReferral }) => {
+      preparedKind = kind;
+      return { share: async () => {
+        const url = `https://example.test${preparedReferral.invite_url}?link=${kind}&share=share_phase2_1234`;
+        copied.push(url);
+        events.push({ name: 'share_attempted', dimensions: { share_method: 'copy', share_id: 'share_phase2_1234', link_kind: kind, status: 'attempted' } });
+        events.push({ name: 'share_attempted', dimensions: { share_method: 'copy', share_id: 'share_phase2_1234', link_kind: kind, status: 'copied' } });
+        return { method: 'copy', status: 'copied' };
+      } };
+    },
     window: { location: { origin: 'https://example.test' } },
     document: { createElement: () => node() },
   });
@@ -198,7 +215,8 @@ test('record sharing emits a public URL with explicit context and authoritative 
   assert.deepEqual(JSON.parse(JSON.stringify(events.filter(({ name }) => name === 'draw_cta_clicked'))), [
     { name: 'draw_cta_clicked', dimensions: { source: 'invite', draw_status: 'AVAILABLE' } },
   ]);
-  await nodes.get('#btn-copy-link').onclick();
+  assert.equal(preparedKind, 'record_share');
+  await nodes.get('#btn-share-native').onclick();
   assert.equal(nodes.get('#ticket-granted').textContent, '5장');
   assert.equal(nodes.get('#ticket-used').textContent, '사용 2장');
   assert.equal(nodes.get('#ticket-refunded').textContent, '환급 1장');
@@ -215,7 +233,7 @@ test('record sharing emits a public URL with explicit context and authoritative 
   assert.equal(nodes.get('#valid-visits').textContent, '8회');
   assert.equal(nodes.get('#ticket-granted').textContent, '6장');
   assert.doesNotMatch(nodes.get('#invite-cooldown').textContent, /적립 대기 중/);
-  await nodes.get('#btn-copy-link').onclick();
+  await nodes.get('#btn-share-native').onclick();
   assert.equal(copied[1], copied[0], 'passive refresh preserves record_share context');
   assert.equal(events.filter(({ name }) => name === 'invite_cta_viewed').length, 1);
   referral = { ...referral, invitation_balance: 1 };
@@ -259,7 +277,7 @@ test('restored scratched draw reveals the same server result without another dra
   assert.equal(nodes.get('#scratch-instruction').textContent, '');
   assert.equal(nodes.get('#scratch-instruction').hidden, true);
   assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);
-  assert.equal(nodes.get('#btn-after-draw').textContent, '혜택 안내 보기');
+  assert.equal(nodes.get('#btn-after-draw').textContent, '혜택 적용하기');
 });
 
 test('scratch result enters the accessibility tree only when revealed and canvas leaves keyboard order', async () => {
@@ -333,6 +351,8 @@ test('guide card exposure and outbound click use distinct events and stop after 
   const guideList = node();
   const nodes = new Map([
     ['#btn-go-benefit', link], ['#btn-copy-benefit', node()], ['#btn-share-benefit', node()],
+    ['#btn-kakao-benefit', node()],
+    ['#benefit-official-url', node()],
     ['#benefit-fallback', node()], ['#content-guide-list', guideList],
   ]);
   const documentMock = { hidden: false, createElement: () => node() };
@@ -349,7 +369,7 @@ test('guide card exposure and outbound click use distinct events and stop after 
     content_guides: [{ id: 'study_note', title: '제미나이 노트북', description: '학습 루틴', url: 'https://example.test/study', available: true }],
   } });
   const card = guideList.children[0];
-  const action = card.children[2];
+  const action = card.children[1].children[0];
   const contentObserver = observers.find((observer) => observer.targets.has(card));
   contentObserver.trigger(card, 0.49);
   contentObserver.trigger(card, 0.5);

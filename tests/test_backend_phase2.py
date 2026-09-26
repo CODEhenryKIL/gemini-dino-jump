@@ -255,7 +255,10 @@ class BackendPhase2Test(unittest.TestCase):
         with fixtures.app_tx() as conn:
             conn.execute("insert into dino_dev.ranking_contact(participant_id,status,game_version,submitted_at) values(%s,'SUBMITTED','1.2.0',clock_timestamp())",(pid,))
             before=operations.get_me(conn,ctx)[1]['top3_profile']
-            self.assertEqual(before,{'status':'SUBMITTED','game_version':'1.2.0'})
+            self.assertEqual(before,{
+                'required':False,'eligible':False,
+                'status':'SUBMITTED','game_version':'1.2.0',
+            })
             _,finished=operations.finish_session(conn,s['session_id'],{},dict(ctx,verification=self.verification))
             self.assertEqual(finished['top3_profile']['status'],'SUBMITTED')
             self.assertEqual(finished['top3_profile']['game_version'],'2.0.0')

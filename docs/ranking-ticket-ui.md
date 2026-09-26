@@ -62,3 +62,21 @@
 - health/config는 전체 합성 전용이라고 표시하지 않는다(`synthetic_only=false`, `gameplay_synthetic_only=true`, `top3_contact_collection_enabled=true`). 기존 합성 전용 부하 실행기는 이 환경에서 거절되며 추가 부하 테스트를 하지 않았다. 게임 데이터와 경품은 여전히 Preview 테스트 환경이다.
 - 검증: Node 177개 통과. 서버 관련 46개 중 이전 수령함 테스트 DB에 새 컬럼이 없는 1개 실패를 수정했고 해당 묶음 7개 재통과. Phase 2 서버 13개 통과. 개인정보 실제 값은 원격 테스트로 제출하지 않았다. 브라우저 연결이 끊겨 이번 실제 화면 검증은 완료하지 못했다.
 - 기존 Supabase 경고: 이번 private 테이블 변경과 무관한 public 함수 search_path / SECURITY DEFINER 실행권한, Auth 유출 비밀번호 보호 미활성 상태가 남아 있다. 참고: [search_path](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable), [함수 실행권한](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable), [비밀번호 보호](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
+
+
+## 2026-09-26 혜택·초대·수령 화면 통합 배포
+
+- 혜택 화면을 링크 박스, 복사·공유 아이콘, 활용 가이드 카드, 하단 카카오 공유 버튼으로 정리했다. 혜택 주소는 `https://VQyu3J.s.gy/Game`이다.
+- 초대·랭킹·게임 결과에서 현재 점수와 TOP3 점수 차이를 시간 점수(초당 10점)로 환산해 일관되게 표시한다. 현재 TOP3가 아닌 참가자에게 새 수령 정보 입력을 요구하지 않는다.
+- 랭킹 하단에도 재도전 문구의 카카오 공유 버튼을 추가했다. 1위 경품은 행사 종료 기준 5만원으로 유지한다.
+- 경품 수령 정보는 동의 후 서버 초안으로 저장하며, 같은 버튼 클릭에서 공유창을 연다. 저장과 공유 단계가 모두 성공하면 최종 접수한다. 취소·실패 시 초안으로 재개할 수 있다.
+- 카카오 SDK 최초 초기화 순서를 수정했다. JavaScript 키는 배포 환경 설정에서 전달한다. SDK 공유창 호출을 확인했으며 실제 메시지 발송 여부는 확인할 수 없다. 클라이언트가 보낸 공유 상태는 발송 증빙이 아니다.
+- 수령 초안 마이그레이션 `20260926215000`을 기존 `dino_dev`에 적용했다. RLS 강제, 서버 전용 역할 쓰기 허용, anon/authenticated 직접 조회 차단을 확인했다.
+- 로컬 강제 당첨·가상 TOP3 데이터 및 비밀 설정 파일은 배포에 포함하지 않는다. Preview 전체 참가자 무제한 플레이는 유지한다. 추가 부하 테스트는 실행하지 않는다.
+- 검증: 프론트 전체 186개, 변경 관련 서버·보안·마이그레이션 검사 77개 통과. 구문 검사와 git diff --check 통과.
+
+### 공개 행사 전 남은 항목
+
+- 기존 3차 범위인 개인정보 보관 기간·파기 정책은 아직 확정하지 않았다. 미완료 수령 초안에는 자동 만료/파기 작업이 없으며 최종 접수 시 삭제된다. 실제 개인정보 수집을 공개 운영하기 전에 이 정책과 자동 파기를 구현해야 한다.
+- 실제 경품·재고·확률·행사 일정은 아직 테스트 캠페인 값이다. 이번 배포는 기존 검토 주소의 갱신이다.
+- 기존 public 함수 및 Auth 보안 경고는 위 링크의 기존 사항이며, 이번 private 초안 테이블에는 새 경고가 없다.

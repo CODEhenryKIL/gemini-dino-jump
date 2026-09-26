@@ -63,6 +63,33 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             with self.assertRaises(operations.DomainError) as caught:operations.participant_init(conn,{},context(participant_token_hash=h("invalid"),invite_nonce="x",invite_nonce_hash=h("x")))
         self.assertEqual(caught.exception.code,"SESSION_INVALID")
+    def test_old_top3_request_requires_current_rank_before_collection(self):
+        entries=[]
+        for score in (400,300,200,100):
+            raw,_,created=self.make_participant();pid=created['participant']['id']
+            ctx=context(participant_token_hash=h(raw),game_version='2.1.0',idempotency_key=secrets.token_urlsafe(24))
+            with app_tx() as conn:
+                _,session=operations.create_session(conn,{},ctx);sid=session['session_id']
+                conn.execute("update dino_dev.game_session set status='FINISHED',score=%s,valid_ticks=%s,verification_result='VERIFIED',finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s",(score,score*6,sid))
+                conn.execute("insert into dino_dev.versioned_best_score(participant_id,game_version,session_id,score,achieved_at) values(%s,'2.1.0',%s,%s,clock_timestamp())",(pid,sid,score))
+            entries.append((pid,sid,ctx))
+        pid,sid,ctx=entries[-1]
+        with app_tx() as conn:
+            conn.execute("insert into dino_dev.ranking_contact(participant_id,game_version) values(%s,'2.1.0')",(pid,))
+            me=operations.get_me(conn,ctx)[1]
+            self.assertEqual(me['rank'],4)
+            self.assertEqual(me['top3_profile']['status'],'NOT_REQUIRED')
+            self.assertFalse(operations.ranking_profile_get(conn,ctx)[1]['required'])
+            session=conn.execute('select * from dino_dev.game_session where id=%s',(sid,)).fetchone()
+            self.assertFalse(operations.finish_response(conn,session)['top3_profile']['required'])
+            with self.assertRaises(operations.DomainError) as caught:operations.ranking_profile_post(conn,{},ctx)
+            self.assertEqual(caught.exception.code,'TOP3_PROFILE_NOT_REQUIRED')
+            self.assertEqual(conn.execute('select count(*) n from dino_dev.claim_contact').fetchone()['n'],0)
+            conn.execute('update dino_dev.game_session set score=500 where id=%s',(sid,))
+            conn.execute("update dino_dev.versioned_best_score set score=500 where participant_id=%s",(pid,))
+            self.assertTrue(operations.get_me(conn,ctx)[1]['top3_profile']['required'])
+            _,submitted=operations.ranking_profile_post(conn,{'name':'TEST_ranker','contact':'01000000000','school':'TEST_school','consent':True,'notice_version':'top3-contact-v1'},ctx)
+            self.assertEqual(submitted['status'],'SUBMITTED')
     def test_reset_cookie_recovers_with_fresh_bootstrap_only(self):
         eid="event_"+secrets.token_hex(8);oid="obs_"+secrets.token_hex(8)
         bootstrap=secrets.token_urlsafe(32);raw=auth.deterministic_participant_token(bootstrap,PEPPER)

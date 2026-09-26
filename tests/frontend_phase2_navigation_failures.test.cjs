@@ -229,7 +229,12 @@ test('claim submission completion does not navigate away from a newer screen', a
     showToast() {},
   };
   const view = loadView('public/js/views/prize_view.js', 'PrizeView', {
-    api: { submitClaim: () => request.promise },
+    api: {
+      getClaimDraft: async () => ({ draft: { name: '입력값', contact: '01012345678', school: '입력값', consent: true } }),
+      saveClaimDraft: async () => ({ draft_saved: true }),
+      submitClaim: () => request.promise,
+    },
+    prepareResultReferralShare: async () => ({ share: async () => ({ method: 'copy', status: 'copied' }) }),
     analytics: { track() {} }, ui, document,
   });
   const router = {
@@ -238,9 +243,11 @@ test('claim submission completion does not navigate away from a newer screen', a
     announceStateChange() {},
     navigate: (viewName) => navigations.push(viewName),
   };
-  view.claimModal({ id: 'claim-1', claim_type: 'DRAW' }, router, 9);
+  await view.claimModal({ id: 'claim-1', claim_type: 'DRAW' }, router, 9);
+  await Promise.resolve();
   checkbox.checked = true;
   const submit = modal.onConfirm();
+  await Promise.resolve();
   current = false;
   request.resolve({ status: 'INFORMATION_RECEIVED' });
   assert.equal(await submit, true);

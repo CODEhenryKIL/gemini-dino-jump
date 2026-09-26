@@ -43,6 +43,13 @@ def _application_connection(_settings):
 class BackendSecurityRegressionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        migration = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
+        with psycopg.connect(DSN, autocommit=True) as conn:
+            present = conn.execute(
+                "select 1 from dino_dev.schema_version where version='20260926215000'"
+            ).fetchone()
+            if not present:
+                conn.execute(migration.read_text(encoding="utf-8"), prepare=False)
         cls.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.DinoJumpHandler)
         host, port = cls.server.server_address
         cls.base_url = f"http://{host}:{port}"

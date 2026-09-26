@@ -13,17 +13,17 @@ export const ResultView = {
     if (!result) { router.navigate('home'); return; }
     container.innerHTML = `
       <section class="card result-card">
-        <span class="sticker-badge badge-green">기록 검증 완료</span>
+        <div class="home-event-badges"><span class="home-event-badge home-event-badge-team">#TeamGemini</span><span class="home-event-badge home-event-badge-campus">2026 캠퍼스 챌린지</span></div>
         <h1>게임 종료</h1>
         <div class="score-panel"><small>이번 판</small><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
         <div class="profile-row"><div><small>랭킹 닉네임</small><strong id="result-nickname"></strong></div><button id="btn-edit-nick" class="btn btn-secondary btn-sm">수정</button></div>
         <p id="result-top3-gap" class="result-gap" role="status"></p>
+        <button id="btn-go-pouch" class="btn btn-primary">복주머니 확인하기</button>
         <div id="top3-request"></div>
         <div class="result-retry">
-          <button id="btn-share-record" class="btn btn-share-retry" disabled>친구한테 공유하고 한 판 더 하기</button>
+          <button id="btn-share-record" class="btn btn-share-retry" aria-label="카카오톡으로 친구한테 공유하고 한 판 더 하기" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.45 2 10.7c0 2.76 1.89 5.18 4.72 6.54l-.93 3.38c-.08.29.25.52.5.36l3.97-2.61c.57.08 1.15.12 1.74.12 5.52 0 10-3.46 10-7.79C22 6.45 17.52 3 12 3Z"/></svg><span>친구한테 공유하고 한 판 더 하기</span></button>
           <p id="result-share-status" class="result-share-status" role="status"></p>
         </div>
-        <button id="btn-go-pouch" class="btn btn-primary">복주머니 확인하기</button>
       </section>`;
     ui.text(container.querySelector('#result-score'), `${result.score}점`);
     ui.text(container.querySelector('#result-best'), `최고 ${result.bestScore}점`);
@@ -79,6 +79,7 @@ export const ResultView = {
       result.top3_gap = data.top3_gap ?? data.me?.top3_gap ?? null;
       const currentGapNode = container.querySelector('#result-top3-gap');
       if (currentGapNode) this.renderGap(currentGapNode, result);
+      this.updateState(container, router, renderToken);
     } catch (_error) {
       if ((router.isCurrent && !router.isCurrent(renderToken)) || resultGapRequests.get(container) !== request) return;
       const currentGapNode = container.querySelector('#result-top3-gap');
@@ -158,11 +159,14 @@ export const ResultView = {
   },
 
   renderTop3Request(target, router, profile) {
+    const result = router.state?.lastResult || {};
+    const rank = result.top3_gap?.rank ?? result.rank;
+    const eligible = profile?.eligible !== false && result.top3_gap?.status !== 'CHASING' && (Number.isInteger(rank) ? rank >= 1 && rank <= 3 : profile?.eligible === true);
     const previous = contactForms.get(target);
-    if (previous?.router === router && previous.status === profile?.status && previous.version === profile?.game_version) return;
-    contactForms.set(target, { router, status: profile?.status, version: profile?.game_version });
+    if (previous?.router === router && previous.status === profile?.status && previous.version === profile?.game_version && previous.eligible === eligible) return;
+    contactForms.set(target, { router, status: profile?.status, version: profile?.game_version, eligible });
     target.replaceChildren();
-    target.hidden = !['REQUESTED', 'SUBMITTED'].includes(profile?.status);
+    target.hidden = !eligible || !['REQUESTED', 'SUBMITTED'].includes(profile?.status);
     if (target.hidden) return;
     const card = document.createElement('section');
     card.className = 'result-contact';

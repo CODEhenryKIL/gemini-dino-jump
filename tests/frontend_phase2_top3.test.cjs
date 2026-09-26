@@ -75,6 +75,7 @@ function loadRanking(ResultView, overrides = {}) {
     console,
     document: documentMock(),
     ResultView,
+    prepareResultReferralShare: async () => ({ share: async () => ({ status: 'cancelled' }) }),
     api: { getLeaderboard: async () => ({ leaderboard: [], me: null, top3_gap: { status: 'NO_SCORE' } }) },
     analytics: { track() {} },
     ...overrides,
@@ -139,7 +140,7 @@ test('TOP3 request renderer replaces stale content and represents requested, sub
   const { view } = loadResult();
   const target = new Element('div');
   target.append(new Element('stale'));
-  const router = { renderToken: 7, config: { campaign: { game_version: '2.0.0' } } };
+  const router = { renderToken: 7, state: { lastResult: { rank: 1 } }, config: { campaign: { game_version: '2.0.0' } } };
 
   view.renderTop3Request(target, router, { required: true, status: 'REQUESTED', game_version: '2.0.0' });
   assert.equal(target.children.length, 1);
@@ -154,6 +155,24 @@ test('TOP3 request renderer replaces stale content and represents requested, sub
 
   view.renderTop3Request(target, router, { required: false, status: 'NOT_REQUIRED' });
   assert.equal(target.children.length, 0);
+});
+
+test('leaving TOP3 hides a historical contact request and reentry restores it', () => {
+  const { view } = loadResult();
+  const target = new Element();
+  const router = { state: { lastResult: { rank: 2 } } };
+  const profile = { status: 'REQUESTED', game_version: '2.1.0', eligible: true };
+  view.renderTop3Request(target, router, profile);
+  assert.equal(target.hidden, false);
+  router.state.lastResult.rank = 4;
+  view.renderTop3Request(target, router, profile);
+  assert.equal(target.hidden, true);
+  assert.equal(target.children.length, 0);
+  router.state.lastResult.rank = 2;
+  view.renderTop3Request(target, router, { ...profile, eligible: false });
+  assert.equal(target.hidden, true);
+  view.renderTop3Request(target, router, profile);
+  assert.equal(target.hidden, false);
 });
 
 test('ranking shows prizes without old TOP3 information request cards', async () => {
@@ -245,7 +264,7 @@ test('ranking ignores reverse-order responses and a retry that finishes after le
   assert.equal(container.textContent, '다른 화면');
 });
 
-test('result keeps the completed game and TOP3 contact CTA while its supplemental ranking request retries', async () => {
+test('result keeps the completed game but hides an old TOP3 request while ranking retries', async () => {
   const retryRequest = deferred();
   let calls = 0;
   const { view: ResultView } = loadResult({
@@ -272,7 +291,7 @@ test('result keeps the completed game and TOP3 contact CTA while its supplementa
   ResultView.render(container, router, 6);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(nodes.get('#result-score').textContent, '51점');
-  assert.match(nodes.get('#top3-request').textContent, /수령 정보를 등록/);
+  assert.equal(nodes.get('#top3-request').hidden, true);
   assert.match(nodes.get('#result-top3-gap').textContent, /불러오지 못했어요/);
   const retry = descendants(nodes.get('#result-top3-gap')).find((node) => node.tag === 'button');
   const recovering = retry.onclick();
@@ -286,7 +305,7 @@ test('result keeps the completed game and TOP3 contact CTA while its supplementa
   assert.equal(result.top3_gap.score_needed, 12);
   assert.match(nodes.get('#result-top3-gap').textContent, /약 2초/);
   assert.equal(nodes.get('#result-score').textContent, '51점');
-  assert.match(nodes.get('#top3-request').textContent, /수령 정보를 등록/);
+  assert.equal(nodes.get('#top3-request').hidden, true);
 });
 
 test('result ignores reverse-order supplemental responses and completion after leaving', async () => {
@@ -330,7 +349,7 @@ test('result passive updates replace TOP3 state and ignore stale render tokens',
     const container = new Element('main'); container.append(holder);
     let currentToken = 9;
     const router = {
-      state: { top3Profile: { required: true, status: 'REQUESTED', game_version: '2.0.0' } },
+      state: { lastResult: { rank: 1 }, top3Profile: { required: true, status: 'REQUESTED', game_version: '2.0.0' } },
       config: { campaign: { game_version: '2.0.0' } },
       isCurrent: (token) => token === currentToken,
     };
@@ -394,7 +413,7 @@ test('TOP3 inline failure preserves entered values and allows retry', async () =
 test('passive TOP3 refresh preserves in-progress contact values', () => {
   const { view } = loadResult();
   const target = new Element();
-  const router = { renderToken: 3, state: {} };
+  const router = { renderToken: 3, state: { lastResult: { rank: 1 } } };
   const profile = { status: 'REQUESTED', game_version: '2.1.0' };
   view.renderTop3Request(target, router, profile);
   const field = descendants(target).find(node => node.name === 'name');
@@ -414,7 +433,10 @@ test('result sharing opens the prepared share action in place above the pouch', 
   nodes.get('#btn-share-record').onclick();
   assert.equal(shares, 1);
   assert.deepEqual(routes, []);
-  assert.ok(container.innerHTML.indexOf('id="btn-share-record"') < container.innerHTML.indexOf('id="btn-go-pouch"'));
+  assert.ok(container.innerHTML.indexOf('id="btn-share-record"') > container.innerHTML.indexOf('id="top3-request"'));
+  assert.ok(container.innerHTML.indexOf('id="top3-request"') > container.innerHTML.indexOf('id="btn-go-pouch"'));
+  assert.doesNotMatch(container.innerHTML, /기록 검증 완료/);
+  assert.match(container.innerHTML, /#TeamGemini/);
   assert.match(nodes.get('#result-top3-gap').textContent, /TOP3까지 약 5초만 더!/);
 });
 
@@ -452,23 +474,110 @@ test('draw claims retain prize-result copy and prize sharing', () => {
   assert.deepEqual(routes, ['invite']);
 });
 
-test('ranking displays actual time gaps, participant count, and safe empty states', async () => {
-  const data = { me: { rank: 4, best_score: 450, best_elapsed_seconds: 30 }, top3_gap: { third_score: 600, third_elapsed_seconds: 42.3, participant_count: 1234 }, leaderboard: [] };
+test('ranking uses score-equivalent seconds consistently despite longer elapsed play', async () => {
+  const data = { me: { rank: 4, best_score: 749, best_elapsed_seconds: 90.9 }, top3_gap: { status: 'CHASING', score_needed: 51, third_score: 800, third_elapsed_seconds: 80, participant_count: 1234 }, leaderboard: [] };
   const view = loadRanking(null, { api: { getLeaderboard: async () => data } });
   const container = new Element('main');
   await view.render(container, { isCurrent: () => true }, 1);
   assert.match(container.textContent, /4위/);
-  assert.match(container.textContent, /450점/);
+  assert.match(container.textContent, /749점/);
   assert.match(container.textContent, /1,234명/);
-  assert.match(container.textContent, /12.3초 짧게/);
-  data.me.best_elapsed_seconds = 45;
-  assert.match(view.timeGapMessage(data), /2.7초 더/);
-  data.me.best_elapsed_seconds = 42.3;
-  assert.match(view.timeGapMessage(data), /시간이 같아요/);
-  data.me.best_elapsed_seconds = null;
-  assert.match(view.timeGapMessage(data), /시간 기록을 확인/);
+  assert.equal(view.timeGapMessage(data), '3위까지 약 6초 더!');
+  data.me.best_elapsed_seconds = 30;
+  assert.equal(view.timeGapMessage(data), '3위까지 약 6초 더!');
+  data.top3_gap.score_needed = 50;
+  assert.equal(view.timeGapMessage(data), '3위까지 약 5초 더!');
+  data.top3_gap.score_needed = null;
+  assert.match(view.timeGapMessage(data), /점수를 확인/);
   data.top3_gap.third_score = null;
   assert.match(view.timeGapMessage(data), /아직 3위 기록이 없어요/);
+  data.me.rank = 2;
+  assert.equal(view.timeGapMessage(data), '현재 2위로 TOP3예요!');
   data.me = null;
-  assert.match(view.timeGapMessage(data), /첫 게임/);
+  assert.match(view.timeGapMessage(data), /첫 게임을 마치면\n/);
+});
+
+test('claim draft resumes, cancelled share stays pending, and finalization retries without resharing', async () => {
+  let modal;
+  let submitted = 0;
+  let shared = 0;
+  let outcome = { method: 'native', status: 'cancelled' };
+  let failSubmit = true;
+  const drafts = [];
+  const routes = [];
+  const view = loadPrize({
+    api: {
+      getClaimDraft: async () => ({ draft: { name: '테스트', contact: '01000000000', school: '테스트학교', address: '테스트주소', consent: true } }),
+      saveClaimDraft: async (_id, payload) => drafts.push(payload),
+      submitClaim: async (_id, payload) => { submitted++; assert.equal(payload.share_status, 'share_sheet_closed'); if (failSubmit) throw new Error('다시 시도'); },
+    },
+    prepareResultReferralShare: async () => ({ share: async () => { shared++; return outcome; } }),
+    ui: {
+      showModal: (options) => { modal = options; }, showToast() {},
+      formField(labelText, type, name, opts) { const label = new Element('label'); const input = new Element('input'); input.name = name; input.required = opts.required; label.append(input); return { label, input }; },
+    },
+  });
+  const router = { isCurrent: () => true, announceStateChange() {}, navigate: (route) => routes.push(route) };
+  await view.claimModal({ id: 'claim-1', claim_type: 'DRAW', category: 'SHIPPING' }, router, 1);
+  assert.equal(modal.confirmText, '저장 후\n친구에게 자랑하기');
+  assert.equal(descendants(modal.content).find((node) => node.name === 'name').value, '테스트');
+  await new Promise(setImmediate);
+  await modal.onConfirm();
+  assert.equal(shared, 1);
+  assert.equal(drafts.length, 1);
+  assert.equal(drafts[0].consent, true);
+  assert.equal(drafts[0].notice_version, 'claim-contact-v1');
+  assert.equal(submitted, 0);
+  assert.equal(modal.title, '2 / 3 · 친구에게 공유');
+  await new Promise(setImmediate);
+  const button = descendants(modal.content).find((node) => node.tag === 'button');
+  assert.equal(submitted, 0);
+  assert.match(modal.content.textContent, /공유를 취소/);
+  outcome = { method: 'native', status: 'share_sheet_closed' };
+  await button.onclick();
+  assert.equal(submitted, 1);
+  assert.equal(shared, 2);
+  failSubmit = false;
+  await button.onclick();
+  assert.equal(submitted, 2);
+  assert.equal(shared, 2);
+  assert.equal(modal.title, '3 / 3 · 접수 완료');
+  modal.onConfirm();
+  assert.deepEqual(routes, ['claims']);
+});
+
+test('claim save click immediately opens sharing but waits for saved data before final submission', async () => {
+  let modal; let opened = 0; let finalized = 0;
+  const saving = deferred();
+  const view = loadPrize({
+    api: { getClaimDraft: async () => ({ draft: { name: 'TEST_사용자', contact: '01000000000', school: 'TEST_학교', consent: true } }), saveClaimDraft: () => saving.promise, submitClaim: async () => { finalized++; } },
+    prepareResultReferralShare: async () => ({ share: async () => { opened++; return { method: 'kakao', status: 'attempted' }; } }),
+    ui: { showModal: (value) => { modal = value; }, showToast() {}, formField(_label, _type, name, opts) { const label = new Element('label'); const input = new Element('input'); input.name = name; input.required = opts.required; label.append(input); return { label, input }; } },
+  });
+  await view.claimModal({ id: 'claim-direct', category: 'COUPON' }, { isCurrent: () => true, navigate() {}, announceStateChange() {} }, 1);
+  await new Promise(setImmediate);
+  const clicked = modal.onConfirm();
+  assert.equal(opened, 1);
+  assert.equal(finalized, 0);
+  saving.resolve({ draft_saved: true });
+  await clicked;
+  await new Promise(setImmediate);
+  assert.equal(finalized, 1);
+  assert.equal(opened, 1);
+  assert.equal(modal.title, '3 / 3 · 접수 완료');
+});
+
+
+test('ranking bottom share button uses retry copy and opens sharing in place', async () => {
+  let kind; let opened = 0;
+  const view = loadRanking(null, { prepareResultReferralShare: async (_router, options) => { kind = options.kind; return { share: async () => { opened++; return { method: 'kakao', status: 'attempted' }; } }; } });
+  const container = new Element('main');
+  await view.render(container, { isCurrent: () => true, navigate() { throw new Error('must share in place'); } }, 1);
+  await new Promise(setImmediate);
+  const button = container.querySelector('#btn-ranking-share');
+  assert.equal(kind, 'retry_invite');
+  assert.ok(container.children.indexOf(button) > container.children.findIndex((node) => node.className === 'card ranking-list'));
+  assert.equal(button.disabled, false);
+  await button.onclick();
+  assert.equal(opened, 1);
 });
