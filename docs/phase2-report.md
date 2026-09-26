@@ -4,7 +4,13 @@
 기준 커밋: `0f091b6a0d3d27edb84e760e34ff6a77af590b6d`.
 상태: **2차 구현 목표 완료. 2026-09-26 사용자가 Notion 내부 링크 추가를 직접 맡고, 부하 테스트는 세부 디테일 정리 후 별도 진행하기로 했다. 나머지 구현·검증 증거는 [완료 대조표](phase2-completion-audit.md)를 따른다. 운영 공개는 3차 범위다.**
 
-최신 개선 Preview: https://dino-nanobanana-2iz8u839a-henry-kils-projects.vercel.app (`dpl_3rZ5BoNGjJUq92PnJYtRR1vf5Zdn`, 코드 `232d4d3`). 이후 테스트·문서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
+최신 개선 Preview: https://dino-nanobanana-ilx08jqy5-henry-kils-projects.vercel.app (`dpl_EU1NVPQHrg8AEDBnkUpQJF43QscB`, 코드 `dc40170`). 이후 문서만 바뀐 커밋은 실행 코드가 같으며 별도 재배포를 요구하지 않는다.
+
+## 로딩·홈 수정 및 검증 방식 변경
+
+- 사용자 요청에 따라 5초 Google 색상 로딩 애니메이션, 홈 중복 로고 제거, Google AI 제목·행사 문구·게임 시작 CTA, 불필요한 설명 제거를 반영했다. 상세는 [화면 수정 기록](phase2-ui-feedback.md)을 따른다.
+- 전체 Node 146개와 로컬 모바일 화면·재연결 포커스 확인을 마쳤다. Preview는 READY·DB ready·합성 전용이다. HTML에는 플랫폼 피드백 스크립트만 추가됐다.
+- 사용자가 속도를 우선하며 수정사항을 모두 반영한 뒤 한 번에 테스트하도록 요청했다. 추가 검증을 중단했고 이후 개별 UI 수정마다 검증을 반복하지 않는다. 부하 테스트는 계속 보류한다.
 
 ## 사용자 종료 결정
 
