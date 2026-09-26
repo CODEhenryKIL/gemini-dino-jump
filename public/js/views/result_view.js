@@ -17,9 +17,9 @@ export const ResultView = {
         <h1>게임 종료</h1>
         <div class="score-panel"><small>이번 판</small><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
         <div class="profile-row"><div><small>랭킹 닉네임</small><strong id="result-nickname"></strong></div><button id="btn-edit-nick" class="btn btn-secondary btn-sm">수정</button></div>
+        <p id="result-top3-gap" class="result-gap" role="status"></p>
         <div id="top3-request"></div>
         <div class="result-retry">
-          <p id="result-top3-gap" class="result-gap" role="status"></p>
           <button id="btn-share-record" class="btn btn-share-retry" disabled>친구한테 공유하고 한 판 더 하기</button>
           <p id="result-share-status" class="result-share-status" role="status"></p>
         </div>
@@ -165,7 +165,9 @@ export const ResultView = {
     title.textContent = profile.status === 'SUBMITTED' ? 'TOP3 정보 접수 완료' : '수령 정보를 등록해 주세요';
     card.appendChild(title);
     if (profile.status === 'REQUESTED') {
-      card.appendChild(this.top3Form(router));
+      const intro = document.createElement('p'); intro.className = 'result-contact-intro';
+      intro.textContent = 'TOP3에 진입한 참가자에게는 경품 안내를 위해 수령 정보를 미리 받고 있어요.';
+      card.append(intro, this.top3Form(router));
     } else {
       const text = document.createElement('p'); text.textContent = '수령함에서 접수 상태를 확인할 수 있어요.';
       card.appendChild(text);
@@ -183,8 +185,11 @@ export const ResultView = {
     fields.forEach(({ label }) => form.appendChild(label));
     const consent = document.createElement('label'); consent.className = 'consent-row';
     const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.required = true;
-    const consentText = document.createElement('span'); consentText.textContent = '경품 안내와 수령 확인을 위한 이름·연락처·학교 수집에 동의합니다.';
+    const consentText = document.createElement('span'); consentText.textContent = '경품 안내와 수령 확인을 위한\n이름·연락처·학교 수집에 동의합니다.';
     consent.append(checkbox, consentText); form.appendChild(consent);
+    const accuracyNote = document.createElement('p'); accuracyNote.className = 'result-contact-accuracy';
+    accuracyNote.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';
+    form.appendChild(accuracyNote);
     const feedback = document.createElement('p'); feedback.className = 'result-form-status'; feedback.setAttribute('role', 'status');
     const button = document.createElement('button'); button.type = 'submit'; button.className = 'btn btn-secondary'; button.textContent = '수령 정보 등록';
     form.append(feedback, button);

@@ -485,9 +485,13 @@ body {
 .result-contact .consent-row { font-size: 13px; line-height: 1.5; }
 .result-contact p { margin: 0; }
 .result-retry { display: grid; gap: 10px; padding-top: 8px; }
-.result-retry .result-gap { margin: 0; white-space: pre-line; font-size: 15px; line-height: 1.6; font-weight: 600; }
+.result-card > .result-gap { margin: 0; white-space: pre-line; font-size: 15px; line-height: 1.6; font-weight: 600; }
 .btn-share-retry { background: #fee500; color: #191919; border: 1px solid #f0d800; }
 .btn-share-retry:hover { background: #f5db00; }
 .result-share-status { margin: 0; font-size: 13px; color: var(--text-sub); }
 .result-form-status { color: var(--primary); font-size: 14px; line-height: 1.5; }
 .result-form-status:empty { display: none; }
+
+.result-contact-intro { font-size: 14px; line-height: 1.6; color: var(--text-sub); }
+.result-contact .consent-row span, .result-contact-accuracy { white-space: pre-line; }
+.result-contact-accuracy { font-size: 13px; line-height: 1.6; color: var(--text-sub); padding-left: 24px; }
