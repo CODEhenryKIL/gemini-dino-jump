@@ -107,6 +107,7 @@ function makeRuntime(fetchImpl) {
       globalThis.__adminTest = {
         showAdmin,
         adminRequest,
+        loadMetrics,
         setAccessToken(value) { accessToken = value; sessionSet(value); },
         getAccessToken() { return accessToken; },
       };
@@ -239,4 +240,58 @@ test('a temporary session outage keeps the token and offers retry instead of tre
   assert.equal(runtime.nodes.get('#admin-load-status').hidden, false);
   assert.equal(runtime.nodes.get('#btn-admin-retry').hidden, false);
   assert.match(runtime.nodes.get('#admin-load-message').textContent, /잠시|다시|재시도/);
+});
+
+test('a successful filtered metrics query clears only the recovered section failure', async () => {
+  let failMetrics = true;
+  const runtime = makeRuntime(async (input) => {
+    const requestPath = pathOf(input);
+    if (requestPath === '/api/admin/session') return response(200, sessionPayload());
+    if (requestPath === '/api/admin/overview') return failMetrics ? response(503, {}) : response(200, emptyOverview());
+    if (requestPath === '/api/admin/claims') return response(503, {});
+    if (requestPath === '/api/admin/ranking-contacts') return response(200, { ranking_contacts: [] });
+    if (requestPath === '/api/admin/game-faults') return response(200, { faults: [] });
+    throw new Error(`unexpected request: ${requestPath}`);
+  });
+  runtime.api.setAccessToken('valid-token');
+  await runtime.api.showAdmin();
+  assert.match(runtime.nodes.get('#admin-load-message').textContent, /통계/);
+  assert.match(runtime.nodes.get('#admin-load-message').textContent, /수령 원장/);
+  failMetrics = false;
+  await runtime.api.loadMetrics();
+  assert.equal(runtime.nodes.get('#admin-load-status').hidden, false);
+  assert.doesNotMatch(runtime.nodes.get('#admin-load-message').textContent, /통계/);
+  assert.match(runtime.nodes.get('#admin-load-message').textContent, /수령 원장/);
+});
+
+test('filter retry hides the notice when metrics was the only failed section', async () => {
+  let fail = true;
+  const runtime = makeRuntime(async (input) => {
+    const path = pathOf(input);
+    if (path === '/api/admin/session') return response(200, { admin: { permissions: ['analytics:read'] } });
+    if (path === '/api/admin/overview') return fail ? response(503, {}) : response(200, emptyOverview());
+    throw new Error(`unexpected request: ${path}`);
+  });
+  runtime.api.setAccessToken('valid-token');
+  await runtime.api.showAdmin();
+  assert.equal(runtime.nodes.get('#admin-load-status').hidden, false);
+  fail = false;
+  await runtime.api.loadMetrics();
+  assert.equal(runtime.nodes.get('#admin-load-status').hidden, true);
+});
+
+test('an older metrics response cannot overwrite the latest filter result or restore its old error', async () => {
+  for (const oldStatus of [200, 503]) {
+    const old = deferred();
+    let attempts = 0;
+    const runtime = makeRuntime(async () => ++attempts === 1 ? old.promise : response(200, { ...emptyOverview(), campaign: { version: 9, status: 'PAUSED' } }));
+    runtime.api.setAccessToken('valid-token');
+    const pending = runtime.api.loadMetrics();
+    await runtime.api.loadMetrics();
+    assert.equal(runtime.nodes.get('#campaign-status').value, 'PAUSED');
+    old.resolve(response(oldStatus, emptyOverview()));
+    await pending;
+    assert.equal(runtime.nodes.get('#campaign-status').value, 'PAUSED');
+    assert.equal(runtime.nodes.get('#admin-load-status').hidden, true);
+  }
 });

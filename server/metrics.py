@@ -388,19 +388,22 @@ def build_overview(conn, query, ctx):
       invitation_performance['use_events'] / invitation_performance['grant_events']
       if invitation_performance['grant_events'] else None)
     invitation_performance['ratio_definition'] = '조회 기간의 초대권 사용 이벤트 / 초대권 지급 이벤트. 개별 지급권의 소비 전환율은 식별 불가.'
-    game_progress_rows = rows("""select coalesce(last_stage,'unknown') last_stage,count(*)::int sessions,
+    game_progress_rows = rows(""", game_events as (
+      select e.game_session_id,coalesce(
+        (array_agg(e.dimensions->>'stage' order by e.occurred_at desc,e.id desc)
+          filter(where e.dimensions ? 'stage'))[1],'unknown') last_stage,
+        max(e.active_ms) last_active_ms
+      from events e where e.game_session_id is not null and e.source='client'
+        and regexp_replace(e.event_name,'^client_','') in ('game_checkpoint','game_completed','game_fault_reported')
+      group by e.game_session_id
+    ) select coalesce(last_stage,'unknown') last_stage,count(*)::int sessions,
       count(distinct participant_id)::int participants,
       avg(last_active_ms)::float8 mean_last_observed_active_ms,
       max(last_active_ms)::int max_last_observed_active_ms,
       count(*) filter(where last_active_ms is null)::int active_time_unknown
-      from (select g.id,g.participant_id,last_event.last_stage,last_event.last_active_ms
+      from (select g.id,g.participant_id,game_events.last_stage,game_events.last_active_ms
         from dino_dev.game_session g join people p on p.id=g.participant_id
-        left join lateral (select coalesce(
-            (array_agg(e.dimensions->>'stage' order by e.occurred_at desc,e.id desc)
-              filter(where e.dimensions ? 'stage'))[1],'unknown') last_stage,
-          max(e.active_ms) last_active_ms from events e where e.game_session_id=g.id and e.source='client'
-          and regexp_replace(e.event_name,'^client_','') in ('game_checkpoint','game_completed','game_fault_reported')
-          ) last_event on true
+        left join game_events on game_events.game_session_id=g.id
         where g.reserved_at>=%s and g.reserved_at<%s) observed
       group by 1 order by 1""", (start,end))
     unlinked_game_progress = one("""select count(*)::int checkpoint_events from events

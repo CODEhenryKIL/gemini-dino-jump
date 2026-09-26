@@ -10,10 +10,14 @@ let sessionRevision = 0;
 let loginInFlight = false;
 let campaignVersion = 0;
 let adminPermissions = new Set();
+const loadFailures = new Set();
+const sectionRevisions = new Map();
+let sessionLoadMessage = '';
 
 function resetAdminSession(message) {
   sessionRevision += 1;
   accessToken = ''; sessionClear(); adminPermissions = new Set(); campaignVersion = 0;
+  loadFailures.clear(); sectionRevisions.clear(); sessionLoadMessage = '';
   document.querySelector('#admin-app').hidden = true;
   document.querySelector('#admin-login').hidden = false;
   document.querySelector('#admin-load-status').hidden = true;
@@ -26,6 +30,31 @@ function resetAdminSession(message) {
 function showLoadError(message) {
   ui.text(document.querySelector('#admin-load-message'), message);
   document.querySelector('#admin-load-status').hidden = false;
+}
+
+function updateLoadStatus() {
+  if (sessionLoadMessage) showLoadError(sessionLoadMessage);
+  else if (loadFailures.size) showLoadError(`불러오지 못한 항목: ${[...loadFailures].join(', ')}. 다시 불러오기를 눌러 주세요.`);
+  else document.querySelector('#admin-load-status').hidden = true;
+}
+
+async function loadSection(name, path, render) {
+  const session = sessionRevision;
+  const revision = (sectionRevisions.get(name) || 0) + 1;
+  sectionRevisions.set(name, revision);
+  const isCurrent = () => session === sessionRevision && sectionRevisions.get(name) === revision;
+  try {
+    const data = await adminRequest(path);
+    if (!isCurrent()) return;
+    render(data);
+    loadFailures.delete(name);
+    updateLoadStatus();
+  } catch (error) {
+    if (!isCurrent()) return;
+    loadFailures.add(name);
+    updateLoadStatus();
+    throw error;
+  }
 }
 
 async function adminRequest(path, options = {}) {
@@ -78,14 +107,20 @@ async function login() {
 }
 
 async function showAdmin() {
+  const revision = sessionRevision;
   let session;
   try { session = await adminRequest('/api/admin/session'); }
   catch (error) {
+    if (revision !== sessionRevision) throw error;
     if (error.status === 403) resetAdminSession('관리자 접근 권한을 확인할 수 없습니다. 권한이 있는 계정으로 다시 로그인해 주세요.');
-    else if (accessToken) showLoadError('관리자 연결을 확인하지 못했습니다. 다시 불러오기를 눌러 주세요.');
+    else if (accessToken) {
+      sessionLoadMessage = '관리자 연결을 확인하지 못했습니다. 다시 불러오기를 눌러 주세요.';
+      updateLoadStatus();
+    }
     throw error;
   }
-  const revision = sessionRevision;
+  sessionLoadMessage = '';
+  updateLoadStatus();
   document.querySelector('#admin-login').hidden = true;
   document.querySelector('#admin-app').hidden = false;
   ui.text(document.querySelector('#admin-name'), session.admin.display_name || '관리자');
@@ -96,19 +131,15 @@ async function showAdmin() {
   document.querySelector('#claim-operations-section').hidden = !adminPermissions.has('claims:read');
   document.querySelector('#ranking-contact-section').hidden = !adminPermissions.has('claims:read');
   document.querySelector('#fault-review-section').hidden = !adminPermissions.has('faults:read');
-  if (adminPermissions.has('analytics:read')) tasks.push({ name: '통계', run: loadMetrics() });
+  if (adminPermissions.has('analytics:read')) tasks.push(loadMetrics());
   if (adminPermissions.has('claims:read')) {
-    tasks.push({ name: '수령 원장', run: loadClaims() }, { name: 'TOP3 접수', run: loadRankingContacts() });
+    tasks.push(loadClaims(), loadRankingContacts());
   }
   if (adminPermissions.has('faults:read')) {
-    tasks.push({ name: '장애 심사', run: loadFaults() });
+    tasks.push(loadFaults());
   }
   document.querySelector('#btn-campaign-update').disabled = !adminPermissions.has('campaign:write');
-  const results = await Promise.allSettled(tasks.map((task) => task.run));
-  if (revision !== sessionRevision) return;
-  const failed = tasks.filter((_task, index) => results[index].status === 'rejected').map((task) => task.name);
-  if (failed.length) showLoadError(`불러오지 못한 항목: ${failed.join(', ')}. 다시 불러오기를 눌러 주세요.`);
-  else document.querySelector('#admin-load-status').hidden = true;
+  await Promise.allSettled(tasks);
 }
 
 async function loadMetrics() {
@@ -116,7 +147,10 @@ async function loadMetrics() {
   for (const [key, value] of [...params]) if (!value) params.delete(key);
   if (params.has('from')) params.set('from', `${params.get('from')}T00:00:00+09:00`);
   if (params.has('to')) params.set('to', `${nextCalendarDate(params.get('to'))}T00:00:00+09:00`);
-  const data = await adminRequest(`/api/admin/overview?${params}`);
+  return loadSection('통계', `/api/admin/overview?${params}`, renderMetrics);
+}
+
+function renderMetrics(data) {
   campaignVersion = data.campaign?.version ?? campaignVersion;
   if (data.campaign?.status) document.querySelector('#campaign-status').value = data.campaign.status;
   ui.text(document.querySelector('#metrics-refreshed'), data.generated_at ? `갱신 ${new Date(data.generated_at).toLocaleString('ko-KR')}` : '갱신 시각 미제공');
@@ -434,7 +468,10 @@ function renderDefinitions(definitions) {
 }
 
 async function loadFaults() {
-  const data = await adminRequest('/api/admin/game-faults?status=PENDING');
+  return loadSection('장애 심사', '/api/admin/game-faults?status=PENDING', renderFaults);
+}
+
+function renderFaults(data) {
   const list = document.querySelector('#admin-faults'); list.replaceChildren();
   if (!data.faults?.length) {
     const empty = document.createElement('p'); empty.textContent = '심사 대기 중인 장애 신고가 없습니다.'; list.appendChild(empty); return;
@@ -471,14 +508,20 @@ function faultEditor(fault) {
 }
 
 async function loadClaims() {
-  const data = await adminRequest('/api/admin/claims?limit=100');
+  return loadSection('수령 원장', '/api/admin/claims?limit=100', renderClaims);
+}
+
+function renderClaims(data) {
   const list = document.querySelector('#admin-claims'); list.replaceChildren();
   if (!data.claims?.length) { const empty = document.createElement('p'); empty.textContent = '처리할 수령 건이 없습니다.'; list.appendChild(empty); return; }
   for (const claim of data.claims) list.appendChild(claimEditor(claim));
 }
 
 async function loadRankingContacts() {
-  const data = await adminRequest('/api/admin/ranking-contacts');
+  return loadSection('TOP3 접수', '/api/admin/ranking-contacts', renderRankingContacts);
+}
+
+function renderRankingContacts(data) {
   const list = document.querySelector('#admin-ranking-contacts'); list.replaceChildren();
   if (!data.ranking_contacts?.length) { const empty = document.createElement('p'); empty.textContent = '잠정 TOP3 연락 접수 건이 없습니다.'; list.appendChild(empty); return; }
   for (const contact of data.ranking_contacts) {
