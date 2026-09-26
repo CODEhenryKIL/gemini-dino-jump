@@ -114,7 +114,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                 ctx["campaign_id"]=guard["campaign_id"]
                 if method=="GET" and path=="/api/health":
                     campaign=conn.execute("select status,game_version from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();remaining=conn.execute("select count(*)::int n from dino_dev.inventory_item where status='AVAILABLE'").fetchone()["n"]
-                    self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":True,"test_seed":guard["test_seed"],"test_inventory_remaining":remaining,"campaign_status":campaign["status"] if campaign else None});return
+                    self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":False,"gameplay_synthetic_only":True,"top3_contact_collection_enabled":True,"test_seed":guard["test_seed"],"test_inventory_remaining":remaining,"campaign_status":campaign["status"] if campaign else None});return
                 if method=="GET" and path=="/api/config":
                     campaign=conn.execute("select id,title,status,game_version,opens_at,closes_at from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();data["campaign"].update(dict(campaign) if campaign else {});data["campaign"]["game_version"]=settings.game_version;self.send_json(200,data);return
                 if not is_admin:

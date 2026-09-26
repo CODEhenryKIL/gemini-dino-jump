@@ -58,7 +58,8 @@ function loadResult(overrides = {}) {
     document: documentMock(),
     api: {},
     analytics: { track() {} },
-    ui: { text: (node, value) => { node.textContent = String(value); }, showToast() {}, showModal() {} },
+    prepareResultReferralShare: async () => ({ share() {} }),
+    ui: { text: (node, value) => { node.textContent = String(value); }, showToast() {}, showModal() {}, formField(labelText, type, name) { const label = new Element('label'); label.textContent = labelText; const input = new Element('input'); input.type = type; input.name = name; label.append(input); return { label, input }; } },
     ...overrides,
   };
   context.globalThis = context;
@@ -142,14 +143,14 @@ test('TOP3 request renderer replaces stale content and represents requested, sub
 
   view.renderTop3Request(target, router, { required: true, status: 'REQUESTED', game_version: '2.0.0' });
   assert.equal(target.children.length, 1);
-  assert.match(target.textContent, /잠정 TOP3/);
+  assert.match(target.textContent, /수령 정보를 등록/);
   assert.equal(descendants(target).find((node) => node.tag === 'button').disabled, false);
 
   view.renderTop3Request(target, router, { required: false, status: 'SUBMITTED', game_version: '2.0.0' });
   assert.equal(target.children.length, 1, 'submitted state replaces the requested card instead of appending');
   assert.match(target.textContent, /TOP3 정보 접수 완료/);
-  assert.match(target.textContent, /최종 수상과 지급 여부는.*운영팀이 확인/);
-  assert.equal(descendants(target).find((node) => node.tag === 'button').disabled, true);
+  assert.match(target.textContent, /수령함에서 접수 상태/);
+  assert.equal(descendants(target).find((node) => node.tag === 'form'), undefined);
 
   view.renderTop3Request(target, router, { required: false, status: 'NOT_REQUIRED' });
   assert.equal(target.children.length, 0);
@@ -271,7 +272,7 @@ test('result keeps the completed game and TOP3 contact CTA while its supplementa
   ResultView.render(container, router, 6);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(nodes.get('#result-score').textContent, '51점');
-  assert.match(nodes.get('#top3-request').textContent, /잠정 TOP3/);
+  assert.match(nodes.get('#top3-request').textContent, /수령 정보를 등록/);
   assert.match(nodes.get('#result-top3-gap').textContent, /불러오지 못했어요/);
   const retry = descendants(nodes.get('#result-top3-gap')).find((node) => node.tag === 'button');
   const recovering = retry.onclick();
@@ -285,7 +286,7 @@ test('result keeps the completed game and TOP3 contact CTA while its supplementa
   assert.equal(result.top3_gap.score_needed, 12);
   assert.match(nodes.get('#result-top3-gap').textContent, /12점/);
   assert.equal(nodes.get('#result-score').textContent, '51점');
-  assert.match(nodes.get('#top3-request').textContent, /잠정 TOP3/);
+  assert.match(nodes.get('#top3-request').textContent, /수령 정보를 등록/);
 });
 
 test('result ignores reverse-order supplemental responses and completion after leaving', async () => {
@@ -334,7 +335,7 @@ test('result passive updates replace TOP3 state and ignore stale render tokens',
       isCurrent: (token) => token === currentToken,
     };
     await view.updateState(container, router, 9);
-    assert.match(holder.textContent, /잠정 TOP3/, `${name} shows a newly requested profile`);
+    assert.match(holder.textContent, /수령 정보를 등록/, `${name} shows a newly requested profile`);
     router.state.top3Profile = { required: false, status: 'SUBMITTED', game_version: '2.0.0' };
     await view.updateState(container, router, 9);
     assert.match(holder.textContent, /TOP3 정보 접수 완료/, `${name} replaces requested with submitted`);
@@ -348,57 +349,73 @@ test('result passive updates replace TOP3 state and ignore stale render tokens',
   }
 });
 
-test('TOP3 submit returns to the screen where the modal opened and broadcasts the submitted state', async (t) => {
-  for (const returnView of ['ranking', 'result']) {
-    await t.test(returnView, async () => {
-      const navigations = [];
-      let announcements = 0;
-      const harness = modalHarness({ submit: async () => ({ status: 'SUBMITTED', submitted_at: '2026-09-26T00:00:00Z' }) });
-      const router = {
-        currentView: returnView,
-        renderToken: 5,
-        state: { top3Profile: { required: true, status: 'REQUESTED', game_version: '2.0.0' }, lastResult: null },
-        isCurrent: (token) => token === 5,
-        announceStateChange() { announcements += 1; },
-        async navigate(viewName, options) { navigations.push([viewName, options]); },
-      };
-      harness.view.top3Modal(router, 5);
-      const modal = harness.getModal();
-      descendants(modal.content).find((input) => input.tag === 'input' && !input.name).checked = true;
-      assert.equal(await modal.onConfirm(), undefined);
-      assert.equal(router.state.top3Profile.required, false);
-      assert.equal(router.state.top3Profile.status, 'SUBMITTED');
-      assert.equal(announcements, 1);
-      assert.deepEqual(JSON.parse(JSON.stringify(navigations)), [[returnView, { replace: true }]]);
-      assert.deepEqual(harness.analyticsEvents, ['top3_profile_started', 'top3_profile_submitted']);
-    });
-  }
+function fillContact(form) {
+  const inputs = descendants(form).filter(node => node.tag === 'input');
+  const values = { name: '홍길동', contact: '010-1234-5678', school: '테스트대학교' };
+  for (const input of inputs) { if (input.name) input.value = values[input.name]; else input.checked = true; }
+}
+
+test('TOP3 direct form starts blank, accepts ordinary values, broadcasts and blocks double submission', async () => {
+  const request = deferred(); let calls = 0, announcements = 0, payload;
+  const harness = modalHarness({ submit: async data => { calls++; payload = data; return request.promise; } });
+  const router = { renderToken: 5, state: { top3Profile: { status: 'REQUESTED' }, lastResult: {} }, isCurrent: () => true, announceStateChange() { announcements++; } };
+  const form = harness.view.top3Form(router, 5);
+  assert.ok(descendants(form).filter(node => node.name).every(node => node.value === ''));
+  assert.doesNotMatch(form.textContent, /합성|테스트 정보|현재 순위가 내려가더라도/);
+  fillContact(form);
+  const submit = form.onsubmit({ preventDefault() {} });
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(calls, 1);
+  assert.equal(payload.name, '홍길동');
+  request.resolve({ status: 'SUBMITTED', submitted_at: '2026-09-26T00:00:00Z' });
+  await submit;
+  assert.equal(router.state.top3Profile.status, 'SUBMITTED');
+  assert.equal(announcements, 1);
+  assert.match(form.textContent, /정보 접수 완료/);
+  assert.deepEqual(harness.analyticsEvents, ['top3_profile_started', 'top3_profile_submitted']);
 });
 
-test('TOP3 submission failure keeps entered values and the modal open for retry', async () => {
-  const harness = modalHarness({ submit: async () => { throw new Error('temporary failure'); } });
-  const navigations = [];
-  const router = {
-    currentView: 'ranking', renderToken: 2,
-    state: { top3Profile: { required: true, status: 'REQUESTED' } },
-    isCurrent: () => true,
-    navigate: (...args) => navigations.push(args),
-  };
-  harness.view.top3Modal(router, 2);
-  const modal = harness.getModal();
-  const inputs = descendants(modal.content).filter((node) => node.tag === 'input');
-  const named = Object.fromEntries(inputs.filter((input) => input.name).map((input) => [input.name, input]));
-  named.name.value = 'TEST_재시도';
-  named.contact.value = '01000000000';
-  named.school.value = 'TEST_학교';
-  inputs.find((input) => !input.name).checked = true;
+test('TOP3 inline failure preserves entered values and allows retry', async () => {
+  let calls = 0;
+  const harness = modalHarness({ submit: async () => { calls++; if (calls === 1) throw new Error('temporary failure'); return { status: 'SUBMITTED' }; } });
+  const router = { renderToken: 2, state: { top3Profile: { status: 'REQUESTED' } }, isCurrent: () => true };
+  const form = harness.view.top3Form(router, 2);
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(calls, 0);
+  fillContact(form);
+  await form.onsubmit({ preventDefault() {} });
+  assert.match(form.textContent, /temporary failure/);
+  assert.equal(descendants(form).find(node => node.name === 'name').value, '홍길동');
+  assert.equal(descendants(form).find(node => node.tag === 'button').disabled, false);
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(router.state.top3Profile.status, 'SUBMITTED');
+});
 
-  assert.equal(await modal.onConfirm(), false);
-  assert.equal(named.name.value, 'TEST_재시도');
-  assert.equal(named.contact.value, '01000000000');
-  assert.equal(named.school.value, 'TEST_학교');
-  assert.deepEqual(navigations, []);
-  assert.deepEqual(harness.toasts, ['temporary failure']);
+test('passive TOP3 refresh preserves in-progress contact values', () => {
+  const { view } = loadResult();
+  const target = new Element();
+  const router = { renderToken: 3, state: {} };
+  const profile = { status: 'REQUESTED', game_version: '2.1.0' };
+  view.renderTop3Request(target, router, profile);
+  const field = descendants(target).find(node => node.name === 'name');
+  field.value = '작성 중';
+  view.renderTop3Request(target, router, { ...profile });
+  assert.equal(descendants(target).find(node => node.name === 'name'), field);
+  assert.equal(field.value, '작성 중');
+});
+
+test('result sharing opens the prepared share action in place above the pouch', async () => {
+  let shares = 0;
+  const { view } = loadResult({ prepareResultReferralShare: async () => ({ share() { shares++; } }) });
+  const { container, nodes } = resultContainer();
+  const routes = [];
+  view.render(container, { state: { lastResult: { score: 40, bestScore: 50, rank: 4, top3_gap: { status: 'CHASING', score_needed: 42 } } }, navigate: name => routes.push(name) }, 1);
+  await new Promise(resolve => setImmediate(resolve));
+  nodes.get('#btn-share-record').onclick();
+  assert.equal(shares, 1);
+  assert.deepEqual(routes, []);
+  assert.ok(container.innerHTML.indexOf('id="btn-share-record"') < container.innerHTML.indexOf('id="btn-go-pouch"'));
+  assert.match(nodes.get('#result-top3-gap').textContent, /약 5초.*\n42점 차이 · 시간 점수 기준/);
 });
 
 test('ranking claims explain the final cutoff and use record sharing', () => {

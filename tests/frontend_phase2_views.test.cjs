@@ -166,18 +166,8 @@ test('TOP3 gap copy handles server states without promising a prize', () => {
   assert.equal(view.top3GapMessage({ rank: 3, top3_gap: { status: 'IN_TOP3', rank: 3, tied: true, participant_count: 8 } }), '현재 3위로 TOP3예요.\n최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.');
   assert.match(view.top3GapMessage({ rank: null, top3_gap: { status: 'TOO_FEW', participant_count: 2 } }), /현재 참가자는 2명/);
   assert.match(view.top3GapMessage({ rank: null, top3_gap: { status: 'NO_SCORE' } }), /검증된 점수/);
-  assert.equal(view.top3GapMessage({ rank: 6, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 42, tied: false, participant_count: 8 } }), '현재 3위까지 42점이 더 필요해요.');
+  assert.equal(view.top3GapMessage({ rank: 6, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 42, tied: false, participant_count: 8 } }), 'TOP3까지 약 5초만 더!\n42점 차이 · 시간 점수 기준');
   assert.match(view.top3GapMessage({ rank: 4, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 0, tied: true, participant_count: 8 } }), /3위 점수와 동점/);
-});
-
-test('an old-version TOP3 contact request stays actionable without implying current TOP3 status', () => {
-  const view = loadView('public/js/views/result_view.js', 'ResultView');
-  const old = view.top3RequestCopy({ status: 'REQUESTED', game_version: '1.2.0' }, { campaign: { game_version: '2.0.0' } });
-  assert.match(old.title, /이전 게임 규칙/);
-  assert.match(old.description, /접수 요청은 유지/);
-  assert.match(old.description, /현재 2.0.0 규칙의 TOP3라는 뜻은 아니며/);
-  const current = view.top3RequestCopy({ status: 'REQUESTED', game_version: '2.0.0' }, { campaign: { game_version: '2.0.0' } });
-  assert.match(current.title, /잠정 TOP3/);
 });
 
 test('record sharing emits a public URL with explicit context and authoritative ticket totals', async () => {

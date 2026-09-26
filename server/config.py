@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 ROOT=Path(__file__).resolve().parent.parent
 CONSTANTS=json.loads((ROOT/"shared/game_constants.json").read_text(encoding="utf-8"))
-REQUIRED_SCHEMA_VERSIONS=("20260925083548","20260925092759","20260925125939","20260925140902","20260926093414")
+REQUIRED_SCHEMA_VERSIONS=("20260925083548","20260925092759","20260925125939","20260925140902","20260926093414","20260926103809")
 SCHEMA_VERSION=REQUIRED_SCHEMA_VERSIONS[-1]; SCHEMA_NAME="dino_dev"; APP_ROLE="dino_dev_app"
 APPROVED_PREVIEW_PROJECT_REF="igfrnexknwtiljdqjrbp"
 class ConfigurationError(RuntimeError): pass
@@ -21,7 +21,7 @@ class Settings:
     publishable_key:str; token_pepper:str; allowed_origins:frozenset[str]; deployment:str
     synthetic_only:bool=True; schema_name:str=SCHEMA_NAME; game_version:str=CONSTANTS["version"]
     participant_cookie_max_age:int=2592000; invite_active_ms:int=3000; web_analytics_enabled:bool=False
-    preview_unlimited_play:bool=False
+    preview_unlimited_play:bool=False; kakao_javascript_key:str=""
     @classmethod
     def from_env(cls):
         environment=os.getenv("APP_ENV","local")
@@ -59,8 +59,10 @@ class Settings:
         if analytics not in {"true","false"}:raise ConfigurationError("WEB_ANALYTICS_INVALID")
         unlimited=os.getenv("PREVIEW_UNLIMITED_PLAY","false").lower()
         if unlimited not in {"true","false"}:raise ConfigurationError("PREVIEW_UNLIMITED_PLAY_INVALID")
-        return replace(cls(environment,database_url,project_ref,base,benefit,supabase,key,pepper,allowed,os.getenv("VERCEL_DEPLOYMENT_ID",os.getenv("VERCEL_GIT_COMMIT_SHA","local"))),participant_cookie_max_age=cookie_age,web_analytics_enabled=analytics=="true",preview_unlimited_play=unlimited=="true")
+        kakao_key=os.getenv("KAKAO_JAVASCRIPT_KEY","").strip()
+        if kakao_key and not re.fullmatch(r"[0-9a-fA-F]{32}",kakao_key): raise ConfigurationError("KAKAO_JAVASCRIPT_KEY_INVALID")
+        return replace(cls(environment,database_url,project_ref,base,benefit,supabase,key,pepper,allowed,os.getenv("VERCEL_DEPLOYMENT_ID",os.getenv("VERCEL_GIT_COMMIT_SHA","local"))),participant_cookie_max_age=cookie_age,web_analytics_enabled=analytics=="true",preview_unlimited_play=unlimited=="true",kakao_javascript_key=kakao_key)
     def public(self):
-        return {"environment":self.environment,"synthetic_only":self.synthetic_only,"deployment":self.deployment,"web_analytics_enabled":self.web_analytics_enabled,"campaign":{"id":os.getenv("CAMPAIGN_ID","gemini_dino_phase1_test"),"game_version":self.game_version},"benefit_url":self.benefit_url,"content_guides":[
+        return {"environment":self.environment,"synthetic_only":False,"gameplay_synthetic_only":self.synthetic_only,"top3_contact_collection_enabled":True,"deployment":self.deployment,"web_analytics_enabled":self.web_analytics_enabled,"campaign":{"id":os.getenv("CAMPAIGN_ID","gemini_dino_phase1_test"),"game_version":self.game_version},"share":{"kakao_javascript_key":self.kakao_javascript_key},"benefit_url":self.benefit_url,"content_guides":[
             {"id":"study_note","title":"제미나이 노트북","description":"강의 자료 정리와 과제·시험 공부에 활용하는 공개 가이드", "url":"https://app.notion.com/p/3d41ef9d40cd803f9e56da74a08c695f?source=copy_link","available":True},
             {"id":"job_photo","title":"취업사진 프롬프트","description":"정장·배경을 선택해 취업사진을 만드는 프롬프트 안내", "url":"https://app.notion.com/p/3d01ef9d40cd80a798f1c353b8b4311d?source=copy_link","available":True}],"auth":{"supabase_url":self.supabase_url,"publishable_key":self.publishable_key},"limits":{"participant_cookie_max_age_seconds":self.participant_cookie_max_age,"invite_active_ms":self.invite_active_ms}}

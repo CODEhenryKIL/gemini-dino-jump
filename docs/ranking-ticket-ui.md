@@ -50,3 +50,15 @@
 
 - 조작 안내는 터치 아이콘과 함께 좌우 두 칸으로 표시한다: `탭 → 점프`, `꾹 누르기 → 수퍼 점프`.
 - 검증: Node 전체 174개, 이후 최종 UI/복원 검사 17개, 서버 Phase2 12개 통과. 320px/440px 화면에서 HUD 배치와 목표 전환을 확인했다. 로컬 Python 캐시 읽기 지연은 별도 임시 환경·캐시로 우회해 검증을 완료했다.
+
+## 게임 종료 화면 · 직접 수령 정보 입력 (2026-09-26)
+
+- 결과 화면의 긴 순위 보존 안내와 ‘합성 테스트 정보 입력’ 버튼을 제거했다. 등록 대상은 이름·전화번호·학교를 빈 폼에 바로 입력하고 동의 후 제출한다. 등록 중 중복 요청을 막고, 실패 시 작성한 값을 보존한다. 다른 화면으로 이동한 뒤 완료되어도 원래 화면으로 강제 이동하지 않는다.
+- 요청 기록은 유지하되 이전 규칙의 요청을 현재 TOP3처럼 표현하지 않는다. 상태 갱신만으로 작성 중인 입력을 지우지 않는다.
+- ‘친구한테 공유하고 한 판 더 하기’를 복주머니 버튼 위에 배치했다. TOP3 점수 차이는 시간 점수(초당 10점)로 환산해 ‘약 N초’로 표시한다. 코인·부활 감점이 있으므로 순위 달성을 보장하는 시간이 아니다.
+- 초대 메뉴 이동을 없앴다. 결과 화면에서 공유를 연다. Kakao SDK 연결 코드는 준비했지만 실제 JavaScript 키와 도메인 등록이 없어 현재는 기기 공유창/링크 복사로 동작한다. [Kakao 설정](kakao-share-setup.md)을 완료해야 카카오톡 직접 공유를 검증할 수 있다.
+- TOP3 접수 API는 일반 이름·전화번호·학교를 검증하고 `top3-contact-v1` 동의 시각을 비공개 `claim_contact`에 저장한다. 일반 입력을 합성 데이터로 표시하지 않는다. 경품 추첨 입력과 실제 경품 지급은 이번 범위에 포함하지 않는다.
+- `20260926103809` DB 변경: 동의 필드 추가, 일반 연락처는 동의 기록 필수. 기존 값/공개 API 권한을 유지했고 원격 RLS 활성 및 anon/authenticated 조회 불가를 확인했다.
+- health/config는 전체 합성 전용이라고 표시하지 않는다(`synthetic_only=false`, `gameplay_synthetic_only=true`, `top3_contact_collection_enabled=true`). 기존 합성 전용 부하 실행기는 이 환경에서 거절되며 추가 부하 테스트를 하지 않았다. 게임 데이터와 경품은 여전히 Preview 테스트 환경이다.
+- 검증: Node 177개 통과. 서버 관련 46개 중 이전 수령함 테스트 DB에 새 컬럼이 없는 1개 실패를 수정했고 해당 묶음 7개 재통과. Phase 2 서버 13개 통과. 개인정보 실제 값은 원격 테스트로 제출하지 않았다. 브라우저 연결이 끊겨 이번 실제 화면 검증은 완료하지 못했다.
+- 기존 Supabase 경고: 이번 private 테이블 변경과 무관한 public 함수 search_path / SECURITY DEFINER 실행권한, Auth 유출 비밀번호 보호 미활성 상태가 남아 있다. 참고: [search_path](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable), [함수 실행권한](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable), [비밀번호 보호](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).

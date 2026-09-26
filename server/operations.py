@@ -412,17 +412,31 @@ def leaderboard(conn,query,ctx):
 def ranking_profile_get(conn,ctx):
     p=_participant(conn,ctx); row=_one(conn,"select status,game_version,submitted_at from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
     return 200,{"required":bool(row and row["status"]=="REQUESTED"),"status":row["status"] if row else "NOT_REQUIRED","submitted_at":_iso(row["submitted_at"]) if row else None,"game_version":row["game_version"] if row else None}
+def _ranking_contact_values(body):
+    name,contact,school=(str(body.get(k) or "").strip() for k in ("name","contact","school"))
+    if body.get("consent") is not True or body.get("notice_version")!="top3-contact-v1":raise DomainError("CONSENT_REQUIRED","수령 정보 수집 내용을 확인하고 동의해 주세요.")
+    if not name or not contact or not school:raise DomainError("VALIDATION_ERROR","이름, 연락처, 학교를 모두 입력해 주세요.")
+    if len(name)>80:raise DomainError("VALIDATION_ERROR","이름은 80자 이하로 입력해 주세요.")
+    if len(contact)>32:raise DomainError("VALIDATION_ERROR","연락처는 32자 이하로 입력해 주세요.")
+    if len(school)>120:raise DomainError("VALIDATION_ERROR","학교는 120자 이하로 입력해 주세요.")
+    if any(re.search(r"[\x00-\x1f\x7f]",value) for value in (name,contact,school)):raise DomainError("VALIDATION_ERROR","입력값에 사용할 수 없는 문자가 있습니다.")
+    digits=re.sub(r"[^0-9]","",contact)
+    if not re.fullmatch(r"\+?[0-9][0-9 ()\-.]*[0-9]",contact) or not 7<=len(digits)<=15:raise DomainError("VALIDATION_ERROR","연락 가능한 전화번호를 확인해 주세요.")
+    return name,contact,school
 def ranking_profile_post(conn,body,ctx):
     p=_participant(conn,ctx,active=True); row=_one(conn,"select * from dino_dev.ranking_contact where participant_id=%s for update",(p["id"],))
     if not row: raise DomainError("TOP3_PROFILE_NOT_REQUIRED","현재 잠정 TOP3 정보 등록 대상이 아닙니다.",409)
     existing=_one(conn,"select id from dino_dev.claim where campaign_id=%s and participant_id=%s and claim_type='RANKING'",(p["campaign_id"],p["id"]))
     if row["status"]=="SUBMITTED" and existing:return 200,{"status":"SUBMITTED","submitted_at":_iso(row["submitted_at"]),"claim_id":existing["id"]}
-    name,contact,school=(str(body.get(k) or "").strip() for k in ("name","contact","school"))
+    name,contact,school=_ranking_contact_values(body)
     if row["status"]=="SUBMITTED" and row["recipient_name"]:name,contact,school=row["recipient_name"],row["contact"],row["school"]
-    if not name or not contact or not school or not (name.startswith("TEST_") and contact=="01000000000" and school.startswith("TEST_")): raise DomainError("SYNTHETIC_DATA_REQUIRED","개발 환경에서는 합성 정보만 입력할 수 있습니다.")
     claim_id=existing["id"] if existing else _id("claim")
     if not existing:conn.execute("insert into dino_dev.claim(id,campaign_id,participant_id,claim_type) values(%s,%s,%s,'RANKING')",(claim_id,p["campaign_id"],p["id"]))
-    conn.execute("insert into dino_dev.claim_contact(claim_id,recipient_name,contact,school) values(%s,%s,%s,%s) on conflict(claim_id) do nothing",(claim_id,name[:80],contact[:32],school[:120]))
+    synthetic=name.startswith("TEST_") and contact=="01000000000" and school.startswith("TEST_")
+    conn.execute("""insert into dino_dev.claim_contact
+      (claim_id,recipient_name,contact,school,synthetic,consent_at,consent_version)
+      values(%s,%s,%s,%s,%s,clock_timestamp(),%s) on conflict(claim_id) do nothing""",
+      (claim_id,name,contact,school,synthetic,"top3-contact-v1"))
     conn.execute("""update dino_dev.claim set
       status=case when status='AWAITING_INFORMATION' then 'INFORMATION_RECEIVED' else status end,
       contact_submitted_at=coalesce(contact_submitted_at,clock_timestamp()),updated_at=clock_timestamp()

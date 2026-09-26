@@ -146,7 +146,8 @@ class BackendPhase2Test(unittest.TestCase):
             result = operations.finish_session(conn, first['session_id'], {}, dict(ctx, verification=verified_short))[1]
             self.assertEqual((result['rank'], result['top3_profile']['status']), (1, 'REQUESTED'))
             submitted = operations.ranking_profile_post(conn, {
-                'name': 'TEST_REENTRY', 'contact': '01000000000', 'school': 'TEST_SCHOOL',
+                'name': '김제미', 'contact': '010-1234-5678', 'school': '한국대학교',
+                'consent': True, 'notice_version': 'top3-contact-v1',
             }, ctx)[1]
 
         with fixtures.psycopg.connect(fixtures.DSN) as conn:
@@ -178,15 +179,38 @@ class BackendPhase2Test(unittest.TestCase):
             self.assertEqual((reentry['rank'], reentry['top3_gap']['status']), (1, 'IN_TOP3'))
             self.assertEqual((reentry['top3_profile']['status'], reentry['top3_profile']['required']), ('SUBMITTED', False))
             replay = operations.ranking_profile_post(conn, {
-                'name': 'TEST_OTHER', 'contact': '01000000001', 'school': 'TEST_OTHER',
+                'name': '다른사용자', 'contact': '010-9999-9999', 'school': '다른대학교',
+                'consent': True, 'notice_version': 'top3-contact-v1',
             }, retry_ctx)[1]
             self.assertEqual(replay['claim_id'], submitted['claim_id'])
             contact = conn.execute('select count(*) n from dino_dev.ranking_contact where participant_id=%s', (pid,)).fetchone()
             claims = conn.execute("select count(*) n from dino_dev.claim where participant_id=%s and claim_type='RANKING'", (pid,)).fetchone()
-            saved = conn.execute('select recipient_name,school from dino_dev.claim_contact where claim_id=%s', (submitted['claim_id'],)).fetchone()
+            saved = conn.execute('select recipient_name,contact,school,synthetic,consent_at,consent_version from dino_dev.claim_contact where claim_id=%s', (submitted['claim_id'],)).fetchone()
             self.assertEqual((contact['n'], claims['n']), (1, 1))
-            self.assertEqual((saved['recipient_name'], saved['school']), ('TEST_REENTRY', 'TEST_SCHOOL'))
+            self.assertEqual((saved['recipient_name'],saved['contact'],saved['school']), ('김제미','010-1234-5678','한국대학교'))
+            self.assertFalse(saved['synthetic'])
+            self.assertIsNotNone(saved['consent_at'])
+            self.assertEqual(saved['consent_version'],'top3-contact-v1')
             self.assertEqual(reentry['draw']['status'], 'AVAILABLE')
+
+    def test_top3_contact_rejects_missing_consent_invalid_phone_controls_and_oversize_values(self):
+        valid={'name':'김제미','contact':'010-1234-5678','school':'한국대학교',
+               'consent':True,'notice_version':'top3-contact-v1'}
+        cases=(
+            ({**valid,'consent':False},'CONSENT_REQUIRED'),
+            ({**valid,'notice_version':'unknown'},'CONSENT_REQUIRED'),
+            ({**valid,'contact':'phone'},'VALIDATION_ERROR'),
+            ({**valid,'contact':'123456'},'VALIDATION_ERROR'),
+            ({**valid,'name':'김\n제미'},'VALIDATION_ERROR'),
+            ({**valid,'name':'가'*81},'VALIDATION_ERROR'),
+            ({**valid,'contact':'0'*33},'VALIDATION_ERROR'),
+            ({**valid,'school':'가'*121},'VALIDATION_ERROR'),
+        )
+        for body,code in cases:
+            with self.subTest(code=code,body=body):
+                with self.assertRaises(operations.DomainError) as caught:
+                    operations._ranking_contact_values(body)
+                self.assertEqual(caught.exception.code,code)
 
     def test_dense_rank_ties_private_name_and_gap_use_same_rules(self):
         participants=[]

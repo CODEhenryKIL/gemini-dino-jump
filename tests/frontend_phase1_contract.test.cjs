@@ -327,9 +327,8 @@ test('submitted TOP3 state wins over a stale requested result when result screen
     ui: { text(node, value) { node.textContent = String(value); } },
   });
   view.render(container, router);
-  const button = created.find((node) => node.tag === 'button' && node.textContent === '정보 접수 완료');
-  assert.ok(button);
-  assert.equal(button.disabled, true);
+  assert.ok(created.find((node) => node.textContent === 'TOP3 정보 접수 완료'));
+  assert.equal(created.some((node) => node.tag === 'form'), false);
   assert.equal(created.some((node) => node.textContent === '합성 테스트 정보 입력'), false);
 });
 

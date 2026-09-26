@@ -240,7 +240,7 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
     def setUpClass(cls):
         cls.dsn = _database_dsn(cls.DATABASE_NAME)
         _recreate_database(cls.DATABASE_NAME)
-        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, ROOT / "supabase/migrations/20260926103809_allow_real_top3_contact.sql"):
             _apply(cls.dsn, migration)
         with psycopg.connect(cls.dsn) as conn:
             _seed_campaign(conn)
@@ -470,7 +470,8 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
         with self.app_tx() as conn:
             result = operations.ranking_profile_post(
                 conn,
-                {"name": "TEST_ranker", "contact": "01000000000", "school": "TEST_school"},
+                {"name": "TEST_ranker", "contact": "01000000000", "school": "TEST_school",
+                 "consent": True, "notice_version": "top3-contact-v1"},
                 _context(participant_token_hash=self.token_hash),
             )[1]
         with psycopg.connect(self.dsn) as conn:

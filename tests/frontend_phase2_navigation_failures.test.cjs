@@ -191,12 +191,14 @@ test('TOP3 submission preserves version provenance and does not navigate from a 
     isCurrent: () => current,
     navigate: (viewName) => navigations.push(viewName),
   };
-  view.top3Modal(router, 4);
+  const form = view.top3Form(router, 4);
+  const fields = form.children.flatMap(child => child.children || []).filter(child => child.name);
+  for (const input of fields) input.value = input.name === 'contact' ? '01012345678' : '입력값';
   checkboxes.at(-1).checked = true;
-  const submit = modal.onConfirm();
+  const submit = form.onsubmit({ preventDefault() {} });
   current = false;
   request.resolve({ status: 'SUBMITTED', submitted_at: '2026-09-26T00:00:00Z' });
-  assert.equal(await submit, true);
+  assert.equal(await submit, undefined);
   assert.equal(router.state.top3Profile.game_version, '1.2.0');
   assert.equal(router.state.top3Profile.status, 'SUBMITTED');
   assert.deepEqual(navigations, []);

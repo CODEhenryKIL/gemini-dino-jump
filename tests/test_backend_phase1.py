@@ -271,7 +271,7 @@ class BackendPhase1Test(unittest.TestCase):
             first_pid=conn.execute("select id from dino_dev.participant where token_hash=%s",(h(players[0]),)).fetchone()[0];conn.execute("insert into dino_dev.ranking_contact(participant_id) values(%s)",(first_pid,))
         profile_ctx=context(participant_token_hash=h(players[0]),idempotency_key="top3-profile")
         with app_tx() as conn:
-            _,submitted=operations.ranking_profile_post(conn,{"name":"TEST_ranker","contact":"01000000000","school":"TEST_school"},profile_ctx);_,public=operations.ranking_profile_get(conn,profile_ctx)
+            _,submitted=operations.ranking_profile_post(conn,{"name":"TEST_ranker","contact":"01000000000","school":"TEST_school","consent":True,"notice_version":"top3-contact-v1"},profile_ctx);_,public=operations.ranking_profile_get(conn,profile_ctx)
         self.assertEqual(public["status"],"SUBMITTED");self.assertNotIn("contact",public)
         admin=self.make_admin(["claims:read","claims:write","ranking:read","ranking:write"])
         with app_tx() as conn:
