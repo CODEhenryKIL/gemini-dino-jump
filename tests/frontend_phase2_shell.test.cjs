@@ -245,6 +245,16 @@ test('render promises are race guarded and an older route cannot become current 
   assert.equal(loaded.router.currentView, 'benefit');
 });
 
+test('ticket header shows unlimited only for an explicit server flag and resets after revocation', () => {
+  const { router, context } = loadRouter('https://example.test/');
+  router.state.tickets = { initial: 0, invitation: 0, available_total: 0, unlimited_play: true };
+  router.updateNav();
+  assert.equal(context.document.getElementById('header-ticket-pill').textContent, '🎟️ 무제한');
+  router.state.tickets = { initial: 0, invitation: 0, available_total: 0 };
+  router.updateNav();
+  assert.equal(context.document.getElementById('header-ticket-pill').textContent, '🎟️ 0장');
+});
+
 test('overlapping resume refreshes share one server read', async () => {
   const loaded = loadRouter('https://example.test/');
   let reads = 0;

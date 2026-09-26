@@ -29,4 +29,13 @@ class ConfigTest(unittest.TestCase):
         self.assertFalse(any("*" in origin for origin in settings.allowed_origins))
         with patch.dict(os.environ,{**preview,"VERCEL_URL":"*.vercel.app"},clear=True):
             with self.assertRaises(ConfigurationError):Settings.from_env()
+    def test_preview_unlimited_participant_allowlist_is_validated_and_private(self):
+        first="p_"+"a"*32;second="p_"+"0"*32
+        with patch.dict(os.environ,{**BASE,"PREVIEW_UNLIMITED_PARTICIPANT_IDS":f" {first}, {second}, {first} "},clear=True):settings=Settings.from_env()
+        self.assertEqual(settings.preview_unlimited_participant_ids,frozenset({first,second}))
+        self.assertNotIn("preview_unlimited_participant_ids",settings.public())
+        self.assertNotIn(first,json.dumps(settings.public()))
+        for invalid in ("p_short","participant_"+"a"*32,"p_"+"A"*32,"p_"+"a"*31+"z"):
+            with patch.dict(os.environ,{**BASE,"PREVIEW_UNLIMITED_PARTICIPANT_IDS":invalid},clear=True):
+                with self.assertRaisesRegex(ConfigurationError,"PREVIEW_UNLIMITED_PARTICIPANT_IDS_INVALID"):Settings.from_env()
 if __name__=="__main__":unittest.main()

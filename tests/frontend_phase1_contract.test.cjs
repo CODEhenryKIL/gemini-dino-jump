@@ -220,7 +220,7 @@ test('blocked web storage cannot crash participant or game bootstrap', () => {
 
 test('a consumed ticket does not block access to an existing game or fault recovery', () => {
   const home = read('public/js/views/home.js');
-  assert.match(home, /start\.disabled = !pendingSession && \(campaignStatus !== 'ACTIVE' \|\| available < 1\)/);
+  assert.match(home, /start\.disabled = !pendingSession && \(campaignStatus !== 'ACTIVE' \|\| \(!unlimited && available < 1\)\)/);
   assert.match(home, /진행 중 게임 복원/);
   assert.match(home, /장애 복구 상태 확인/);
   assert.match(home, /if \(router\.state\.pendingGameSession\) \{ router\.navigate\('game'\); return; \}/);

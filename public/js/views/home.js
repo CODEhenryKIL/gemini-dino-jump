@@ -16,7 +16,7 @@ export const HomeView = {
         <p class="home-campaign-line">추억의 공룡 게임 한 판 하고 삼텐바이미 받자!</p>
         <img class="hero-dino" src="/assets/icons/Dino-Dark.png" alt="달리는 공룡">
         <div class="stat-grid">
-          <div><small>기본권</small><strong id="home-basic-ticket">0장</strong></div>
+          <div><small id="home-basic-label">기본권</small><strong id="home-basic-ticket">0장</strong></div>
           <div><small>초대권</small><strong id="home-invite-ticket">0장</strong></div>
           <div><small>최고 점수</small><strong id="home-best-score">0점</strong></div>
         </div>
@@ -47,7 +47,9 @@ export const HomeView = {
     const { tickets = {}, bestScore } = router.state;
     const start = container.querySelector('#btn-start-jump');
     if (!start) return;
-    container.querySelector('#home-basic-ticket').textContent = `${tickets.initial || 0}장`;
+    const unlimited = tickets.unlimited_play === true;
+    container.querySelector('#home-basic-label').textContent = unlimited ? '테스트 플레이' : '기본권';
+    container.querySelector('#home-basic-ticket').textContent = unlimited ? '무제한' : `${tickets.initial || 0}장`;
     container.querySelector('#home-invite-ticket').textContent = `${tickets.invitation || 0}장`;
     container.querySelector('#home-best-score').textContent = `${bestScore || 0}점`;
     const available = Number(tickets.available_total ?? ((tickets.initial || 0) + (tickets.invitation || 0)));
@@ -60,7 +62,10 @@ export const HomeView = {
     const note = container.querySelector('#home-ticket-note');
     note.hidden = true;
     note.textContent = '';
-    if (tickets.invitation_reserved) {
+    if (unlimited) {
+      note.hidden = false;
+      note.textContent = '이 브라우저는 게임권 차감 없이 테스트할 수 있어요.';
+    } else if (tickets.invitation_reserved) {
       note.hidden = false;
       note.textContent = `장애 복구 중인 초대권 ${tickets.invitation_reserved}장이 별도로 보호되고 있어요.`;
     } else if (new Date(tickets.cooldown_until).getTime() > Date.now()) {
@@ -70,7 +75,7 @@ export const HomeView = {
       note.hidden = false;
       note.textContent = '사용 가능한 게임권이 없어요. 친구의 새 유효 방문으로 초대권을 받을 수 있어요.';
     }
-    start.disabled = !pendingSession && (campaignStatus !== 'ACTIVE' || available < 1);
+    start.disabled = !pendingSession && (campaignStatus !== 'ACTIVE' || (!unlimited && available < 1));
     start.textContent = '게임 시작';
     if (pendingSession) start.textContent = pendingSession.status === 'FAULT_REPORTED' ? '장애 복구 상태 확인' : '진행 중 게임 복원';
     else if (campaignStatus !== 'ACTIVE') {
@@ -78,7 +83,7 @@ export const HomeView = {
       note.hidden = false;
       note.textContent = campaignStatus === 'ENDED' ? '행사가 종료되어 새 게임을 시작할 수 없어요. 기존 기록과 수령 상태는 확인할 수 있어요.' : '운영자가 행사를 다시 시작하면 게임에 참여할 수 있어요.';
     }
-    else if (available < 1) start.textContent = '게임권이 필요해요';
+    else if (!unlimited && available < 1) start.textContent = '게임권이 필요해요';
   },
   showGuideModal(router, autoStart = true) {
     showGameGuide(router, autoStart);
