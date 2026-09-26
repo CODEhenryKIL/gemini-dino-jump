@@ -56,7 +56,7 @@ function claimsHarness(getClaims) {
   return { view, container, router, claim, text };
 }
 
-test('returning to the claims screen reads the current submitted status', async () => {
+test('returning to claims shows contact and payment changes without collecting information again', async () => {
   let status = 'INFORMATION_RECEIVED';
   const h = claimsHarness(async () => ({ claims: [h.claim(status)] }));
   await h.view.render(h.container, h.router, 7);
@@ -65,6 +65,33 @@ test('returning to the claims screen reads the current submitted status', async 
   await h.view.updateState(h.container, h.router, 7);
   assert.match(h.text(), /확인 대기/);
   assert.doesNotMatch(h.text(), /아직 지급 완료 상태는 아니에요/);
+  assert.equal(h.container.children.filter((node) => node.tag === 'article').length, 1);
+
+  status = 'CONTACTED';
+  await h.view.updateState(h.container, h.router, 7);
+  assert.match(h.text(), /연락 완료/);
+  assert.match(h.text(), /실제 지급 완료 상태는 별도로 표시/);
+  assert.doesNotMatch(h.text(), /확인 대기/);
+
+  status = 'PAID';
+  await h.view.updateState(h.container, h.router, 7);
+  const paidCard = h.container.children.find((node) => node.tag === 'article');
+  assert.match(h.text(paidCard), /운영팀에서 지급 완료로 처리했어요/);
+  assert.doesNotMatch(h.text(paidCard), /연락 완료|확인 대기|정보 입력/);
+  assert.equal(paidCard.children.filter((node) => node.tag === 'button').length, 0);
+  assert.equal(h.container.children.filter((node) => node.tag === 'article').length, 1);
+
+  const routes = [];
+  h.router.navigate = (route) => routes.push(route);
+  const links = paidCard.children.filter((node) => node.tag === 'a');
+  assert.equal(links.length, 2);
+  links.find((node) => node.href === '#benefit').onclick();
+  links.find((node) => node.href === '#invite').onclick();
+  assert.deepEqual(routes, ['benefit', 'invite']);
+  assert.equal(h.router.shareContext, 'prize_share');
+
+  await h.view.render(h.container, h.router, 8);
+  assert.match(h.text(), /운영팀에서 지급 완료로 처리했어요/);
   assert.equal(h.container.children.filter((node) => node.tag === 'article').length, 1);
 });
 
