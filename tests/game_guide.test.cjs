@@ -96,12 +96,12 @@ test('guide uses concise touch instructions, previous navigation, and a top X cl
   assert.deepEqual(h.writes, []);
 });
 
-test('skip records completion and starts the game exactly once', () => {
+test('skip starts the game without suppressing future tutorials', () => {
   const h = harness();
   const skip = h.card.children.at(-1);
   assert.equal(skip.textContent, '건너뛰고 게임 시작');
   skip.onclick();
-  assert.deepEqual(h.writes, [['gemini_dino_guide_seen', 'true']]);
+  assert.deepEqual(h.writes, []);
   assert.deepEqual(h.navigations, ['game']);
   assert.equal(h.hidden(), 1);
 });

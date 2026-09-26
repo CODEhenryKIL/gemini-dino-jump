@@ -23,7 +23,6 @@ export const HomeView = {
         <p id="home-ticket-note" class="status-note" role="status" hidden></p>
         <button id="btn-start-jump" class="btn btn-primary">게임 시작</button>
         <button id="btn-home-draw" class="btn btn-secondary" hidden>복주머니 열기</button>
-        <button id="btn-how-to-play" class="btn btn-outline btn-sm">조작 방법과 규칙</button>
         <p class="home-eligibility">게임은 누구나 참여할 수 있고, 경품 수령은 대학생을 대상으로 해요.</p>
       </section>`;
     this.updateState(container, router);
@@ -34,12 +33,8 @@ export const HomeView = {
       const available = Number(tickets.available_total ?? ((tickets.initial || 0) + (tickets.invitation || 0)));
       if (tickets.unlimited_play !== true && available < 1) { router.navigate('invite'); return; }
       analytics.track('game_cta_clicked', { source: 'home' });
-      let seen = false;
-      try { seen = Boolean(localStorage.getItem('gemini_dino_guide_seen')); } catch (_) {}
-      if (seen) router.navigate('game');
-      else this.showGuideModal(router, true);
+      this.showGuideModal(router, true);
     };
-    container.querySelector('#btn-how-to-play').onclick = () => this.showGuideModal(router, false);
     container.querySelector('#btn-home-draw').onclick = () => {
       const status = router.state.draw?.status;
       if (!['AVAILABLE', 'DRAWN'].includes(status)) return;

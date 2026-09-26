@@ -58,11 +58,14 @@ test('home presents only Dino Jump and starts it after the guide', () => {
   assert.deepEqual(page.navigations, []);
 });
 
-test('returning players start Dino Jump directly', () => {
+test('returning players see the tutorial on every new game', () => {
   const page = loadHome(true);
   page.elements.get('#btn-start-jump').onclick();
-  assert.deepEqual(page.navigations, ['game']);
-  assert.equal(page.getModal(), undefined);
+  assert.deepEqual(page.navigations, []);
+  assert.equal(page.guides.length, 1);
+  page.elements.get('#btn-start-jump').onclick();
+  assert.equal(page.guides.length, 2);
+  assert.doesNotMatch(page.container.innerHTML, /btn-how-to-play|조작 방법과 규칙/);
 });
 
 test('Dino Jump runtime has no Gate Runner navigation or port dependency', () => {
@@ -89,7 +92,8 @@ test('Dino Jump runtime has no Gate Runner navigation or port dependency', () =>
     const button = page.elements.get('#btn-start-jump');
     assert.equal(button.disabled, false);
     button.onclick();
-    assert.deepEqual(page.navigations, [flag === true ? 'game' : 'invite']);
+    assert.deepEqual(page.navigations, flag === true ? [] : ['invite']);
+    assert.equal(page.guides.length, flag === true ? 1 : 0);
     assert.equal(page.elements.get('#home-basic-ticket').textContent, flag === true ? '무제한' : '0장');
     if (flag !== true) assert.match(button.textContent, /친구에게 공유하고 게임권 받기/);
   }

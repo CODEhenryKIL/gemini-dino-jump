@@ -35,7 +35,7 @@ test('home enables a newly earned ticket and uses the latest pending game after 
   const routes = [];
   const view = loadView('public/js/views/home.js', 'HomeView', {
     ui: { showModal() {} }, analytics: { track() {} },
-    localStorage: { getItem: () => 'true' },
+    showGameGuide: () => routes.push('guide'),
   });
   const router = { state: { tickets: { initial: 0, invitation: 0 }, bestScore: 32 }, navigate: (route) => routes.push(route) };
   view.render(container, router);
@@ -49,14 +49,14 @@ test('home enables a newly earned ticket and uses the latest pending game after 
   assert.equal(nodes.get('#home-ticket-note').hidden, true);
   assert.equal(nodes.get('#home-invite-ticket').textContent, '1장');
   start.onclick();
-  assert.deepEqual(routes, ['game']);
+  assert.deepEqual(routes, ['guide']);
   router.state.tickets = { initial: 0, invitation: 0 };
   router.state.pendingGameSession = { status: 'ACTIVE' };
   view.updateState(container, router);
   assert.equal(start.disabled, false);
   assert.equal(start.textContent, '진행 중 게임 복원');
   start.onclick();
-  assert.deepEqual(routes, ['game', 'game']);
+  assert.deepEqual(routes, ['guide', 'game']);
 });
 
 test('home distinguishes expired cooldown from current waiting and explains an ended campaign accurately', () => {

@@ -44,7 +44,6 @@ export function showGameGuide(router, autoStart = true) {
   let skip;
   let overlay;
   const finish = () => {
-    try { localStorage.setItem('gemini_dino_guide_seen', 'true'); } catch (_) {}
     ui.hideModal();
     if (autoStart) router.navigate('game');
   };

@@ -55,7 +55,6 @@
 .hero-card .stat-grid > div + div { border-left: 1px solid #edf0f4; }
 .hero-card .stat-grid small { font-size: 11px; }
 .hero-card .stat-grid strong { font-size: 17px; }
-.hero-card #btn-how-to-play { min-height: 38px; border: 0; color: #5f6368; font-size: 12px; font-weight: 550; }
 .hero-card .status-note { margin: 0; }
 
 /* Short, swipeable game onboarding. Each scene animates only while mounted. */
