@@ -400,8 +400,13 @@ def leaderboard(conn,query,ctx):
         count(*) over(partition by b.score)>1 tied from {source} b join dino_dev.participant p on p.id=b.participant_id
       where p.campaign_id=%s and p.status='ACTIVE') ranked
       where is_public order by score desc,achieved_at limit %s""",(campaign["id"],limit))
+    rank_targets=_all(conn,f"""select dense_rank() over(order by score desc)::int rank,score from (
+      select distinct b.score from {source} b join dino_dev.participant p on p.id=b.participant_id
+      where p.campaign_id=%s and p.status='ACTIVE') scores
+      order by score desc limit 3""",(campaign["id"],))
     mine=_ranking_info(conn,p["id"] if p else None,version,campaign["id"])
     return 200,{"leaderboard":[{"rank":r["rank"],"nickname":r["nickname"],"score":r["score"],"tied":r["tied"],"is_me":bool(p and r["participant_id"]==p["id"])} for r in rows],
+      "rank_targets":[{"rank":r["rank"],"score":r["score"]} for r in rank_targets],
       "me":{k:mine[k] for k in ("rank","best_score","best_elapsed_seconds","top3_gap")} if mine["rank"] is not None else None,
       "top3_gap":mine["top3_gap"],"game_version":version,"tie_policy":"UNDECIDED"}
 def ranking_profile_get(conn,ctx):

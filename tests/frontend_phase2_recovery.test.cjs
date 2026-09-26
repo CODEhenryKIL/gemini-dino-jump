@@ -121,6 +121,10 @@ test('cleanup persists a PII-free active snapshot for the same session', () => {
   const runtime = loadEngine();
   const engine = new runtime.DinoGameEngine({ getContext: () => canvasContext() }, { version: '2.1.0' });
   assert.equal(engine.stages.length, 10);
+  assert.equal(engine.canvas.width, 960);
+  assert.equal(engine.canvas.height, 900);
+  assert.equal(engine.height, 600);
+  assert.equal(engine.groundY, 490);
   assert.equal(engine.getSpeed(105), 940);
   assert.equal(engine.getSpeed(120), 1080);
   assert.equal(engine.getSpeed(135), 1200);

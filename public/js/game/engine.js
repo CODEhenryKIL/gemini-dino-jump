@@ -122,9 +122,10 @@ export class DinoGameEngine {
     this.gameVersion = options.version || V21_RULES.version;
     this.reducedMotion = options.reducedMotion ?? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
-    // Canonical Logical Dimensions (16:10 ratio)
+    // Physics stays 960×600; extra sky/ground extends only the visible canvas.
     this.width = 960;
     this.height = 600;
+    this.verticalPadding = 150;
     this.groundY = 490;
 
     // Simulation Constants
@@ -237,7 +238,7 @@ export class DinoGameEngine {
 
   resizeCanvas() {
     this.canvas.width = this.width;
-    this.canvas.height = this.height;
+    this.canvas.height = this.height + this.verticalPadding * 2;
   }
 
   start(seed) {
@@ -876,29 +877,31 @@ export class DinoGameEngine {
 
   render() {
     const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.width, this.height);
+    ctx.clearRect(0, 0, this.width, this.canvas.height);
+    ctx.save();
+    ctx.translate(0, this.verticalPadding);
 
     const timeSec = this.currentTick / this.tickRate;
     const env = this.getEnvironment(timeSec);
     this.currentEnv = env;
 
     // 1. Dynamic Sky Gradient
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, this.groundY);
+    const skyGrad = ctx.createLinearGradient(0, -this.verticalPadding, 0, this.groundY);
     skyGrad.addColorStop(0, `rgb(${env.skyTop.join(',')})`);
     skyGrad.addColorStop(1, `rgb(${env.skyBottom.join(',')})`);
     ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.fillRect(0, -this.verticalPadding, this.width, this.canvas.height);
 
     // Subtle dynamic grid
     ctx.strokeStyle = env.gridColor;
     ctx.lineWidth = 1;
     for (let x = 0; x < this.width; x += 32) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, this.height);
+      ctx.moveTo(x, -this.verticalPadding);
+      ctx.lineTo(x, this.height + this.verticalPadding);
       ctx.stroke();
     }
-    for (let y = 0; y < this.height; y += 32) {
+    for (let y = -this.verticalPadding; y < this.height + this.verticalPadding; y += 32) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(this.width, y);
@@ -1061,6 +1064,7 @@ export class DinoGameEngine {
       ctx.fill();
       ctx.restore();
     }
+    ctx.restore();
   }
 
   drawObstacle(ctx, obs) {

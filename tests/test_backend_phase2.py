@@ -94,6 +94,8 @@ class BackendPhase2Test(unittest.TestCase):
             idempotency_key=secrets.token_urlsafe(24),
         )
         with fixtures.app_tx() as conn:
+            empty = operations.leaderboard(conn,{},ctx)[1]
+            self.assertEqual(empty['rank_targets'],[])
             _,reserved = operations.create_session(conn,{},ctx)
             _,started = operations.start_session(conn,reserved['session_id'],ctx)
             conn.execute(
@@ -112,6 +114,10 @@ class BackendPhase2Test(unittest.TestCase):
             self.assertEqual(dict(stored), {'game_version':'2.1.0','score':play['score']})
             old = operations.get_me(conn,dict(ctx,game_version='2.0.0'))[1]
             self.assertEqual((old['best_score'],old['rank']), (0,None))
+            current = operations.leaderboard(conn,{},ctx)[1]
+            previous = operations.leaderboard(conn,{},dict(ctx,game_version='2.0.0'))[1]
+            self.assertEqual(current['rank_targets'],[{'rank':1,'score':play['score']}])
+            self.assertEqual(previous['rank_targets'],[])
 
     def test_expired_active_game_cannot_submit_or_rank(self):
         raw,_,_=self.make_participant();ctx,s=self.started(raw)
@@ -209,6 +215,11 @@ class BackendPhase2Test(unittest.TestCase):
             self.assertEqual(top['rank'],1);self.assertTrue(top['top3_gap']['tied'])
             self.assertEqual(len(data['leaderboard']),5)
             self.assertEqual(sum(x['score']==500 for x in data['leaderboard']),1)
+            self.assertEqual(data['rank_targets'],[
+                {'rank':1,'score':500},
+                {'rank':2,'score':400},
+                {'rank':3,'score':300},
+            ])
         admin=self.make_admin(['ranking:write']);admin['game_version']='2.0.0'
         with fixtures.app_tx() as conn:
             _,snapshot=operations.create_admin_ranking_snapshot(conn,{'event_id':'evt_snapshot_v2'},admin)
