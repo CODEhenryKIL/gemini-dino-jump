@@ -47,7 +47,7 @@ export const DrawView = {
       <section class="card pouch-selection-container">
         <span class="sticker-badge badge-yellow">행사당 한 번</span>
         <h2>복주머니 하나를 골라주세요</h2>
-        <p>하나를 고르면 결과가 정해져요. 정해진 결과는 새로고침해도 같아요.</p>
+        <p class="pouch-selection-description">하나를 고르면 결과가 정해져요.<br>정해진 결과는 새로고침해도 같아요.</p>
         <div class="pouch-grid">
           <button class="pouch-item wiggle" data-index="0"><span class="pouch-icon">🧧</span><span class="pouch-label">1번</span></button>
           <button class="pouch-item wiggle" data-index="1"><span class="pouch-icon">🧧</span><span class="pouch-label">2번</span></button>
