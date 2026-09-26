@@ -24,8 +24,7 @@ export const PrizeView = {
       container.replaceChildren();
       const intro = document.createElement('section'); intro.className = 'card compact-card';
       const heading = document.createElement('h1'); heading.textContent = '내 수령함';
-      const text = document.createElement('p'); text.textContent = '경품은 자동 발급되지 않습니다. 정보를 접수하면 관리자가 확인하고 직접 연락한 뒤 지급 상태를 변경합니다.';
-      intro.append(heading, text); container.appendChild(intro);
+      intro.append(heading); container.appendChild(intro);
       if (!claims.length) return this.renderEmpty(container, router);
       for (const claim of claims) container.appendChild(this.claimCard(claim, router, renderToken));
     } catch (error) {

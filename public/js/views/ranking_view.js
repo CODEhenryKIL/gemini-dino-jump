@@ -22,10 +22,9 @@ export const RankingView = {
       const rewards = document.createElement('div'); rewards.className = 'ranking-rewards';
       for (const [index, amount] of ['5만원', '3만원', '1만원'].entries()) {
         const reward = document.createElement('div'); reward.className = `ranking-reward ranking-reward-${index + 1}`;
-        const medal = document.createElement('span'); medal.className = 'ranking-medal'; medal.textContent = ['🥇', '🥈', '🥉'][index]; medal.setAttribute('aria-hidden', 'true');
         const place = document.createElement('span'); place.textContent = `${index + 1}위`;
         const value = document.createElement('strong'); value.textContent = amount;
-        reward.append(medal, place, value); rewards.appendChild(reward);
+        reward.append(place, value); rewards.appendChild(reward);
       }
       const awardNote = document.createElement('p'); awardNote.className = 'ranking-award-note'; awardNote.textContent = '행사 종료 시 최종 순위 기준 · 동점 수상 기준은 추후 안내';
       prizes.append(title, rewards, awardNote); container.appendChild(prizes);
@@ -40,8 +39,7 @@ export const RankingView = {
         item.append(caption, number); metrics.appendChild(item);
       }
       const comparison = document.createElement('p'); comparison.className = 'ranking-time-gap'; comparison.textContent = this.timeGapMessage(data);
-      const explanation = document.createElement('p'); explanation.className = 'ranking-comparison-note'; explanation.textContent = '랭킹은 코인을 포함한 점수순이에요. 시간은 각 최고점 기록의 플레이 시간을 비교해요.';
-      stats.append(metrics, comparison, explanation); container.appendChild(stats);
+      stats.append(metrics, comparison); container.appendChild(stats);
       const list = document.createElement('section'); list.className = 'card ranking-list';
       if (!data.leaderboard?.length) { const empty = document.createElement('p'); empty.textContent = '등록된 기록이 없습니다.'; list.appendChild(empty); }
       for (const entry of data.leaderboard || []) {
