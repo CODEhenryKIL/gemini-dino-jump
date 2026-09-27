@@ -94,8 +94,11 @@ export const PrizeView = {
     let closed = false;
     const active = () => !closed && ( renderToken == null || !router.isCurrent || router.isCurrent(renderToken));
     let preparedShare = null;
-    let acceptedOutcome = null;
-    const shareReady = prepareResultReferralShare(router, { kind: (claim.claim_type || claim.type) === 'RANKING' ? 'record_share' : 'prize_share' }).then((value) => { preparedShare = value; }).catch(() => {});
+    let pendingOutcome = null;
+    const shareReady = prepareResultReferralShare(router, {
+      kind: (claim.claim_type || claim.type) === 'RANKING' ? 'record_share' : 'prize_share',
+      claimId: claim.id,
+    }).then((value) => { preparedShare = value; }).catch(() => {});
     let draft;
     try { ({ draft } = await api.getClaimDraft(claim.id)); }
     catch (error) { if (active()) ui.showToast(error.message); return; }
@@ -128,10 +131,10 @@ export const PrizeView = {
           if (!preparedShare) { ui.showToast('공유를 준비하지 못했어요. 잠시 후 다시 열어 주세요.'); return false; }
           // Start both in the original click so opening the share sheet keeps user activation.
           const saving = api.saveClaimDraft(claim.id, { ...Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])), consent: true, notice_version: 'claim-contact-v1' });
-          const sharing = acceptedOutcome ? Promise.resolve(acceptedOutcome) : preparedShare.share();
+          const sharing = pendingOutcome ? Promise.resolve(pendingOutcome) : preparedShare.share();
           const [saved, shared] = await Promise.allSettled([saving, sharing]);
           const outcome = shared.status === 'fulfilled' ? shared.value : { status: 'failed' };
-          if (['share_sheet_closed', 'copied'].includes(outcome?.status) || (outcome?.method === 'kakao' && outcome.status === 'attempted')) acceptedOutcome = outcome;
+          if (outcome?.method === 'kakao' && outcome.status === 'pending' && outcome.shareId) pendingOutcome = outcome;
           if (saved.status === 'rejected') throw saved.reason;
           router.announceStateChange?.();
           if (active()) this.claimShareModal(claim, router, renderToken, outcome);
@@ -160,44 +163,103 @@ export const PrizeView = {
       onCancel: () => { if (active()) void this.claimModal(claim, router, renderToken); closed = true; },
     });
     let prepared = null;
-    let acceptedStatus = initialOutcome?.method === 'kakao' && initialOutcome.status === 'attempted' ? 'kakao_opened'
-      : initialOutcome?.status === 'share_sheet_closed' ? 'share_sheet_closed'
-      : initialOutcome?.status === 'copied' ? 'copied' : null;
+    let shareId = initialOutcome?.method === 'kakao' && initialOutcome.status === 'pending' ? initialOutcome.shareId : null;
     let pending = false;
+    let pollToken = null;
     const prepare = async () => {
-      try { prepared = await prepareResultReferralShare(router, { kind: (claim.claim_type || claim.type) === 'RANKING' ? 'record_share' : 'prize_share' }); if (!initialOutcome) feedback.textContent = ''; }
-      catch (_) { feedback.textContent = '공유 준비에 실패했어요. 버튼을 눌러 다시 준비해 주세요.'; }
-      finally { button.disabled = false; }
+      try {
+        prepared = await prepareResultReferralShare(router, {
+          kind: (claim.claim_type || claim.type) === 'RANKING' ? 'record_share' : 'prize_share',
+          claimId: claim.id,
+        });
+        if (active() && !initialOutcome) feedback.textContent = '';
+      }
+      catch (_) { if (active()) feedback.textContent = '공유 준비에 실패했어요. 버튼을 눌러 다시 준비해 주세요.'; }
+      finally { if (active()) button.disabled = false; }
     };
-    if (!acceptedStatus) void prepare();
+    const complete = async () => {
+      await api.submitClaim(claim.id, { share_intent_id: shareId });
+      analytics.track('claim_form_submitted', { claim_type: claim.claim_type || claim.type || 'DRAW' });
+      router.announceStateChange?.();
+      if (!active()) return;
+      const done = document.createElement('div'); done.className = 'claim-share-step';
+      const heading = document.createElement('h2'); heading.textContent = '수령 정보 접수가 완료됐어요.';
+      const note = document.createElement('p'); note.textContent = '접수 내역은 수령함에서 확인할 수 있어요.';
+      done.append(heading, note);
+      closed = true;
+      ui.showModal({ title: '3 / 3 · 접수 완료', content: done, confirmText: '수령함 보기', onConfirm: () => router.navigate('claims') });
+    };
+    const poll = async (attempts = 10) => {
+      const token = pollToken = Symbol('claim-share-poll');
+      pending = true; button.disabled = true; button.textContent = '카카오톡 전송 확인 중…';
+      try {
+        for (let attempt = 0; attempt < attempts; attempt++) {
+          if (!active() || pollToken !== token) return;
+          const intent = await api.getReferralShareIntent(shareId);
+          if (!active() || pollToken !== token) return;
+          if (intent?.tickets && router?.state) {
+            router.state.tickets = intent.tickets;
+            router.updateNav?.();
+            router.announceStateChange?.();
+          }
+          if (intent?.status === 'confirmed') { await complete(); return; }
+          if (['rejected', 'expired'].includes(intent?.status)) {
+            shareId = null;
+            feedback.textContent = intent.status === 'expired' ? '전송 확인 시간이 지났어요. 카카오톡으로 다시 공유해 주세요.' : '카카오톡 전송이 완료되지 않았어요. 다시 공유해 주세요.';
+            button.textContent = '카카오톡으로 친구에게 공유하기';
+            await prepare();
+            return;
+          }
+          if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+        feedback.textContent = '아직 카카오톡 전송 확인을 기다리고 있어요. 전송을 마쳤다면 다시 확인해 주세요.';
+        button.textContent = '전송 확인 다시 하기';
+      } catch (error) {
+        feedback.textContent = error.message || '전송 상태를 확인하지 못했어요. 다시 확인해 주세요.';
+        button.textContent = shareId ? '전송 확인 다시 하기' : '카카오톡으로 친구에게 공유하기';
+      } finally {
+        if (pollToken === token) { pending = false; button.disabled = false; }
+      }
+    };
+    const restore = async () => {
+      if (shareId) { await poll(); return; }
+      try {
+        const response = await api.getClaimDraft(claim.id);
+        if (!active()) return;
+        const restoredId = response?.share_intent_id || response?.draft?.share_intent_id;
+        if (restoredId) { shareId = restoredId; await poll(); return; }
+      } catch (_) { /* A saved draft remains usable even when status refresh briefly fails. */ }
+      if (!active()) return;
+      await prepare();
+      if (!active()) return;
+      if (initialOutcome && !shareId) {
+        feedback.textContent = initialOutcome?.status === 'cancelled'
+          ? '공유를 취소했어요. 정보는 임시 저장되어 있어요.'
+          : '카카오톡 전송이 확인되어야 접수가 완료돼요.';
+      }
+    };
     button.onclick = async () => {
       if (pending || !active()) return;
+      if (shareId) { await poll(); return; }
       pending = true; button.disabled = true;
       try {
-        if (!prepared && !acceptedStatus) { await prepare(); return; }
-        if (!acceptedStatus) {
-          const outcome = await prepared.share();
-          acceptedStatus = outcome?.method === 'kakao' && outcome.status === 'attempted' ? 'kakao_opened'
-            : outcome?.status === 'share_sheet_closed' ? 'share_sheet_closed'
-            : outcome?.status === 'copied' ? 'copied' : null;
-          if (!acceptedStatus) { feedback.textContent = outcome?.status === 'cancelled' ? '공유를 취소했어요. 정보는 임시 저장되어 있어요.' : '공유가 열리지 않았어요. 다시 시도해 주세요.'; return; }
+        if (!prepared) { await prepare(); return; }
+        const outcome = await prepared.share();
+        if (outcome?.method !== 'kakao' || outcome.status !== 'pending' || !outcome.shareId) {
+          feedback.textContent = outcome?.status === 'cancelled'
+            ? '공유를 취소했어요. 정보는 임시 저장되어 있어요.'
+            : '카카오톡으로 실제 전송이 확인되어야 접수가 완료돼요.';
+          return;
         }
-        if (!active()) return;
-        await api.submitClaim(claim.id, { share_status: acceptedStatus });
-        analytics.track('claim_form_submitted', { claim_type: claim.claim_type || claim.type || 'DRAW' });
-        router.announceStateChange?.();
-        if (!active()) return;
-        const done = document.createElement('div'); done.className = 'claim-share-step';
-        const heading = document.createElement('h2'); heading.textContent = '수령 정보 접수가 완료됐어요.';
-        const note = document.createElement('p'); note.textContent = '접수 내역은 수령함에서 확인할 수 있어요.';
-        done.append(heading, note);
-        ui.showModal({ title: '3 / 3 · 접수 완료', content: done, confirmText: '수령함 보기', onConfirm: () => router.navigate('claims') });
+        shareId = outcome.shareId;
       } catch (error) {
-        feedback.textContent = error.message || '접수를 완료하지 못했어요. 다시 시도해 주세요.';
-        if (acceptedStatus) button.textContent = '접수 완료 다시 시도';
-      } finally { pending = false; button.disabled = false; }
+        feedback.textContent = error.message || '공유를 시작하지 못했어요. 다시 시도해 주세요.';
+        return;
+      } finally {
+        pending = false; button.disabled = false;
+      }
+      await poll();
     };
-    if (acceptedStatus) { button.textContent = '접수 완료 중…'; void button.onclick(); }
-    else if (initialOutcome) feedback.textContent = initialOutcome.status === 'cancelled' ? '공유를 취소했어요. 정보는 임시 저장되어 있어요.' : '공유가 열리지 않았어요. 다시 시도해 주세요.';
+    void restore();
   },
 };

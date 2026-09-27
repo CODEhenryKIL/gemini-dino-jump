@@ -1,7 +1,7 @@
 """Transactional Phase 1 business operations. No connection or network ownership."""
 from __future__ import annotations
 import datetime as dt
-import hashlib, json, re, secrets, uuid
+import hashlib, hmac, json, re, secrets, uuid
 from urllib.parse import urlparse
 import metrics
 
@@ -89,8 +89,8 @@ def _revalidate_idempotent_replay(conn,method,path,ctx):
         return
     active=(method,path) in {
       ("PATCH","/api/me/profile"),("POST","/api/referrals/qualify"),("POST","/api/referrals/cooldown-notice/ack"),
-      ("POST","/api/game-sessions"),("POST","/api/ranking/profile"),("POST","/api/draws"),
-    } or bool(re.fullmatch(r"/api/game-sessions/[^/]+/(?:start|checkpoint|finish|fault)",path)) or bool(re.fullmatch(r"/api/claims/[^/]+/(?:draft|submit)",path))
+      ("POST","/api/referrals/share-intents"),("POST","/api/game-sessions"),("POST","/api/ranking/profile"),("POST","/api/draws"),
+    } or bool(re.fullmatch(r"/api/game-sessions/[^/]+/(?:start|checkpoint|finish|fault|abandon)",path)) or bool(re.fullmatch(r"/api/claims/[^/]+/(?:draft|submit)",path))
     _participant(conn,ctx,active=active)
 def _idempotent(conn,method,path,body,ctx,fn):
     key=ctx.get("idempotency_key")
@@ -138,17 +138,12 @@ def _invite_visit(conn,p,invite_code,ctx,share_id=None):
     if inviter["id"]==p["id"]:return {"visit_nonce":None,"status":"SELF_INVITE","reason":"SELF_INVITE_NOT_ALLOWED","expires_at":None}
     raw=ctx["invite_nonce"]; hashed=ctx["invite_nonce_hash"]
     existing=_one(conn,"select * from dino_dev.invitation_visit where inviter_id=%s and visitor_id=%s and status='PENDING' and expires_at>clock_timestamp() order by created_at desc limit 1",(inviter["id"],p["id"]))
-    now=dt.datetime.now(UTC); issue_status="PENDING"; issue_reason=None
-    if inviter["cooldown_until"] and inviter["cooldown_until"]>now:issue_status="COOLDOWN";issue_reason="INVITER_COOLDOWN_AT_ISSUE"
-    elif inviter["invitation_balance"]+inviter["invitation_refund_pending"]>=3:issue_status="BALANCE_FULL";issue_reason="INVITER_BALANCE_FULL_AT_ISSUE"
     if existing:
         existing=_one(conn,"update dino_dev.invitation_visit set nonce_hash=%s,share_id=%s,expires_at=clock_timestamp()+interval '15 minutes' where id=%s returning *",(hashed,share_id,existing["id"]))
     else:
         existing=_one(conn,"""insert into dino_dev.invitation_visit(id,campaign_id,inviter_id,visitor_id,nonce_hash,share_id,expires_at)
           values(%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '15 minutes') returning *""",(_id("iv"),p["campaign_id"],inviter["id"],p["id"],hashed,share_id))
-    if issue_status!="PENDING":
-        existing=_one(conn,"update dino_dev.invitation_visit set status=%s,reason=%s where id=%s returning *",(issue_status,issue_reason,existing["id"]))
-    return {"visit_nonce":raw if issue_status=="PENDING" else None,"status":issue_status,"reason":issue_reason,"expires_at":_iso(existing["expires_at"])}
+    return {"visit_nonce":raw,"status":"PENDING","reason":None,"expires_at":_iso(existing["expires_at"])}
 
 def participant_init(conn,body,ctx):
     share_id=str(body.get("share_id") or "")
@@ -206,16 +201,109 @@ def patch_profile(conn,body,ctx):
     return 200,{"participant":_public(p)}
 
 def referral_me(conn,ctx):
-    p=_participant(conn,ctx); counts=_one(conn,"""select count(distinct visitor_id) filter(where qualified_at is not null and active_ms>=3000 and interacted)::int valid_visits,count(*) filter(where status='REWARDED')::int rewarded_visits,
-      count(*) filter(where status not in ('PENDING','REWARDED'))::int rejected_visits from dino_dev.invitation_visit where inviter_id=%s""",(p["id"],))
+    p=_participant(conn,ctx); counts=_one(conn,"""select count(distinct visitor_id) filter(where qualified_at is not null and active_ms>=3000 and interacted)::int valid_visits,
+      count(*) filter(where status in ('QUALIFIED','ALREADY_QUALIFIED','REWARDED','ALREADY_REWARDED'))::int qualified_visits,
+      count(*) filter(where status not in ('PENDING','QUALIFIED','ALREADY_QUALIFIED','REWARDED','ALREADY_REWARDED'))::int rejected_visits
+      from dino_dev.invitation_visit where inviter_id=%s""",(p["id"],))
     pairs=_one(conn,"select count(*)::int n from dino_dev.invitation_reward where inviter_id=%s",(p["id"],))["n"]
-    totals=_one(conn,"""select count(*) filter(where source_type='INVITATION_GRANT')::int granted,
+    totals=_one(conn,"""select count(*) filter(where source_type in ('INVITATION_GRANT','SHARE_GRANT'))::int granted,
       count(*) filter(where source_type='PLAY_CONSUME')::int used,
-      count(*) filter(where source_type='FAULT_REFUND')::int refunded
+      count(*) filter(where source_type in ('FAULT_REFUND','LOW_SCORE_REFUND','INCOMPLETE_REFUND'))::int refunded
       from dino_dev.ticket_ledger where participant_id=%s and ticket_kind='INVITATION'""",(p["id"],))
+    confirmed_shares=_one(conn,"select count(*)::int n from dino_dev.kakao_share_intent where participant_id=%s and status='CONFIRMED'",(p["id"],))["n"]
     ranking=_ranking_info(conn,p["id"],_game_version(conn,ctx),p["campaign_id"])
     won=_one(conn,"select pr.name from dino_dev.draw d join dino_dev.prize pr on pr.id=d.prize_id where d.participant_id=%s and d.campaign_id=%s and d.is_won",(p["id"],p["campaign_id"]))
-    return 200,{"participant_count":ranking["top3_gap"]["participant_count"],"won_prize_name":won["name"] if won else None,"invite_url":ctx["base_url"]+"/invite/"+p["referral_code"],"referral_code":p["referral_code"],"invitation_balance":p["invitation_balance"],"invitation_reserved":p["invitation_refund_pending"],"cooldown_until":_iso(p["cooldown_until"]),"cooldown_notice_pending":p["cooldown_notice_pending"],"rewarded_pairs":pairs,"ticket_totals":dict(totals),**dict(counts)}
+    return 200,{"participant_count":ranking["top3_gap"]["participant_count"],"won_prize_name":won["name"] if won else None,"invite_url":ctx["base_url"]+"/invite/"+p["referral_code"],"referral_code":p["referral_code"],"invitation_balance":p["invitation_balance"],"invitation_reserved":p["invitation_refund_pending"],"cooldown_until":_iso(p["cooldown_until"]),"cooldown_notice_pending":p["cooldown_notice_pending"],"rewarded_pairs":pairs,"confirmed_shares":confirmed_shares,"ticket_totals":dict(totals),**dict(counts)}
+
+def share_reward(conn,body,ctx):
+    _participant(conn,ctx,active=True)
+    raise DomainError("SHARE_WEBHOOK_REQUIRED","카카오톡 전송이 확인된 공유만 게임권을 받을 수 있습니다.",409)
+
+SHARE_KINDS={"record_share","retry_invite","prize_share","general_share"}
+KAKAO_FRIEND_CHAT_TYPES={"DirectChat","MultiChat","OpenDirectChat","OpenMultiChat"}
+
+def _share_intent_response(row,tickets=None):
+    data={"share_id":row["id"],"status":str(row["status"]).lower(),"reward_status":str(row["reward_status"]).lower(),"expires_at":_iso(row["expires_at"]),"confirmed_at":_iso(row["confirmed_at"])}
+    if tickets is not None:data["tickets"]=tickets
+    return data
+
+def create_share_intent(conn,body,ctx):
+    if ctx.get("share_webhook_enabled") is not True:
+        raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
+    p=_participant(conn,ctx,True,True);campaign=_campaign(conn);_mutable(campaign)
+    kind=str(body.get("kind") or "")
+    if kind not in SHARE_KINDS:raise DomainError("VALIDATION_ERROR","공유 종류를 확인해 주세요.")
+    claim_id=str(body.get("claim_id") or "") or None
+    if claim_id:
+        claim=_one(conn,"select id from dino_dev.claim where id=%s and participant_id=%s and campaign_id=%s",(claim_id,p["id"],p["campaign_id"]))
+        if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
+    raw_token=ctx.get("new_share_callback_token");token_hash=ctx.get("new_share_callback_token_hash")
+    if not raw_token or not token_hash:raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
+    share_id=_id("share")
+    row=_one(conn,"""insert into dino_dev.kakao_share_intent
+      (id,participant_id,campaign_id,claim_id,kind,callback_token_hash,environment,expires_at)
+      values(%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '30 minutes') returning *""",
+      (share_id,p["id"],p["campaign_id"],claim_id,kind,token_hash,ctx["environment"]))
+    callback_args={"share_id":share_id,"callback_token":raw_token}
+    if ctx.get("kakao_app_id"):callback_args["app_id"]=ctx["kakao_app_id"]
+    return 201,{**_share_intent_response(row),"callback_args":callback_args}
+
+def get_share_intent(conn,share_id,ctx):
+    p=_participant(conn,ctx)
+    row=_one(conn,"select * from dino_dev.kakao_share_intent where id=%s and participant_id=%s",(share_id,p["id"]))
+    if not row:raise DomainError("SHARE_INTENT_NOT_FOUND","공유 확인 요청을 찾을 수 없습니다.",404)
+    status="EXPIRED" if row["status"]=="PENDING" and row["expires_at"]<=dt.datetime.now(UTC) else row["status"]
+    if status!=row["status"]:row={**dict(row),"status":status,"reward_status":"NOT_ELIGIBLE"}
+    return 200,_share_intent_response(row,_tickets(p,ctx))
+
+def kakao_share_webhook(conn,body,ctx):
+    if ctx.get("kakao_webhook_verified") is not True:raise DomainError("WEBHOOK_UNAUTHORIZED","웹훅 인증이 올바르지 않습니다.",401)
+    share_id=str(body.get("share_id") or "");callback_token=str(body.get("callback_token") or "")
+    if not re.fullmatch(r"share_[0-9a-f]{32}",share_id) or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",callback_token):
+        raise DomainError("INVALID_WEBHOOK","웹훅 식별값이 올바르지 않습니다.")
+    if ctx.get("kakao_app_id") and str(body.get("app_id") or "")!=ctx["kakao_app_id"]:
+        raise DomainError("INVALID_WEBHOOK","카카오 앱 식별값이 일치하지 않습니다.",403)
+    resource_id=ctx["kakao_resource_id"]
+    conn.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",("kakao-share-resource:"+resource_id,))
+    used=_one(conn,"select id,status,reward_status from dino_dev.kakao_share_intent where resource_id=%s for update",(resource_id,))
+    if used and used["id"]!=share_id:return 200,{"accepted":True,"duplicate":True}
+    row=_one(conn,"select * from dino_dev.kakao_share_intent where id=%s for update",(share_id,))
+    if not row:raise DomainError("SHARE_INTENT_NOT_FOUND","공유 확인 요청을 찾을 수 없습니다.",404)
+    if not hmac.compare_digest(str(row["callback_token_hash"]),str(ctx.get("share_callback_token_hash") or "")):
+        raise DomainError("INVALID_WEBHOOK","웹훅 식별값이 올바르지 않습니다.",403)
+    if row["environment"]!=ctx["environment"] or row["campaign_id"]!=ctx["campaign_id"]:
+        raise DomainError("INVALID_WEBHOOK","공유 확인 환경이 일치하지 않습니다.",403)
+    if row["status"]!="PENDING":
+        p=_one(conn,"select * from dino_dev.participant where id=%s",(row["participant_id"],))
+        return 200,{"accepted":True,"duplicate":True,**_share_intent_response(row,_tickets(p,ctx))}
+    now=dt.datetime.now(UTC);chat_type=str(body.get("CHAT_TYPE") or "");hash_chat_id=str(body.get("HASH_CHAT_ID") or "")
+    single_room=body.get("IS_SINGLE_CHATROOM") is True or str(body.get("IS_SINGLE_CHATROOM") or "").lower()=="true"
+    if row["expires_at"]<=now:
+        row=_one(conn,"update dino_dev.kakao_share_intent set status='EXPIRED',reward_status='NOT_ELIGIBLE',resource_id=%s,updated_at=clock_timestamp() where id=%s returning *",(resource_id,share_id))
+        return 200,{"accepted":True,**_share_intent_response(row)}
+    if chat_type not in KAKAO_FRIEND_CHAT_TYPES or single_room or not hash_chat_id:
+        row=_one(conn,"""update dino_dev.kakao_share_intent set status='REJECTED',reward_status='NOT_ELIGIBLE',resource_id=%s,
+          chat_type=%s,hash_chat_id=%s,updated_at=clock_timestamp() where id=%s returning *""",(resource_id,chat_type,hash_chat_id or None,share_id))
+        return 200,{"accepted":True,**_share_intent_response(row)}
+    p=_one(conn,"select * from dino_dev.participant where id=%s for update",(row["participant_id"],));campaign=_campaign(conn)
+    reward_status="NOT_ELIGIBLE"
+    if not p or p["status"]!="ACTIVE" or campaign["status"]!="ACTIVE":reward_status="NOT_ELIGIBLE"
+    elif p["cooldown_until"] and p["cooldown_until"]>now:reward_status="BLOCKED_COOLDOWN"
+    elif p["invitation_balance"]+p["invitation_refund_pending"]>=3:reward_status="BLOCKED_CAP"
+    else:
+        new_balance=p["invitation_balance"]+1;cooldown=now+dt.timedelta(hours=10) if new_balance==3 else p["cooldown_until"]
+        p=_one(conn,"""update dino_dev.participant set invitation_balance=%s,cooldown_until=%s,
+          cooldown_notice_pending=case when %s=3 then true else cooldown_notice_pending end,updated_at=clock_timestamp()
+          where id=%s returning *""",(new_balance,cooldown,new_balance,p["id"]))
+        conn.execute("""insert into dino_dev.ticket_ledger
+          (participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until)
+          values(%s,'INVITATION',1,'SHARE_GRANT',%s,%s,%s)""",(p["id"],share_id,new_balance,cooldown))
+        reward_status="GRANTED"
+        _event(conn,"invitation_share_granted",ctx,p["id"],"invitation_share_granted:"+share_id,dimensions={"balance":new_balance,"method":"kakao"})
+    row=_one(conn,"""update dino_dev.kakao_share_intent set status='CONFIRMED',reward_status=%s,resource_id=%s,chat_type=%s,
+      hash_chat_id=%s,confirmed_at=clock_timestamp(),updated_at=clock_timestamp() where id=%s returning *""",
+      (reward_status,resource_id,chat_type,hash_chat_id,share_id))
+    return 200,{"accepted":True,"duplicate":False,**_share_intent_response(row,_tickets(p,ctx))}
 
 def qualify_referral(conn,body,ctx):
     visitor=_participant(conn,ctx,active=True); raw=str(body.get("visit_nonce") or "")
@@ -224,22 +312,16 @@ def qualify_referral(conn,body,ctx):
     visit=_one(conn,"select * from dino_dev.invitation_visit where nonce_hash=%s for update",(ctx["visit_nonce_hash"] if raw else "",))
     if not visit or visit["visitor_id"]!=visitor["id"] or visit["expires_at"]<=dt.datetime.now(UTC):
         raise DomainError("INVALID_NONCE","초대 방문을 다시 시작해 주세요.",409)
-    if visit["status"]!="PENDING": return 200,{"status":visit["status"],"reason":visit["reason"],"granted":1 if visit["status"]=="REWARDED" else 0}
+    if visit["status"]!="PENDING": return 200,{"status":visit["status"],"reason":visit["reason"],"granted":0}
     campaign=_campaign(conn);_mutable(campaign)
     inviter=_one(conn,"select * from dino_dev.participant where id=%s and status='ACTIVE' for update",(visit["inviter_id"],))
     if not inviter or inviter["campaign_id"]!=visitor["campaign_id"] or str(body.get("code") or "")!=inviter["referral_code"]: raise DomainError("INVALID_NONCE","초대 방문을 다시 시작해 주세요.",409)
-    existing=_one(conn,"select id from dino_dev.invitation_reward where campaign_id=%s and inviter_id=%s and visitor_id=%s",(visit["campaign_id"],visit["inviter_id"],visitor["id"]))
-    now=dt.datetime.now(UTC); status="REWARDED"; reason="QUALIFIED"; granted=1
-    if existing: status="ALREADY_REWARDED"; reason="PAIR_ALREADY_REWARDED"; granted=0
-    elif active_ms<ctx["invite_active_ms"] or body.get("interacted") is not True or visit["created_at"]>now-dt.timedelta(milliseconds=ctx["invite_active_ms"]): status="NOT_QUALIFIED"; reason="ACTIVE_TIME_OR_INTERACTION_REQUIRED"; granted=0
-    elif inviter["cooldown_until"] and inviter["cooldown_until"]>now: status="COOLDOWN"; reason="INVITER_COOLDOWN"; granted=0
-    elif inviter["invitation_balance"]+inviter["invitation_refund_pending"]>=3: status="BALANCE_FULL"; reason="INVITER_BALANCE_FULL"; granted=0
-    if status=="REWARDED":
-        rid=_id("ir"); new_balance=inviter["invitation_balance"]+1; cooldown=now+dt.timedelta(hours=10) if new_balance==3 else inviter["cooldown_until"]
-        conn.execute("insert into dino_dev.invitation_reward(id,campaign_id,inviter_id,visitor_id,visit_id) values(%s,%s,%s,%s,%s)",(rid,visit["campaign_id"],inviter["id"],visitor["id"],visit["id"]))
-        conn.execute("update dino_dev.participant set invitation_balance=%s,cooldown_until=%s,cooldown_notice_pending=case when %s=3 then true else cooldown_notice_pending end,updated_at=clock_timestamp() where id=%s",(new_balance,cooldown,new_balance,inviter["id"]))
-        conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until) values(%s,'INVITATION',1,'INVITATION_GRANT',%s,%s,%s)",(inviter["id"],rid,new_balance,cooldown))
-        _event(conn,"invitation_granted",ctx,inviter["id"],"invitation_granted:"+rid,dimensions={"balance":new_balance})
+    existing=_one(conn,"""select id from dino_dev.invitation_visit where campaign_id=%s and inviter_id=%s and visitor_id=%s
+      and id<>%s and status in ('QUALIFIED','ALREADY_QUALIFIED','REWARDED','ALREADY_REWARDED') limit 1""",
+      (visit["campaign_id"],visit["inviter_id"],visitor["id"],visit["id"]))
+    now=dt.datetime.now(UTC);status="QUALIFIED";reason="TRACKING_ONLY";granted=0
+    if existing:status="ALREADY_QUALIFIED";reason="PAIR_ALREADY_QUALIFIED"
+    elif active_ms<ctx["invite_active_ms"] or body.get("interacted") is not True or visit["created_at"]>now-dt.timedelta(milliseconds=ctx["invite_active_ms"]):status="NOT_QUALIFIED";reason="ACTIVE_TIME_OR_INTERACTION_REQUIRED"
     conn.execute("update dino_dev.invitation_visit set status=%s,reason=%s,qualified_at=clock_timestamp(),active_ms=%s,interacted=%s where id=%s",(status,reason,active_ms,bool(body.get("interacted")),visit["id"]))
     inviter=_one(conn,"select * from dino_dev.participant where id=%s",(inviter["id"],))
     return 200,{"status":status,"reason":reason,"granted":granted,"inviter_balance":inviter["invitation_balance"],"cooldown_until":_iso(inviter["cooldown_until"])}
@@ -272,7 +354,7 @@ def create_session(conn,body,ctx):
     old=_one(conn,"select * from dino_dev.game_session where participant_id=%s and idempotency_key=%s",(p["id"],ctx["idempotency_key"]))
     if old:return 200,_session(old)
     live=_one(conn,"select * from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1 for update",(p["id"],))
-    if live:return 200,_session(live)
+    if live:return 200,{**_session(live),"existing_session":True}
     unlimited=_unlimited_play(p,ctx)
     kind="INITIAL" if unlimited or p["initial_balance"]>0 else "INVITATION" if p["invitation_balance"]>0 else None
     if not kind: raise DomainError("NO_TICKETS","게임권이 부족합니다.",409)
@@ -304,10 +386,29 @@ def checkpoint(conn,sid,body,ctx):
 def _settle_invitation_pending(conn,s):
     if s["ticket_kind"]=="INVITATION" and s["ticket_refund_status"]=="PENDING":
         conn.execute("update dino_dev.participant set invitation_refund_pending=invitation_refund_pending-1 where id=%s",(s["participant_id"],))
+def _settle_verified_ticket(conn,s,score):
+    if s["ticket_refund_status"]!="PENDING":
+        return s["ticket_refund_status"]
+    if score>100:
+        _settle_invitation_pending(conn,s)
+        return "NOT_DUE"
+    p=_one(conn,"select * from dino_dev.participant where id=%s for update",(s["participant_id"],))
+    if s["ticket_kind"]=="INITIAL":
+        after=min(1,p["initial_balance"]+1)
+        conn.execute("update dino_dev.participant set initial_balance=%s,updated_at=clock_timestamp() where id=%s",(after,p["id"]))
+    else:
+        after=p["invitation_balance"]+1
+        conn.execute("""update dino_dev.participant set invitation_refund_pending=invitation_refund_pending-1,
+          invitation_balance=invitation_balance+1,updated_at=clock_timestamp() where id=%s""",(p["id"],))
+    conn.execute("""insert into dino_dev.ticket_ledger
+      (participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until)
+      values(%s,%s,1,'LOW_SCORE_REFUND',%s,%s,%s) on conflict do nothing""",
+      (p["id"],s["ticket_kind"],s["id"],after,p["cooldown_until"]))
+    return "REFUNDED"
 def finish_session(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
     if s["status"] in ("FINISHED","REJECTED"):
-        return 200,finish_response(conn,s)
+        return 200,finish_response(conn,s,ctx)
     if s["status"]!="ACTIVE": raise DomainError("SESSION_NOT_ACTIVE","진행 중인 게임만 종료할 수 있습니다.",409)
     if s["expires_at"]<=dt.datetime.now(UTC):
         _reconcile_expired(conn,p["id"])
@@ -322,8 +423,11 @@ def finish_session(conn,sid,body,ctx):
     status="FINISHED" if valid else "REJECTED"
     elapsed=(dt.datetime.now(UTC)-s["started_at"]).total_seconds() if s["started_at"] else 0
     if valid and (ticks<60 or ticks/60.0>elapsed+1.0):valid=False;status="REJECTED";reason="IMPOSSIBLE_WALLCLOCK_DURATION"
-    _settle_invitation_pending(conn,s)
-    s=_one(conn,"update dino_dev.game_session set status=%s,score=%s,valid_ticks=%s,verification_result=%s,game_summary=%s::jsonb,end_reason=%s,finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s returning *",(status,score,ticks,reason,json.dumps(summary if valid else {}),end_reason if valid else None,sid))
+    if valid:
+        ticket_refund_status=_settle_verified_ticket(conn,s,score)
+    else:
+        _settle_invitation_pending(conn,s);ticket_refund_status="NOT_DUE"
+    s=_one(conn,"update dino_dev.game_session set status=%s,score=%s,valid_ticks=%s,verification_result=%s,game_summary=%s::jsonb,end_reason=%s,finished_at=clock_timestamp(),ticket_refund_status=%s where id=%s returning *",(status,score,ticks,reason,json.dumps(summary if valid else {}),end_reason if valid else None,ticket_refund_status,sid))
     if not valid:
         _event(conn,"game_verification_rejected",ctx,p["id"],"game_rejected:"+sid,game_session_id=sid,dimensions={"reason":reason})
         return 422,{"error":"GAME_VERIFICATION_FAILED","message":"게임 결과를 검증하지 못했습니다.","retryable":False,"session_id":sid,"status":"REJECTED","verification":reason}
@@ -340,20 +444,26 @@ def finish_session(conn,sid,body,ctx):
             when excluded.game_version='2.1.0' or dino_dev.ranking_contact.game_version='1.2.0' then excluded.game_version
             else dino_dev.ranking_contact.game_version end""",(p["id"],s["version"]))
     _event(conn,"game_finish_verified",ctx,p["id"],"game_finished:"+sid,game_session_id=sid,dimensions={"score":score,"rank":rank,"game_version":s["version"],"end_reason":end_reason,**summary})
-    return 200,finish_response(conn,s)
-def finish_response(conn,s):
+    return 200,finish_response(conn,s,ctx)
+def finish_response(conn,s,ctx=None):
     ranking=_ranking_info(conn,s["participant_id"],s["version"],s["campaign_id"])
     if s["status"]!="FINISHED":ranking["rank"]=None
+    p=_one(conn,"select * from dino_dev.participant where id=%s",(s["participant_id"],))
+    ticket_entries=_one(conn,"""select exists(select 1 from dino_dev.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME' and source_id=%s) consumed,
+      exists(select 1 from dino_dev.ticket_ledger where participant_id=%s and source_type='LOW_SCORE_REFUND' and source_id=%s) low_score_refunded""",
+      (s["participant_id"],s["id"],s["participant_id"],s["id"]))
     draw=_one(conn,"select id from dino_dev.draw where campaign_id=%s and participant_id=%s",(s["campaign_id"],s["participant_id"]))
     contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(s["participant_id"],))
     eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' limit 1",(s["participant_id"],s["campaign_id"]))
     return {"session_id":s["id"],"status":s["status"],"verification":s["verification_result"],"score":s["score"],**ranking,
       "summary":s.get("game_summary") or {},"end_reason":s.get("end_reason"),
+      "tickets":_tickets(p,ctx or {}),"ticket_consumed":bool(ticket_entries["consumed"] and not ticket_entries["low_score_refunded"]),
+      "refund":{"status":s["ticket_refund_status"],"ticket_kind":s["ticket_kind"],"reason":"LOW_SCORE" if ticket_entries["low_score_refunded"] else None},
       "draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":_ranking_profile_state(contact,ranking["rank"],s["version"])}
 
 def report_fault(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
-    if s["status"] in ("FINISHED","REJECTED"): return 200,finish_response(conn,s)
+    if s["status"] in ("FINISHED","REJECTED"): return 200,finish_response(conn,s,ctx)
     if s["status"]=="ABORTED": return 200,_session(s)
     if s["status"]=="FAULT_REPORTED": return 200,{**_session(s),"refund":{"status":"REVIEW_REQUIRED","ticket_kind":s["ticket_kind"]}}
     reason=str(body.get("reason") or "")
@@ -378,6 +488,36 @@ def _refund_fault(conn,s,review_status,reviewed_by=None,reason=None):
     conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until) values(%s,%s,1,'FAULT_REFUND',%s,%s,%s) on conflict do nothing",(p["id"],s["ticket_kind"],s["id"],after,p["cooldown_until"]))
     return _one(conn,"""update dino_dev.game_session set status='ABORTED',ticket_refund_status='REFUNDED',finished_at=clock_timestamp(),fault_review_status=%s,
       fault_review_version=fault_review_version+1,fault_reviewed_by=%s,fault_reviewed_at=clock_timestamp(),fault_review_reason=%s where id=%s returning *""",(review_status,reviewed_by,reason,s["id"]))
+def abandon_session(conn,sid,ctx):
+    p=_participant(conn,ctx,True,True);s=_owned_session(conn,sid,p["id"],True)
+    if s["status"] in {"FINISHED","REJECTED"}:
+        result=finish_response(conn,s,ctx)
+        return 200,{"session_id":sid,"status":s["status"],"tickets":result["tickets"],"result":result}
+    if s["status"]=="ABORTED":
+        p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
+        return 200,{"session_id":sid,"status":"ABORTED","refund":{"status":s["ticket_refund_status"],"ticket_kind":s["ticket_kind"],"reason":"INCOMPLETE_GAME" if s["ticket_refund_status"]=="REFUNDED" else None},"tickets":_tickets(p,ctx)}
+    if s["status"] not in {"RESERVED","ACTIVE","FAULT_REPORTED"}:
+        raise DomainError("SESSION_NOT_ABANDONABLE","완료되지 않은 게임만 무효 처리할 수 있습니다.",409)
+    consumed=_one(conn,"select id from dino_dev.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME' and source_id=%s",(p["id"],sid))
+    refund_status="NOT_DUE"
+    if s["ticket_refund_status"]=="PENDING" and consumed:
+        if s["ticket_kind"]=="INITIAL":
+            after=min(1,p["initial_balance"]+1)
+            conn.execute("update dino_dev.participant set initial_balance=%s,updated_at=clock_timestamp() where id=%s",(after,p["id"]))
+        else:
+            after=p["invitation_balance"]+1
+            conn.execute("""update dino_dev.participant set invitation_refund_pending=greatest(0,invitation_refund_pending-1),
+              invitation_balance=invitation_balance+1,updated_at=clock_timestamp() where id=%s""",(p["id"],))
+        conn.execute("""insert into dino_dev.ticket_ledger
+          (participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until)
+          values(%s,%s,1,'INCOMPLETE_REFUND',%s,%s,%s) on conflict do nothing""",(p["id"],s["ticket_kind"],sid,after,p["cooldown_until"]))
+        refund_status="REFUNDED"
+    s=_one(conn,"""update dino_dev.game_session set status='ABORTED',ticket_refund_status=%s,finished_at=clock_timestamp(),
+      fault_review_status='NONE',fault_reviewed_by=null,fault_reviewed_at=null,fault_review_reason='INCOMPLETE_GAME_INVALIDATED'
+      where id=%s returning *""",(refund_status,sid))
+    _event(conn,"game_incomplete_invalidated",ctx,p["id"],"game_incomplete_invalidated:"+sid,game_session_id=sid,dimensions={"refund_status":refund_status})
+    p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
+    return 200,{"session_id":sid,"status":"ABORTED","refund":{"status":refund_status,"ticket_kind":s["ticket_kind"],"reason":"INCOMPLETE_GAME" if refund_status=="REFUNDED" else None},"tickets":_tickets(p,ctx)}
 def _reconcile_expired(conn,participant_id):
     expired=_all(conn,"select * from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE') and expires_at<=clock_timestamp() order by reserved_at for update",(participant_id,))
     for session in expired:
@@ -394,9 +534,9 @@ def _reconcile_fault(conn,s):
       and fault_reviewed_at>=clock_timestamp()-interval '24 hours'""",(s["participant_id"],s["id"]))["n"]
     return _refund_fault(conn,s,"AUTO_APPROVED",reason="FIRST_NETWORK_FAULT_24H") if prior==0 else s
 def get_session(conn,sid,ctx):
-    p=_participant(conn,ctx);_reconcile_expired(conn,p["id"]);s=_owned_session(conn,sid,p["id"],True);s=_reconcile_fault(conn,s)
+    p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);s=_owned_session(conn,sid,p["id"],True);s=_reconcile_fault(conn,s)
     response=_session(s)
-    if s["status"] in ("FINISHED","REJECTED"): response["result"]=finish_response(conn,s)
+    if s["status"] in ("FINISHED","REJECTED"): response["result"]=finish_response(conn,s,ctx)
     return 200,response
 
 def leaderboard(conn,query,ctx):
@@ -528,7 +668,10 @@ def claim_draft_get(conn,cid,ctx):
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
     row=_one(conn,"select recipient_name,contact,school,address,consent_version from dino_dev.claim_contact_draft where claim_id=%s",(cid,))
     draft=None if not row else {"name":row["recipient_name"],"contact":row["contact"],"school":row["school"],"address":row["address"] or "","consent":True,"notice_version":row["consent_version"]}
-    return 200,{"draft":draft}
+    intent=_one(conn,"""select id,status,reward_status,expires_at,confirmed_at from dino_dev.kakao_share_intent
+      where claim_id=%s and participant_id=%s and (status='CONFIRMED' or (status='PENDING' and expires_at>clock_timestamp()))
+      order by (status='CONFIRMED') desc,created_at desc limit 1""",(cid,p["id"]))
+    return 200,{"draft":draft,"share_intent_id":intent["id"] if intent else None,"share_intent":_share_intent_response(intent) if intent else None}
 
 def claim_draft_post(conn,cid,body,ctx):
     p=_participant(conn,ctx,active=True); claim=_one(conn,"""select c.id,c.status,p.category
@@ -554,10 +697,12 @@ def submit_claim(conn,cid,body,ctx):
     existing=_one(conn,"select claim_id from dino_dev.claim_contact where claim_id=%s",(cid,))
     if existing:return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
     if claim["status"] in {"PAID","INELIGIBLE"}:raise DomainError("CLAIM_CLOSED","종료된 수령 요청은 접수할 수 없습니다.",409)
-    share_status=str(body.get("share_status") or "")
-    if share_status not in {"kakao_opened","share_sheet_closed","copied"}:raise DomainError("SHARE_STEP_REQUIRED","친구 공유 단계를 완료한 뒤 접수해 주세요.",409)
     draft=_one(conn,"select * from dino_dev.claim_contact_draft where claim_id=%s for update",(cid,))
     if not draft or not draft["consent_at"] or draft["consent_version"]!="claim-contact-v1":raise DomainError("CLAIM_DRAFT_REQUIRED","먼저 수령 정보를 저장하고 동의해 주세요.",409)
+    share_intent_id=str(body.get("share_intent_id") or "")
+    intent=_one(conn,"""select id from dino_dev.kakao_share_intent where id=%s and participant_id=%s and claim_id=%s
+      and status='CONFIRMED' and confirmed_at is not null""",(share_intent_id,p["id"],cid))
+    if not intent:raise DomainError("SHARE_STEP_REQUIRED","카카오톡 전송이 확인된 뒤 접수해 주세요.",409)
     conn.execute("""insert into dino_dev.claim_contact
       (claim_id,recipient_name,contact,school,address,synthetic,consent_at,consent_version)
       values(%s,%s,%s,%s,%s,%s,%s,'claim-contact-v1')""",
@@ -777,10 +922,15 @@ def dispatch(conn,method,path,body,query,ctx):
         if method=="PATCH" and path=="/api/me/profile":return patch_profile(conn,body,ctx)
         if method=="GET" and path=="/api/referrals/me":return referral_me(conn,ctx)
         if method=="POST" and path=="/api/referrals/qualify":return qualify_referral(conn,body,ctx)
+        if method=="POST" and path=="/api/referrals/share-reward":return share_reward(conn,body,ctx)
+        if method=="POST" and path=="/api/referrals/share-intents":return create_share_intent(conn,body,ctx)
+        m=re.fullmatch(r"/api/referrals/share-intents/([^/]+)",path)
+        if method=="GET" and m:return get_share_intent(conn,m.group(1),ctx)
+        if method in {"GET","POST"} and path=="/api/webhooks/kakao-share":return kakao_share_webhook(conn,body,ctx)
         if method=="POST" and path=="/api/referrals/cooldown-notice/ack":return cooldown_ack(conn,body,ctx)
         if method=="POST" and path=="/api/game-sessions":return create_session(conn,body,ctx)
-        m=re.fullmatch(r"/api/game-sessions/([^/]+)/(start|checkpoint|finish|fault)",path)
-        if method=="POST" and m:return {"start":lambda:start_session(conn,m.group(1),ctx),"checkpoint":lambda:checkpoint(conn,m.group(1),body,ctx),"finish":lambda:finish_session(conn,m.group(1),body,ctx),"fault":lambda:report_fault(conn,m.group(1),body,ctx)}[m.group(2)]()
+        m=re.fullmatch(r"/api/game-sessions/([^/]+)/(start|checkpoint|finish|fault|abandon)",path)
+        if method=="POST" and m:return {"start":lambda:start_session(conn,m.group(1),ctx),"checkpoint":lambda:checkpoint(conn,m.group(1),body,ctx),"finish":lambda:finish_session(conn,m.group(1),body,ctx),"fault":lambda:report_fault(conn,m.group(1),body,ctx),"abandon":lambda:abandon_session(conn,m.group(1),ctx)}[m.group(2)]()
         m=re.fullmatch(r"/api/game-sessions/([^/]+)",path)
         if method=="GET" and m:return get_session(conn,m.group(1),ctx)
         if method=="GET" and path=="/api/leaderboard":return leaderboard(conn,query,ctx)
@@ -813,5 +963,5 @@ def dispatch(conn,method,path,body,query,ctx):
         if method=="PATCH" and m:return admin_participant_patch(conn,m.group(1),body,ctx)
         if method=="PATCH" and path=="/api/admin/campaign":return admin_campaign(conn,body,ctx)
         raise DomainError("NOT_FOUND","요청한 API를 찾을 수 없습니다.",404)
-    mutation=method in {"POST","PATCH"} and path not in {"/api/participants/anonymous","/api/observations"}
+    mutation=method in {"POST","PATCH"} and path not in {"/api/participants/anonymous","/api/observations","/api/webhooks/kakao-share"}
     return _idempotent(conn,method,path,body,ctx,call) if mutation else call()

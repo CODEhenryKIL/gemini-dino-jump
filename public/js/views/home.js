@@ -28,10 +28,9 @@ export const HomeView = {
     this.updateState(container, router);
     container.querySelector('#btn-start-jump').onclick = () => {
       if (container.querySelector('#btn-start-jump').disabled) return;
-      if (router.state.pendingGameSession) { router.navigate('game'); return; }
       const tickets = router.state.tickets || {};
       const available = Number(tickets.available_total ?? ((tickets.initial || 0) + (tickets.invitation || 0)));
-      if (tickets.unlimited_play !== true && available < 1) { router.navigate('invite'); return; }
+      if (!router.state.pendingGameSession && tickets.unlimited_play !== true && available < 1) { router.navigate('invite'); return; }
       analytics.track('game_cta_clicked', { source: 'home' });
       this.showGuideModal(router, true);
     };
@@ -72,11 +71,11 @@ export const HomeView = {
       note.textContent = `초대권 추가 적립 대기: ${new Date(tickets.cooldown_until).toLocaleString('ko-KR')}까지 · 가진 게임권은 사용할 수 있어요.`;
     } else if (!pendingSession && available < 1) {
       note.hidden = false;
-      note.textContent = '게임권이 필요해요. 친구가 초대 링크로 방문하면 게임권을 받을 수 있어요.';
+      note.textContent = '게임권이 필요해요. 친구에게 공유하고 게임권을 받아 보세요.';
     }
     start.disabled = !pendingSession && campaignStatus !== 'ACTIVE';
     start.textContent = '게임 시작';
-    if (pendingSession) start.textContent = pendingSession.status === 'FAULT_REPORTED' ? '장애 복구 상태 확인' : '진행 중 게임 복원';
+    if (pendingSession) start.textContent = '게임 시작';
     else if (campaignStatus !== 'ACTIVE') {
       start.textContent = campaignStatus === 'ENDED' ? '행사가 종료됐어요' : '행사가 잠시 중단됐어요';
       note.hidden = false;

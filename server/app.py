@@ -12,6 +12,18 @@ import psycopg
 
 PUBLIC_DIR=str(ROOT/"public"); MAX_BODY=65536
 LEGACY_PATHS={"/gate-runner","/gate-runner/","/gate_runner.html"}
+KAKAO_WEBHOOK_PATH="/api/webhooks/kakao-share"
+def verify_kakao_webhook_headers(headers,settings):
+    if not settings.kakao_admin_key:raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
+    expected="KakaoAK "+settings.kakao_admin_key;actual=headers.get("Authorization","")
+    try:actual_bytes=actual.encode("ascii")
+    except UnicodeEncodeError:raise DomainError("WEBHOOK_UNAUTHORIZED","웹훅 인증이 올바르지 않습니다.",401) from None
+    expected_bytes=expected.encode("ascii")
+    if len(actual_bytes)!=len(expected_bytes) or not hmac.compare_digest(actual_bytes,expected_bytes):raise DomainError("WEBHOOK_UNAUTHORIZED","웹훅 인증이 올바르지 않습니다.",401)
+    resource_id=headers.get("X-Kakao-Resource-ID","")
+    if not re.fullmatch(r"[\x21-\x7e]{1,128}",resource_id):raise DomainError("INVALID_WEBHOOK","웹훅 요청 식별값이 올바르지 않습니다.")
+    if headers.get("User-Agent","")!="KakaoOpenAPI/1.0":raise DomainError("INVALID_WEBHOOK","웹훅 발신 정보가 올바르지 않습니다.")
+    return resource_id
 def _json_default(value):
     if isinstance(value,(dt.datetime,dt.date)):return value.isoformat()
     if isinstance(value,uuid.UUID):return str(value)
@@ -74,7 +86,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         self.pending_cookie=f"dj_session={token}; Path=/; Max-Age={settings.participant_cookie_max_age}; HttpOnly; SameSite=Lax{secure}"
     def _context(self,settings,body,path):
         raw_cookie=self._cookie();participant_hash=auth.token_hash(raw_cookie,settings.token_pepper) if raw_cookie else ""
-        ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"participant_token_hash":participant_hash,"request_id":self.request_id,"invite_active_ms":settings.invite_active_ms,"participant_cookie_max_age":settings.participant_cookie_max_age,"ip_subject":self._ip_subject(settings),"preview_unlimited_play":settings.preview_unlimited_play}
+        ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"participant_token_hash":participant_hash,"request_id":self.request_id,"invite_active_ms":settings.invite_active_ms,"participant_cookie_max_age":settings.participant_cookie_max_age,"ip_subject":self._ip_subject(settings),"preview_unlimited_play":settings.preview_unlimited_play,"share_webhook_enabled":bool(settings.kakao_javascript_key and settings.kakao_admin_key),"kakao_app_id":settings.kakao_app_id}
         idem=self.headers.get("Idempotency-Key","")
         if idem:
             if not re.fullmatch(r"[\x21-\x7e]{8,128}",idem):raise DomainError("INVALID_IDEMPOTENCY_KEY","요청 식별자를 확인해 주세요.")
@@ -90,19 +102,29 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             nonce=secrets.token_urlsafe(32);ctx.update(invite_nonce=nonce,invite_nonce_hash=auth.token_hash(nonce,settings.token_pepper))
         if path=="/api/referrals/qualify":
             raw=str(body.get("visit_nonce") or "");ctx["visit_nonce_hash"]=auth.token_hash(raw,settings.token_pepper) if raw else ""
+        if path=="/api/referrals/share-intents":
+            raw=secrets.token_urlsafe(32);ctx.update(new_share_callback_token=raw,new_share_callback_token_hash=auth.token_hash(raw,settings.token_pepper))
         return ctx
     def _api(self):
         started=time.monotonic();route_template="/api/unknown";error_code=None;deployment="unknown";database_failure=None
         try:
-            settings=Settings.from_env();deployment=settings.deployment;self._origin(settings);parsed=urlparse(self.path)
+            settings=Settings.from_env();deployment=settings.deployment;parsed=urlparse(self.path)
             if len(self.path)>2048:raise DomainError("URL_TOO_LONG","요청 주소가 너무 깁니다.",414)
             path=parsed.path;route_template=re.sub(r"(/api/(?:game-sessions|draws|claims|admin/claims|admin/game-faults|admin/participants))/(?!me(?:/|$))[^/]+",r"\1/{id}",path);method="GET" if self.command=="HEAD" else self.command;query={k:v[-1] for k,v in parse_qs(parsed.query,max_num_fields=20).items()};body=self.parse_body() if method in {"POST","PATCH"} else {}
+            is_kakao_webhook=path==KAKAO_WEBHOOK_PATH
+            if not is_kakao_webhook:self._origin(settings)
+            elif method not in {"GET","POST"}:raise DomainError("NOT_FOUND","요청한 API를 찾을 수 없습니다.",404)
+            if is_kakao_webhook and method=="GET":body=query
             if method=="OPTIONS":
                 self.send_response(204);self.send_header("Access-Control-Allow-Methods","GET, POST, PATCH, OPTIONS");self.send_header("Access-Control-Allow-Headers","Content-Type, Authorization, Idempotency-Key");self.send_header("Access-Control-Max-Age","600")
                 if self.cors_origin:self.send_header("Access-Control-Allow-Origin",self.cors_origin);self.send_header("Access-Control-Allow-Credentials","true")
                 self.end_headers();return
             if method=="GET" and path=="/api/shared/game_constants.json":self.send_json(200,CONSTANTS);return
-            token=self._bearer();ctx=self._context(settings,body,path)
+            if is_kakao_webhook:
+                resource_id=verify_kakao_webhook_headers(self.headers,settings);callback_token=str(body.get("callback_token") or "")
+                ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"request_id":self.request_id,"preview_unlimited_play":settings.preview_unlimited_play,"kakao_webhook_verified":True,"kakao_resource_id":resource_id,"share_callback_token_hash":auth.token_hash(callback_token,settings.token_pepper),"kakao_app_id":settings.kakao_app_id}
+                token=""
+            else:token=self._bearer();ctx=self._context(settings,body,path)
             is_admin=path.startswith("/api/admin/")
             if is_admin:
                 if not token:raise DomainError("ADMIN_AUTH_REQUIRED","관리자 로그인이 필요합니다.",401)
@@ -117,7 +139,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                     self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":False,"gameplay_synthetic_only":True,"top3_contact_collection_enabled":True,"test_seed":guard["test_seed"],"test_inventory_remaining":remaining,"campaign_status":campaign["status"] if campaign else None});return
                 if method=="GET" and path=="/api/config":
                     campaign=conn.execute("select id,title,status,game_version,opens_at,closes_at from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();data["campaign"].update(dict(campaign) if campaign else {});data["campaign"]["game_version"]=settings.game_version;self.send_json(200,data);return
-                if not is_admin:
+                if not is_admin and not is_kakao_webhook:
                     with db.transaction(conn):self._rate(conn,settings,path,ctx.get("participant_token_hash",""))
                 if method=="POST" and re.fullmatch(r"/api/game-sessions/[^/]+/finish",path):
                     sid=path.split("/")[-2];session=conn.execute("select seed,version from dino_dev.game_session where id=%s and participant_id=(select id from dino_dev.participant where token_hash=%s)",(sid,ctx.get("participant_token_hash"))).fetchone()
@@ -125,7 +147,9 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                     if body.get("version",session["version"])!=session["version"]:raise DomainError("GAME_VERSION_MISMATCH","게임 버전이 일치하지 않습니다.",409)
                     try:ctx["verification"]=game_verifier.verify_game(session["version"],session["seed"],body.get("jump_ticks",[]),body.get("score"),body.get("ticks",body.get("valid_ticks")))
                     except (TypeError,ValueError,KeyError):raise DomainError("INVALID_GAME_INPUT","게임 기록 형식을 확인해 주세요.") from None
-                with db.transaction(conn):status,response=dispatch(conn,method,path,body,query,ctx)
+                with db.transaction(conn):
+                    if is_kakao_webhook:conn.execute("set local statement_timeout='2500ms'")
+                    status,response=dispatch(conn,method,path,body,query,ctx)
             cookie=response.pop("_set_cookie_token",None)
             if cookie:self._set_participant_cookie(cookie,settings)
             if status>=400 and isinstance(response,dict):error_code=response.get("error")

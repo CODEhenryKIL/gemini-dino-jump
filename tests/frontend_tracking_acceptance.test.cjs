@@ -92,9 +92,10 @@ test('Gemini benefit copy and native share record observable outcomes only', asy
   };
   context.globalThis = context;
   const source = read('public/js/views/benefit_view.js')
+    .replace("import { api } from '../api.js';", 'const api = { getReferralInfo: async () => ({}) };')
     .replace("import { analytics } from '../analytics.js';", 'const analytics = globalThis.__analytics;')
     .replace("import { ui } from '../ui.js';", 'const ui = globalThis.__ui;')
-    .replace("import { loadKakaoSdk } from '../referral_share.js';", 'const loadKakaoSdk = async () => null;')
+    .replace("import { loadKakaoSdk, prepareKakaoPrizeImage } from '../referral_share.js';", 'const loadKakaoSdk = async () => null; const prepareKakaoPrizeImage = async () => null;')
     .replace('export const BenefitView =', 'globalThis.__BenefitView =');
   vm.runInNewContext(source, context, { filename: 'benefit_view.js' });
   context.__BenefitView.render(container, { config: { benefit_url: 'https://gemini.google.com/students' } });

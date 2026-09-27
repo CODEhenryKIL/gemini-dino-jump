@@ -17,12 +17,15 @@ function deferred() {
 }
 
 function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null, referral = null } = {}) {
+  if (Kakao?.Share && !Kakao.Share.scrapImage) Kakao.Share.scrapImage = async () => ({ infos: { original: { url: 'https://k.kakaocdn.net/prize.png' } } });
   const events = [];
   const toasts = [];
   let requestIndex = 0;
   const api = {
-    config: { share: { kakao_javascript_key: key } },
+    config: { share: { kakao_javascript_key: key, webhook_enabled: true } },
     async getReferralInfo() { return referral || { invite_url: '/invite/referralcode123' }; },
+    async createReferralShareIntent(kind, claimId) { requestIndex += 1; return { share_id: `share_${requestIndex}`, callback_args: { share_id: `share_${requestIndex}`, callback_token: 'opaque_callback_token' }, expires_at: new Date(Date.now() + 60000).toISOString() }; },
+    async getReferralShareIntent() { return { status: 'confirmed', reward_status: 'blocked_cap' }; },
     createRequestId() { requestIndex += 1; return `share_${requestIndex}`; },
   };
   const analytics = {
@@ -40,10 +43,11 @@ function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null, r
   const source = fs.readFileSync(path.join(root, 'public/js/referral_share.js'), 'utf8')
     .replace(/^import .*;$/gm, '')
     .replace('export function loadKakaoSdk', 'function loadKakaoSdk')
+    .replace('export function prepareKakaoPrizeImage', 'function prepareKakaoPrizeImage')
     .replace('export function buildReferralShareText', 'globalThis.buildReferralShareText = function')
     .replace('export async function prepareResultReferralShare', 'globalThis.prepareResultReferralShare = async function');
   vm.runInNewContext(source, context, { filename: 'public/js/referral_share.js' });
-  const router = { config: { share: { kakao_javascript_key: key } }, state: { bestScore: 4321 } };
+  const router = { config: { share: { kakao_javascript_key: key, webhook_enabled: true } }, state: { bestScore: 4321 } };
   return { analytics, api, buildText: context.buildReferralShareText, context, events, prepare: context.prepareResultReferralShare, router, toasts };
 }
 
@@ -69,12 +73,17 @@ test('configured Kakao share initializes once and opens sendDefault with an attr
   assert.deepEqual(initKeys, [key]);
   assert.equal(result.method, 'kakao');
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].objectType, 'text');
-  assert.equal(sent[0].text, '행사 종료 시 1위 달성하면 5만원\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
-  assert.equal(sent[0].link.mobileWebUrl, sent[0].link.webUrl);
-  assert.match(sent[0].link.webUrl, /^https:\/\/game\.example\/invite\/referralcode123\?/);
-  assert.match(sent[0].link.webUrl, /(?:\?|&)link=record_share(?:&|$)/);
-  assert.match(sent[0].link.webUrl, /(?:\?|&)share=share_1(?:&|$)/);
+  assert.equal(sent[0].objectType, 'feed');
+  assert.equal(sent[0].content.imageUrl, 'https://k.kakaocdn.net/prize.png');
+  assert.equal(sent[0].content.imageWidth, 1254);
+  assert.equal(sent[0].content.imageHeight, 1254);
+  assert.equal(sent[0].buttons[0].link.webUrl, sent[0].content.link.webUrl);
+  assert.equal(sent[0].buttons[0].title, '한 판 도전하기');
+  assert.equal(sent[0].content.title + '\n\n' + sent[0].content.description, '행사 종료 시 1위 달성하면 5만원\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
+  assert.equal(sent[0].content.link.mobileWebUrl, sent[0].content.link.webUrl);
+  assert.match(sent[0].content.link.webUrl, /^https:\/\/game\.example\/invite\/referralcode123\?/);
+  assert.match(sent[0].content.link.webUrl, /(?:\?|&)link=record_share(?:&|$)/);
+  assert.match(sent[0].content.link.webUrl, /(?:\?|&)share=share_1(?:&|$)/);
   assert.deepEqual(shareEvents(harness.events).map(({ dimensions }) => [dimensions.share_method, dimensions.status]), [['kakao', 'attempted']]);
 });
 
@@ -127,7 +136,7 @@ test('no sharing API copies the attributed invite URL without navigating away', 
   assert.match(copied[0], /^행사 종료 시 1위 달성하면 5만원/);
   assert.match(copied[0], /link=record_share/);
   assert.deepEqual(shareEvents(harness.events).map(({ dimensions }) => dimensions.status), ['attempted', 'copied']);
-  assert.deepEqual(harness.toasts, ['초대 링크를 복사했어요. 카카오톡에 붙여 넣어 주세요.']);
+  assert.deepEqual(harness.toasts, ['초대 링크를 복사했어요. 링크 복사로는 게임권이 지급되지 않아요.']);
 });
 
 test('ranking share copy includes participant count when the server provides it', () => {
@@ -170,9 +179,78 @@ test('fresh SDK exposes Share only after init and still prepares Kakao sharing',
   const preparing = harness.prepare(harness.router);
   await new Promise(setImmediate);
   let initialized = false;
-  harness.context.Kakao = { isInitialized: () => initialized, init() { initialized = true; this.Share = { sendDefault() {} }; } };
+  harness.context.Kakao = { isInitialized: () => initialized, init() { initialized = true; this.Share = { sendDefault() {}, scrapImage: async () => ({ infos: { original: { url: "https://k.kakaocdn.net/prize.png" } } }) }; } };
   script.onload();
   const prepared = await preparing;
   assert.equal(initialized, true);
   assert.equal(prepared.mode, 'kakao');
+});
+
+
+test('image preparation failure preserves native sharing and a later preparation retries', async () => {
+  let attempts = 0;
+  const Kakao = { init() {}, isInitialized: () => true, Share: {
+    sendDefault() {},
+    async scrapImage() { attempts++; if (attempts === 1) throw new Error('image unavailable'); return { infos: { original: { url: 'https://k.kakaocdn.net/prize.png' } } }; },
+  } };
+  const harness = loadShare({ key: '0123456789abcdef0123456789abcdef', Kakao, navigatorMock: { async share() {} } });
+  assert.equal((await harness.prepare(harness.router)).mode, 'native');
+  assert.equal((await harness.prepare(harness.router)).mode, 'kakao');
+  assert.equal(attempts, 2);
+});
+
+
+test('native sharing never requests or grants an invitation ticket', async () => {
+  const h = loadShare({ navigatorMock: { async share() {} } });
+  h.api.createReferralShareIntent = () => assert.fail('native share has no receipt');
+  h.api.getReferralShareIntent = () => assert.fail('native share has no proof');
+  const outcome = await (await h.prepare(h.router)).share();
+  assert.equal(outcome.status, 'share_sheet_closed');
+  assert.equal(h.router.state.tickets, undefined);
+});
+
+test('Kakao launch sends only server-issued callback args and remains pending until webhook', async () => {
+  const proof = deferred();
+  const sent = [];
+  const h = loadShare({ key: 'key', Kakao: { init() {}, isInitialized: () => true, Share: { sendDefault(payload) { sent.push(payload); } } } });
+  h.api.getReferralShareIntent = () => proof.promise;
+  const prepared = await h.prepare(h.router);
+  const outcome = await prepared.share();
+  assert.equal(outcome.status, 'pending');
+  assert.equal(h.router.state.tickets, undefined);
+  assert.equal(sent[0].serverCallbackArgs.share_id, outcome.shareId);
+  assert.equal(sent[0].serverCallbackArgs.callback_token, 'opaque_callback_token');
+  assert.doesNotMatch(sent[0].content.link.webUrl, /opaque_callback_token/);
+  proof.resolve({ status: 'confirmed', reward_status: 'granted', tickets: { invitation: 1 } });
+  await new Promise(setImmediate);
+  assert.equal(h.router.state.tickets.invitation, 1);
+  assert.match(h.toasts.at(-1), /전송이 확인되어/);
+});
+
+test('a rejected Kakao self-share never awards a ticket', async () => {
+  const h = loadShare({ key: 'key', Kakao: { init() {}, isInitialized: () => true, Share: { sendDefault() {} } } });
+  h.api.getReferralShareIntent = async () => ({ status: 'rejected', reward_status: 'not_eligible', tickets: { invitation: 0 } });
+  await (await h.prepare(h.router)).share();
+  await new Promise(setImmediate);
+  assert.equal(h.router.state.tickets.invitation, 0);
+});
+
+test('unconfigured webhook never opens an untracked Kakao invitation', async () => {
+  const h = loadShare({ key: 'key', Kakao: { init() {}, isInitialized: () => true, Share: { sendDefault() { assert.fail('do not open untracked share'); } } } });
+  h.router.config.share.webhook_enabled = false;
+  const outcome = await (await h.prepare(h.router)).share();
+  assert.equal(outcome.status, 'unavailable');
+  assert.equal(h.router.state.tickets, undefined);
+});
+
+test('claim share is bound before click and polling belongs to the claim modal', async () => {
+  const h = loadShare({ key: 'key', Kakao: { init() {}, isInitialized: () => true, Share: { sendDefault() {} } } });
+  let preparations = 0;
+  const create = h.api.createReferralShareIntent;
+  h.api.createReferralShareIntent = (kind, claimId) => { preparations++; assert.equal(claimId, 'claim-1'); return create(kind, claimId); };
+  h.api.getReferralShareIntent = () => assert.fail('claim modal handles verification');
+  const outcome = await (await h.prepare(h.router, { kind: 'prize_share', claimId: 'claim-1' })).share();
+  assert.equal(outcome.status, 'pending');
+  assert.ok(outcome.shareId);
+  assert.equal(preparations, 1, 'do not create an unsent claim intent that hides the pending sent one on resume');
 });

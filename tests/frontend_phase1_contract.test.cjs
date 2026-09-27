@@ -98,8 +98,8 @@ test('lost finish retries retain an exact key and a PII-free payload', () => {
   assert.doesNotMatch(game, /session_token|contact|recipient|participant_id/i);
   assert.match(game, /checkpointSession/);
   assert.doesNotMatch(game, /checkpointSession\(this\.sessionId, 0\)/);
-  assert.match(game, /정상 종료나 자발적 이탈은 환급 대상이 아닙니다/);
-  assert.match(game, /같은 게임 이어하기/);
+  assert.match(game, /await api\.abandonSession\(id\)/);
+  assert.match(game, /미완료 게임을 무효 처리/);
   assert.doesNotMatch(game, /pending\.status !== 'FAULT_REPORTED'\) await api\.reportSessionFault/);
 });
 
@@ -221,16 +221,15 @@ test('blocked web storage cannot crash participant or game bootstrap', () => {
 test('a consumed ticket does not block access to an existing game or fault recovery', () => {
   const home = read('public/js/views/home.js');
   assert.match(home, /start\.disabled = !pendingSession && campaignStatus !== 'ACTIVE'/);
-  assert.match(home, /진행 중 게임 복원/);
-  assert.match(home, /장애 복구 상태 확인/);
-  assert.match(home, /if \(router\.state\.pendingGameSession\) \{ router\.navigate\('game'\); return; \}/);
+  assert.match(home, /if \(pendingSession\) start\.textContent = '게임 시작'/);
+  assert.match(home, /!router\.state\.pendingGameSession && tickets\.unlimited_play/);
 });
 
 test('fault recovery persists only non-PII evidence and reconciles rejected checkpoints', () => {
   const game = read('public/js/views/game_view.js');
   assert.match(game, /FAULT_PREFIX = 'dino_fault_'/);
   assert.match(game, /persistFaultMarker\('NETWORK_ERROR', tick\)/);
-  assert.match(game, /정상 종료나 자발적 이탈은 환급 대상이 아닙니다/);
+  assert.match(game, /await api\.abandonSession\(id\)/);
   assert.doesNotMatch(game, /recipient_name|contact|address|participant_token/i);
 });
 

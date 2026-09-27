@@ -18,7 +18,7 @@ export const InviteView = {
       container.innerHTML = `
         <section class="ranking-prizes"><h1>랭킹 TOP3 선물</h1><div class="ranking-rewards"><div class="ranking-reward ranking-reward-1"><span class="ranking-reward-medal" role="img" aria-label="1위">🥇</span><strong>5만원</strong></div><div class="ranking-reward ranking-reward-2"><span class="ranking-reward-medal" role="img" aria-label="2위">🥈</span><strong>3만원</strong></div><div class="ranking-reward ranking-reward-3"><span class="ranking-reward-medal" role="img" aria-label="3위">🥉</span><strong>1만원</strong></div></div></section>
         <section class="card compact-card invite-hero"><h1>친구 초대하고 재도전하기</h1><p id="invite-gap" class="result-gap" role="status">3위 기록을 확인하고 있어요.</p><button id="btn-share-native" class="btn invite-kakao-share" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.58 2 11c0 2.79 1.79 5.25 4.5 6.68L5.36 21l4.22-2.25c.78.16 1.59.25 2.42.25 5.52 0 10-3.58 10-8S17.52 3 12 3Z"/></svg><span>카카오톡으로 친구 초대하기</span></button><p id="share-fallback" class="status-note" hidden></p><button id="btn-invite-draw" class="btn btn-secondary" hidden>친구를 기다리지 않고 복주머니 열기</button></section>
-        <section class="card invite-stats"><div class="stat-grid"><div><small>현재 초대권</small><strong id="invite-balance"></strong></div><div><small>누적 지급</small><strong id="ticket-granted"></strong></div><div><small>유효 방문</small><strong id="valid-visits"></strong></div></div><div class="ticket-ledger"><span id="ticket-used"></span><span id="ticket-refunded"></span></div><p id="invite-cooldown" class="status-note" role="status"></p></section>`;
+        <section class="card invite-stats"><div class="stat-grid"><div><small>현재 초대권</small><strong id="invite-balance"></strong></div><div><small>누적 지급</small><strong id="ticket-granted"></strong></div><div><small>카카오 전송</small><strong id="valid-visits"></strong></div></div><div class="ticket-ledger"><span id="ticket-used"></span><span id="ticket-refunded"></span></div><p id="invite-cooldown" class="status-note" role="status"></p></section>`;
       void this.loadGap(container, isActiveRender);
       this.updateSummary(container, data);
       this.updateDrawAction(container, router);
@@ -32,6 +32,7 @@ export const InviteView = {
         button.disabled = true;
         try {
           const outcome = await prepared.share();
+          if (isActiveRender() && outcome?.shareId) { const note = container.querySelector('#share-fallback'); note.hidden = false; ui.text(note, '카카오톡 전송을 확인하고 있어요.'); }
           if (isActiveRender() && outcome?.status === 'failed') ui.showToast('공유를 열지 못했어요. 다시 시도해 주세요.');
         } finally { if (isActiveRender()) button.disabled = false; }
       };
@@ -76,6 +77,8 @@ export const InviteView = {
       const data = await api.getReferralInfo();
       if (!router.isCurrent(renderToken)) return;
       this.updateSummary(container, data);
+      const note = container.querySelector('#share-fallback');
+      if (note) note.hidden = true;
     } catch (_) {
       if (router.isCurrent(renderToken)) ui.text(container.querySelector('#invite-cooldown'), '최신 초대 현황을 불러오지 못했어요. 다시 접속하면 재확인하며, 적립된 게임권은 그대로 보존돼요.');
     }
@@ -100,12 +103,12 @@ export const InviteView = {
     setText('#ticket-granted', `${totals.granted ?? data.rewarded_pairs ?? 0}장`);
     setText('#ticket-used', `사용 ${totals.used || 0}장`);
     setText('#ticket-refunded', `환급 ${totals.refunded || 0}장`);
-    setText('#valid-visits', `${data.valid_visits || 0}회`);
+    setText('#valid-visits', `${data.confirmed_shares || 0}회`);
     const waiting = new Date(data.cooldown_until).getTime() > Date.now();
     setText('#invite-cooldown', waiting
-      ? `${new Date(data.cooldown_until).toLocaleString('ko-KR')}까지 새 초대권 적립 대기 중이에요. 가진 초대권은 사용할 수 있고 대기 중 방문은 이월되지 않아요.`
+      ? `${new Date(data.cooldown_until).toLocaleString('ko-KR')}까지 새 초대권 적립 대기 중이에요. 가진 초대권은 사용할 수 있고 대기 중 공유는 이월되지 않아요.`
       : data.invitation_balance >= 3
-        ? '초대권 3장을 보유 중이에요. 사용해 빈자리가 생기면 친구의 새로운 유효 방문으로 다시 적립할 수 있어요.'
-        : '친구의 새로운 유효 방문으로 초대권을 받을 수 있어요.\n잔액이 3장이 되면 10시간 추가 적립 대기가 시작돼요.');
+        ? '초대권 3장을 보유 중이에요. 사용해 빈자리가 생기면 친구에게 카카오톡으로 공유해 다시 적립할 수 있어요.'
+        : '친구에게 카카오톡 전송이 확인되면 초대권을 받아요.\n잔액이 3장이 되면 10시간 추가 적립 대기가 시작돼요.');
   },
 };

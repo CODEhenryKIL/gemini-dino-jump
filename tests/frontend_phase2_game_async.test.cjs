@@ -197,20 +197,19 @@ test('current fault recovery reconciles a 409 checkpoint before reporting the fa
   assert.equal(loaded.events.some(([name]) => name === 'game_fault_reported'), true);
 });
 
-test('interrupted FAULT_REPORTED refresh cannot navigate after the screen becomes stale', async () => {
-  const refresh = deferred();
-  const loaded = loadGameView({ getSession: async () => ({ status: 'ABORTED' }) });
+test('late abandon response cannot start a new game after leaving the screen', async () => {
+  const abandon = deferred();
+  const loaded = loadGameView({ abandonSession: () => abandon.promise });
   let current = true;
   const appRouter = router(() => current);
-  appRouter.refreshState = () => refresh.promise;
+  let starts = 0;
+  loaded.view.startNewSession = async () => { starts += 1; };
   const container = { children: [], replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); } };
-  loaded.view.renderInterruptedSession(container, appRouter, 1, { id: 'old', status: 'FAULT_REPORTED' });
-  const primary = loaded.created.find((node) => node.tag === 'button' && node.className.includes('btn-primary'));
-  const checking = primary.onclick();
-  await Promise.resolve();
+  const checking = loaded.view.renderInterruptedSession(container, appRouter, 1, { id: 'old', status: 'FAULT_REPORTED' });
   current = false;
-  refresh.resolve({});
+  abandon.resolve({ status: 'ABORTED', tickets: { initial: 1 } });
   await checking;
   assert.deepEqual(appRouter.navigations, []);
-  assert.equal(loaded.events.some(([name]) => name === 'game_recovered'), false);
+  assert.equal(starts, 0);
+  assert.deepEqual(appRouter.state.tickets, {});
 });

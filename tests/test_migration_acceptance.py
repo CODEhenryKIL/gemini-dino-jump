@@ -24,6 +24,9 @@ PHASE2 = ROOT / "supabase/migrations/20260925140902_phase2_game_versions_and_tra
 GAME_V21 = ROOT / "supabase/migrations/20260926093414_game_rules_v21.sql"
 REAL_TOP3_CONTACT = ROOT / "supabase/migrations/20260926103809_allow_real_top3_contact.sql"
 CLAIM_DRAFT = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
+LOW_SCORE_REFUND = ROOT / "supabase/migrations/20260927090000_low_score_ticket_refund.sql"
+KAKAO_SHARE_WEBHOOK = ROOT / "supabase/migrations/20260927091037_kakao_share_webhook.sql"
+INTERRUPTED_AND_SHARE = ROOT / "supabase/migrations/20260927140000_incomplete_refund_and_share_grant.sql"
 
 def _guard_admin_dsn():
     parsed = urlsplit(ADMIN_DSN)
@@ -130,6 +133,8 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(GAME_V21)
         self.database.apply(REAL_TOP3_CONTACT)
         self.database.apply(CLAIM_DRAFT)
+        self.database.apply(LOW_SCORE_REFUND)
+        self.database.apply(INTERRUPTED_AND_SHARE)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -146,7 +151,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
 
         self.assertEqual(
             versions,
-            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",), ("20260926215000",)],
+            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",), ("20260926215000",), ("20260927090000",), ("20260927140000",)],
         )
         self.assertTrue(
             {"participant", "game_session", "ranking_snapshot"}.issubset(
@@ -165,11 +170,15 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(GAME_V21)
         self.database.apply(REAL_TOP3_CONTACT)
         self.database.apply(CLAIM_DRAFT)
+        self.database.apply(LOW_SCORE_REFUND)
+        self.database.apply(INTERRUPTED_AND_SHARE)
         self.database.apply(CLAIM_FIX)
         self.database.apply(PHASE2)
         self.database.apply(GAME_V21)
         self.database.apply(REAL_TOP3_CONTACT)
         self.database.apply(CLAIM_DRAFT)
+        self.database.apply(LOW_SCORE_REFUND)
+        self.database.apply(INTERRUPTED_AND_SHARE)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -195,6 +204,8 @@ class MigrationAcceptanceTest(unittest.TestCase):
                 ("20260926093414", 1),
                 ("20260926103809", 1),
                 ("20260926215000", 1),
+                ("20260927090000", 1),
+                ("20260927140000", 1),
             ],
         )
         self.assertIn(("fault_review_status",), columns)
@@ -202,7 +213,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.assert_sentinel_preserved()
 
     def test_v21_extends_version_constraints_without_mixing_v2_scores(self):
-        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT, LOW_SCORE_REFUND, KAKAO_SHARE_WEBHOOK, INTERRUPTED_AND_SHARE):
             self.database.apply(migration)
         with psycopg.connect(self.database.dsn) as conn:
             conn.execute("""insert into dino_dev.campaign(id,title,game_version,benefit_url,probability_version)
@@ -228,7 +239,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.assert_sentinel_preserved()
 
     def test_real_top3_contact_requires_consent_metadata_but_keeps_synthetic_rows_compatible(self):
-        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT, LOW_SCORE_REFUND, KAKAO_SHARE_WEBHOOK, INTERRUPTED_AND_SHARE):
             self.database.apply(migration)
         with psycopg.connect(self.database.dsn) as conn:
             conn.execute("""insert into dino_dev.campaign(id,title,game_version,benefit_url,probability_version)

@@ -1,3 +1,4 @@
+import { showGameGuide } from '../components/game_guide.js';
 import { api } from '../api.js';
 import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
@@ -5,6 +6,7 @@ import { prepareResultReferralShare } from '../referral_share.js';
 
 const resultGapRequests = new WeakMap();
 const contactForms = new WeakMap();
+const celebratedResults = new WeakSet();
 
 export const ResultView = {
   render(container, router, renderToken) {
@@ -18,12 +20,14 @@ export const ResultView = {
         <div class="score-panel"><small>이번 판</small><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
         <div class="profile-row"><div><small>랭킹 닉네임</small><strong id="result-nickname"></strong></div><button id="btn-edit-nick" class="btn btn-secondary btn-sm">수정</button></div>
         <p id="result-top3-gap" class="result-gap" role="status"></p>
-        <button id="btn-go-pouch" class="btn btn-primary">복주머니 확인하기</button>
-        <div id="top3-request"></div>
+        <button id="btn-play-again" class="btn btn-primary" hidden>한 판 더 하기</button>
         <div class="result-retry">
           <button id="btn-share-record" class="btn btn-share-retry" aria-label="카카오톡으로 친구한테 공유하고 한 판 더 하기" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.45 2 10.7c0 2.76 1.89 5.18 4.72 6.54l-.93 3.38c-.08.29.25.52.5.36l3.97-2.61c.57.08 1.15.12 1.74.12 5.52 0 10-3.46 10-7.79C22 6.45 17.52 3 12 3Z"/></svg><span>친구한테 공유하고 한 판 더 하기</span></button>
           <p id="result-share-status" class="result-share-status" role="status"></p>
         </div>
+        <button id="btn-go-pouch" class="btn btn-secondary">복주머니 확인하기</button>
+        <div id="top3-request"></div>
+        <div id="result-celebration" class="result-celebration" aria-hidden="true"></div>
       </section>`;
     ui.text(container.querySelector('#result-score'), `${result.score}점`);
     ui.text(container.querySelector('#result-best'), `최고 ${result.bestScore}점`);
@@ -34,6 +38,13 @@ export const ResultView = {
     container.querySelector('#btn-go-pouch').onclick = () => {
       analytics.track('draw_cta_clicked', { source: 'result', draw_status: router.state.draw?.status || 'LOCKED' });
       router.navigate('draw');
+    };
+    const replay = container.querySelector('#btn-play-again');
+    if (replay) replay.onclick = () => {
+      if (replay.disabled || replay.hidden || (router.isCurrent && !router.isCurrent(renderToken))) return;
+      analytics.track('game_cta_clicked', { source: 'result' });
+      if (router.state.pendingGameSession) router.navigate('game');
+      else showGameGuide(router, true);
     };
     this.prepareShare(container, router, renderToken);
     container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router, renderToken);
@@ -53,7 +64,7 @@ export const ResultView = {
       const prepared = await prepareResultReferralShare(router);
       if (!isCurrent()) return;
       button.disabled = false;
-      if (status) ui.text(status, prepared.mode === 'native' ? '' : prepared.mode === 'copy' ? '초대 링크를 복사해 카카오톡으로 보낼 수 있어요.' : '친구가 방문하면 재도전권이 쌓여요.');
+      if (status) ui.text(status, prepared.mode === 'native' ? '' : prepared.mode === 'copy' ? '링크 복사는 게임권 지급 대상이 아니에요.' : '카카오톡 전송이 확인되면 재도전권이 적립돼요.');
       button.onclick = () => { if (isCurrent()) return prepared.share(); };
     } catch (_) {
       if (!isCurrent()) return;
@@ -98,8 +109,39 @@ export const ResultView = {
 
   updateState(container, router, renderToken) {
     if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return;
+    const replay = container.querySelector('#btn-play-again');
+    if (replay) {
+      const tickets = router.state.tickets || {};
+      const available = Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0)));
+      const score = router.state.lastResult?.score;
+      replay.hidden = !(tickets.unlimited_play === true || available > 0 || (Number.isFinite(score) && score <= 100));
+      const status = router.config?.campaign?.status || 'ACTIVE';
+      replay.disabled = status !== 'ACTIVE' && !router.state.pendingGameSession;
+    }
+    this.celebrateTop3(container, router.state.lastResult);
     const target = container.querySelector('#top3-request');
     if (target) this.renderTop3Request(target, router, router.state.top3Profile || router.state.lastResult?.top3Profile);
+  },
+
+  celebrateTop3(container, result) {
+    if (!result || celebratedResults.has(result)) return;
+    const rank = result.top3_gap?.rank ?? result.rank;
+    if (!Number.isInteger(rank) || rank < 1 || rank > 3 || result.top3_gap?.status === 'CHASING') return;
+    const host = container.querySelector('#result-celebration');
+    if (!host) return;
+    celebratedResults.add(result);
+    if (globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const colors = ['#4285f4', '#ea4335', '#fbbc05', '#34a853'];
+    for (let i = 0; i < 32; i += 1) {
+      const piece = document.createElement('i');
+      const angle = (i / 16) * Math.PI * 2;
+      const distance = 90 + (i % 5) * 24;
+      piece.style.cssText = `--x:${Math.cos(angle) * distance}px;--y:${Math.sin(angle) * distance}px;--turn:${i * 73}deg;--delay:${i < 16 ? 0 : 180}ms;background:${colors[i % 4]};left:${i < 16 ? 28 : 72}%;`;
+      host.appendChild(piece);
+    }
+    host.onanimationend = (event) => {
+      if (event.target !== host) event.target.remove();
+    };
   },
 
   top3GapMessage(result) {

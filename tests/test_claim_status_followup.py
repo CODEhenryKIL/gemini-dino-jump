@@ -31,6 +31,7 @@ PHASE2 = ROOT / "supabase/migrations/20260925140902_phase2_game_versions_and_tra
 GAME_V21 = ROOT / "supabase/migrations/20260926093414_game_rules_v21.sql"
 REAL_TOP3_CONTACT = ROOT / "supabase/migrations/20260926103809_allow_real_top3_contact.sql"
 CLAIM_DRAFT = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
+KAKAO_SHARE_WEBHOOK = ROOT / "supabase/migrations/20260927091037_kakao_share_webhook.sql"
 CAMPAIGN_ID = "gemini_dino_phase1_test"
 PEPPER = "claim-followup-pepper-0123456789"
 
@@ -244,7 +245,7 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
     def setUpClass(cls):
         cls.dsn = _database_dsn(cls.DATABASE_NAME)
         _recreate_database(cls.DATABASE_NAME)
-        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT, KAKAO_SHARE_WEBHOOK):
             _apply(cls.dsn, migration)
         with psycopg.connect(cls.dsn) as conn:
             _seed_campaign(conn)
@@ -315,10 +316,22 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
                     )
                 except operations.DomainError as error:
                     if error.code!="CLAIM_ALREADY_SUBMITTED":raise
+            intent = conn.execute(
+                "select id from dino_dev.kakao_share_intent where claim_id=%s and participant_id=(select id from dino_dev.participant where token_hash=%s) and status='CONFIRMED' limit 1",
+                (claim_id,token_hash),
+            ).fetchone()
+            if not intent:
+                share_id=f"share_{uuid.uuid4().hex}"
+                conn.execute("""insert into dino_dev.kakao_share_intent
+                  (id,participant_id,campaign_id,claim_id,kind,callback_token_hash,environment,status,reward_status,resource_id,chat_type,hash_chat_id,expires_at,confirmed_at)
+                  select %s,id,campaign_id,%s,'prize_share',%s,'test','CONFIRMED','GRANTED',%s,'DirectChat',%s,clock_timestamp()+interval '30 minutes',clock_timestamp()
+                  from dino_dev.participant where token_hash=%s""",
+                  (share_id,claim_id,_participant_hash(share_id),"resource_"+uuid.uuid4().hex,"chat_"+uuid.uuid4().hex,token_hash))
+            else:share_id=intent["id"]
             return operations.submit_claim(
                 conn,
                 claim_id,
-                {"share_status": "copied"},
+                {"share_intent_id": share_id},
                 _context(participant_token_hash=token_hash),
             )[1]
 
@@ -399,7 +412,12 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
                 "name": "김제미", "contact": "010-1234-5678", "school": "한국대학교",
                 "address": "서울시 강남구", "consent": True, "notice_version": "claim-contact-v1",
             }, ctx)
-            first = operations.submit_claim(conn, "claim_shared", {"share_status": "share_sheet_closed"}, ctx)[1]
+            share_id=f"share_{uuid.uuid4().hex}"
+            conn.execute("""insert into dino_dev.kakao_share_intent
+              (id,participant_id,campaign_id,claim_id,kind,callback_token_hash,environment,status,reward_status,resource_id,chat_type,hash_chat_id,expires_at,confirmed_at)
+              values(%s,%s,%s,'claim_shared','prize_share',%s,'test','CONFIRMED','GRANTED',%s,'DirectChat',%s,clock_timestamp()+interval '30 minutes',clock_timestamp())""",
+              (share_id,self.participant_id,CAMPAIGN_ID,_participant_hash(share_id),"resource_"+uuid.uuid4().hex,"chat_"+uuid.uuid4().hex))
+            first = operations.submit_claim(conn, "claim_shared", {"share_intent_id":share_id}, ctx)[1]
         with self.app_tx() as conn:
             replay = operations.submit_claim(conn, "claim_shared", {"share_status": "cancelled"}, ctx)[1]
         self.assertEqual(replay, first)

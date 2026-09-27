@@ -28,7 +28,7 @@ function node(tag = 'div', textContent = '') {
 }
 
 function loadView(file, exportName, globals) {
-  const context = { console, URL, loadKakaoSdk: async () => null, ...globals };
+  const context = { console, URL, api: { getReferralInfo: async () => ({}) }, loadKakaoSdk: async () => null, ...globals };
   context.globalThis = context;
   const source = fs.readFileSync(path.join(root, file), 'utf8')
     .replace(/^import .*;$/gm, '')
@@ -113,7 +113,7 @@ function benefitNodes() {
   ]);
 }
 
-function createBenefitHarness(navigatorMock) {
+function createBenefitHarness(navigatorMock, sdk = null, wonPrizeName = null) {
   const events = [];
   const toasts = [];
   let nodes = new Map();
@@ -130,7 +130,8 @@ function createBenefitHarness(navigatorMock) {
   };
   const document = { hidden: false, createElement: (tag) => node(tag), addEventListener() {}, removeEventListener() {} };
   const view = loadView('public/js/views/benefit_view.js', 'BenefitView', {
-    analytics, document, navigator: navigatorMock, IntersectionObserver: undefined,
+    api: { getReferralInfo: async () => ({ won_prize_name: wonPrizeName }) },
+    analytics, document, navigator: navigatorMock, IntersectionObserver: undefined, loadKakaoSdk: async () => sdk, prepareKakaoPrizeImage: async () => "https://k.kakaocdn.net/prize.png",
     ui: { text(target, value) { target.textContent = String(value); }, showToast(message) { toasts.push(message); } },
   });
   const router = { config: { official_url: 'https://gemini.google.com/students' } };
@@ -242,4 +243,20 @@ test('benefit deferred native success invokes once and keeps share_sheet_closed 
   assert.deepEqual(outcomes.map(({ dimensions }) => dimensions.status), ['attempted', 'share_sheet_closed']);
   assert.ok(outcomes.every(({ extra }) => extra.screenViewId === 'screen_benefit_origin' && extra.activeMs === 923));
   assert.equal(freshFallback.textContent, 'fresh benefit help');
+});
+
+
+test('benefit Kakao share includes prize image and keeps the official benefit destination', async () => {
+  const sent = [];
+  const harness = createBenefitHarness({}, { Share: { sendDefault(payload) { sent.push(payload); } } }, '소니 ULT WEAR 헤드셋');
+  harness.view.render(harness.container, harness.router);
+  await new Promise(setImmediate);
+  await harness.getNodes().get('#btn-kakao-benefit').onclick();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].objectType, 'feed');
+  assert.equal(sent[0].content.imageUrl, 'https://k.kakaocdn.net/prize.png');
+  assert.equal(sent[0].content.title, '나 소니 ULT WEAR 헤드셋 이거 받음');
+  assert.equal(sent[0].content.description, '아직 삼텐바이미 남았다는데\n\n너도 게임 한 판 하고\n상품 뽑아봐!');
+  assert.equal(sent[0].content.link.webUrl, 'https://gemini.google.com/students');
+  assert.equal(sent[0].buttons[0].link.webUrl, sent[0].content.link.webUrl);
 });

@@ -92,6 +92,7 @@ function loadPrize(overrides = {}) {
   const context = {
     console,
     document: documentMock(),
+    setTimeout,
     api: {}, analytics: { track() {} }, ui: {},
     ...overrides,
   };
@@ -433,7 +434,8 @@ test('result sharing opens the prepared share action in place above the pouch', 
   nodes.get('#btn-share-record').onclick();
   assert.equal(shares, 1);
   assert.deepEqual(routes, []);
-  assert.ok(container.innerHTML.indexOf('id="btn-share-record"') > container.innerHTML.indexOf('id="top3-request"'));
+  assert.ok(container.innerHTML.indexOf('id="btn-play-again"') < container.innerHTML.indexOf('id="btn-share-record"'));
+  assert.ok(container.innerHTML.indexOf('id="btn-share-record"') < container.innerHTML.indexOf('id="btn-go-pouch"'));
   assert.ok(container.innerHTML.indexOf('id="top3-request"') > container.innerHTML.indexOf('id="btn-go-pouch"'));
   assert.doesNotMatch(container.innerHTML, /기록 검증 완료/);
   assert.match(container.innerHTML, /#TeamGemini/);
@@ -497,19 +499,21 @@ test('ranking uses score-equivalent seconds consistently despite longer elapsed 
   assert.match(view.timeGapMessage(data), /첫 게임을 마치면\n/);
 });
 
-test('claim draft resumes, cancelled share stays pending, and finalization retries without resharing', async () => {
+test('claim draft resumes, cancelled share stays pending, and only a confirmed Kakao intent finalizes', async () => {
   let modal;
   let submitted = 0;
   let shared = 0;
   let outcome = { method: 'native', status: 'cancelled' };
   let failSubmit = true;
+  let intentStatus = 'confirmed';
   const drafts = [];
   const routes = [];
   const view = loadPrize({
     api: {
       getClaimDraft: async () => ({ draft: { name: '테스트', contact: '01000000000', school: '테스트학교', address: '테스트주소', consent: true } }),
       saveClaimDraft: async (_id, payload) => drafts.push(payload),
-      submitClaim: async (_id, payload) => { submitted++; assert.equal(payload.share_status, 'share_sheet_closed'); if (failSubmit) throw new Error('다시 시도'); },
+      getReferralShareIntent: async (shareId) => { assert.equal(shareId, 'share-1'); return { status: intentStatus, tickets: { invitation: 1, available_total: 1 } }; },
+      submitClaim: async (_id, payload) => { submitted++; assert.equal(payload.share_intent_id, 'share-1'); if (failSubmit) throw new Error('다시 시도'); },
     },
     prepareResultReferralShare: async () => ({ share: async () => { shared++; return outcome; } }),
     ui: {
@@ -517,7 +521,7 @@ test('claim draft resumes, cancelled share stays pending, and finalization retri
       formField(labelText, type, name, opts) { const label = new Element('label'); const input = new Element('input'); input.name = name; input.required = opts.required; label.append(input); return { label, input }; },
     },
   });
-  const router = { isCurrent: () => true, announceStateChange() {}, navigate: (route) => routes.push(route) };
+  const router = { state: { tickets: { invitation: 0, available_total: 0 } }, isCurrent: () => true, announceStateChange() {}, navigate: (route) => routes.push(route) };
   await view.claimModal({ id: 'claim-1', claim_type: 'DRAW', category: 'SHIPPING' }, router, 1);
   assert.equal(modal.confirmText, '저장 후\n친구에게 자랑하기');
   assert.equal(descendants(modal.content).find((node) => node.name === 'name').value, '테스트');
@@ -533,10 +537,11 @@ test('claim draft resumes, cancelled share stays pending, and finalization retri
   const button = descendants(modal.content).find((node) => node.tag === 'button');
   assert.equal(submitted, 0);
   assert.match(modal.content.textContent, /공유를 취소/);
-  outcome = { method: 'native', status: 'share_sheet_closed' };
+  outcome = { method: 'kakao', status: 'pending', shareId: 'share-1' };
   await button.onclick();
   assert.equal(submitted, 1);
   assert.equal(shared, 2);
+  assert.equal(router.state.tickets.invitation, 1);
   failSubmit = false;
   await button.onclick();
   assert.equal(submitted, 2);
@@ -546,12 +551,20 @@ test('claim draft resumes, cancelled share stays pending, and finalization retri
   assert.deepEqual(routes, ['claims']);
 });
 
-test('claim save click immediately opens sharing but waits for saved data before final submission', async () => {
+test('claim save click launches Kakao immediately but waits for saved data and webhook confirmation', async () => {
   let modal; let opened = 0; let finalized = 0;
   const saving = deferred();
   const view = loadPrize({
-    api: { getClaimDraft: async () => ({ draft: { name: 'TEST_사용자', contact: '01000000000', school: 'TEST_학교', consent: true } }), saveClaimDraft: () => saving.promise, submitClaim: async () => { finalized++; } },
-    prepareResultReferralShare: async () => ({ share: async () => { opened++; return { method: 'kakao', status: 'attempted' }; } }),
+    api: {
+      getClaimDraft: async () => ({ draft: { name: 'TEST_사용자', contact: '01000000000', school: 'TEST_학교', consent: true } }),
+      saveClaimDraft: () => saving.promise,
+      getReferralShareIntent: async (shareId) => { assert.equal(shareId, 'share-direct'); return { status: 'confirmed' }; },
+      submitClaim: async (_id, payload) => { assert.equal(payload.share_intent_id, 'share-direct'); finalized++; },
+    },
+    prepareResultReferralShare: async (_router, options) => {
+      assert.equal(options.claimId, 'claim-direct');
+      return { share: async () => { opened++; return { method: 'kakao', status: 'pending', shareId: 'share-direct' }; } };
+    },
     ui: { showModal: (value) => { modal = value; }, showToast() {}, formField(_label, _type, name, opts) { const label = new Element('label'); const input = new Element('input'); input.name = name; input.required = opts.required; label.append(input); return { label, input }; } },
   });
   await view.claimModal({ id: 'claim-direct', category: 'COUPON' }, { isCurrent: () => true, navigate() {}, announceStateChange() {} }, 1);
@@ -567,6 +580,32 @@ test('claim save click immediately opens sharing but waits for saved data before
   assert.equal(modal.title, '3 / 3 · 접수 완료');
 });
 
+test('a late webhook check cannot submit a claim after the share step is closed', async () => {
+  let modal; let submitted = 0;
+  const checking = deferred();
+  const routes = [];
+  const view = loadPrize({
+    api: {
+      getReferralShareIntent: () => checking.promise,
+      submitClaim: async () => { submitted++; },
+    },
+    prepareResultReferralShare: async () => ({ share: async () => ({ method: 'kakao', status: 'pending', shareId: 'unused' }) }),
+    ui: { showModal: (value) => { modal = value; } },
+  });
+  view.claimShareModal(
+    { id: 'claim-late', claim_type: 'DRAW' },
+    { isCurrent: () => true, navigate: (route) => routes.push(route), state: {} },
+    1,
+    { method: 'kakao', status: 'pending', shareId: 'share-late' },
+  );
+  await Promise.resolve();
+  modal.onConfirm();
+  checking.resolve({ status: 'confirmed' });
+  await new Promise(setImmediate);
+  assert.equal(submitted, 0);
+  assert.deepEqual(routes, ['claims']);
+});
+
 
 test('ranking bottom share button uses retry copy and opens sharing in place', async () => {
   let kind; let opened = 0;
@@ -580,4 +619,48 @@ test('ranking bottom share button uses retry copy and opens sharing in place', a
   assert.equal(button.disabled, false);
   await button.onclick();
   assert.equal(opened, 1);
+});
+
+
+test('replay visibility respects 100-point boundary, balances, unlimited mode and campaign pause', () => {
+  const { view } = loadResult();
+  const replay = new Element('button');
+  const container = { querySelector: selector => selector === '#btn-play-again' ? replay : null };
+  const router = { state: { lastResult: { score: 100, rank: 4 }, tickets: { available_total: 0 } }, config: { campaign: { status: 'ACTIVE' } } };
+  view.updateState(container, router); assert.equal(replay.hidden, false);
+  router.state.lastResult.score = 101;
+  view.updateState(container, router); assert.equal(replay.hidden, true);
+  router.state.tickets.available_total = 1;
+  view.updateState(container, router); assert.equal(replay.hidden, false);
+  router.state.tickets = { available_total: 0, unlimited_play: true };
+  view.updateState(container, router); assert.equal(replay.hidden, false);
+  router.config.campaign.status = 'PAUSED';
+  view.updateState(container, router); assert.equal(replay.disabled, true);
+});
+
+test('TOP3 celebration runs once per result and respects reduced motion and rank', () => {
+  const { view, context } = loadResult();
+  const host = new Element();
+  context.document.createElement = () => ({ style: {} });
+  const container = { querySelector: () => host };
+  const result = { rank: 3 };
+  view.celebrateTop3(container, result); assert.equal(host.children.length, 32);
+  view.celebrateTop3(container, result); assert.equal(host.children.length, 32);
+  view.celebrateTop3(container, { rank: 4 }); assert.equal(host.children.length, 32);
+  context.matchMedia = () => ({ matches: true });
+  view.celebrateTop3(container, { rank: 1 }); assert.equal(host.children.length, 32);
+});
+
+test('replay opens the game guide and ignores stale clicks', () => {
+  let guides = 0;
+  const { view } = loadResult({ showGameGuide: () => { guides++; } });
+  const { container } = resultContainer();
+  const originalQuery = container.querySelector;
+  const replay = new Element('button');
+  container.querySelector = selector => selector === '#btn-play-again' ? replay : originalQuery(selector);
+  let current = true;
+  const router = { state: { lastResult: { score: 100, rank: 4, top3_gap: {} }, tickets: { available_total: 1 } }, isCurrent: () => current };
+  view.render(container, router, 1);
+  replay.onclick(); assert.equal(guides, 1);
+  current = false; replay.onclick(); assert.equal(guides, 1);
 });

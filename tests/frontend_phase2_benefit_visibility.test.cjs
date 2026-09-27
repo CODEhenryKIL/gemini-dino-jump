@@ -21,7 +21,7 @@ function loadBenefit(globals) {
   const source = fs.readFileSync(path.join(root, 'public/js/views/benefit_view.js'), 'utf8')
     .replace(/^import .*;$/gm, '')
     .replace('export const BenefitView =', 'globalThis.__view =');
-  const context = { console, URL, loadKakaoSdk: async () => null, ...globals };
+  const context = { console, URL, api: { getReferralInfo: async () => ({}) }, loadKakaoSdk: async () => null, ...globals };
   context.globalThis = context;
   vm.runInNewContext(source, context, { filename: 'benefit_view.js' });
   return context.__view;

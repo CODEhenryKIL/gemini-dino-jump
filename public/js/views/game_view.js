@@ -48,7 +48,7 @@ export const GameView = {
       const recovered = await this.recoverPendingResult(router, renderToken);
       if (recovered || !router.isCurrent(renderToken)) return;
       if (router.state.pendingGameSession) {
-        this.renderInterruptedSession(container, router, renderToken, router.state.pendingGameSession);
+        await this.renderInterruptedSession(container, router, renderToken, router.state.pendingGameSession);
         return;
       }
       if (!router.isCurrent(renderToken)) return;
@@ -126,6 +126,12 @@ export const GameView = {
         router.navigate('result');
         return true;
       }
+      if (['ABORTED', 'EXPIRED', 'REJECTED'].includes(state.status)) {
+        this.removePendingResult(pending.sessionId, pending.key);
+        this.clearSessionStorage(pending.sessionId);
+        await router.refreshState({ quiet: true });
+        return false;
+      }
       const result = await api.finishSession(pending.sessionId, pending.payload, pending.key);
       if (!router.isCurrent(renderToken)) return true;
       this.removePendingResult(pending.sessionId, pending.key);
@@ -134,77 +140,54 @@ export const GameView = {
       router.navigate('result');
       return true;
     } catch (error) {
-      if (router.isCurrent(renderToken) && error.status && error.status < 500) this.removePendingResult(pending.sessionId, pending.key);
+      if (router.isCurrent(renderToken) && error.status && error.status < 500) {
+        this.removePendingResult(pending.sessionId, pending.key);
+        await router.refreshState({ quiet: true });
+        return false;
+      }
       throw error;
     }
   },
 
-  renderInterruptedSession(container, router, renderToken, pending) {
+  async renderInterruptedSession(container, router, renderToken, pending) {
     const id = pending.id || pending.session_id;
-    const faultMarker = this.readFaultMarker(id);
-    const snapshot = this.readResumeSnapshot(id);
+    const lifecycleId = this.lifecycleId;
+    const isCurrent = () => router.isCurrent(renderToken) && this.lifecycleId === lifecycleId;
     container.replaceChildren();
     const card = document.createElement('section'); card.className = 'card empty-state';
-    const title = document.createElement('h2'); title.textContent = '완료되지 않은 게임이 있어요';
-    const detail = document.createElement('p'); detail.textContent = pending.status === 'FAULT_REPORTED' ? '장애 기록을 확인하고 사용한 게임권을 복구하는 중입니다. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.' : faultMarker ? '이 브라우저에 저장된 장애 시점과 서버 체크포인트를 확인해 복구를 요청합니다. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.' : snapshot ? '저장된 진행 시점과 서버 체크포인트를 확인한 뒤 같은 게임을 이어갑니다.' : '이 브라우저에 이어하기 데이터가 없어 게임을 처음부터 다시 시작할 수 없습니다. 세션 만료 또는 복구 상태를 확인해 주세요. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.';
-    const check = document.createElement('button'); check.className = 'btn btn-primary'; check.textContent = pending.status === 'FAULT_REPORTED' ? '복구 상태 확인' : faultMarker ? '장애 복구 요청' : snapshot ? '같은 게임 이어하기' : '복구 상태 확인';
-    check.onclick = async () => {
-      const operationLifecycle = this.lifecycleId;
-      const operationIsCurrent = () => router.isCurrent(renderToken) && this.lifecycleId === operationLifecycle;
-      check.disabled = true;
-      try {
-        if (pending.status !== 'FAULT_REPORTED' && faultMarker) {
-          this.sessionId = id;
-          await this.reportFault(faultMarker.reason, faultMarker.tick, faultMarker.key, operationIsCurrent);
-          if (!operationIsCurrent()) return;
-          pending.status = 'FAULT_REPORTED';
-          router.state.pendingGameSession = { ...pending, status: 'FAULT_REPORTED' };
-          detail.textContent = '장애 기록이 접수됐습니다. 서버 확인 뒤 게임권 복구 상태를 확인할 수 있어요.';
-          check.textContent = '복구 상태 확인';
-          check.disabled = false;
-          return;
-        }
-        if (pending.status !== 'FAULT_REPORTED') {
-          const state = await api.getSession(id);
-          if (!operationIsCurrent()) return;
-          if (state.status === 'FINISHED') { storageRemove(`${SNAPSHOT_PREFIX}${id}`); this.acceptResult(state.result || state, router); router.navigate('result'); return; }
-          if (state.status === 'ABORTED' || state.status === 'EXPIRED') {
-            this.clearSessionStorage(id);
-            await router.refreshState();
-            if (!operationIsCurrent()) return;
-            analytics.track('game_recovered', { status: state.status }, { gameSessionId: id });
-            router.navigate('home');
-            return;
-          }
-          const currentSnapshot = this.readResumeSnapshot(id);
-          const invalidReason = this.validateResumeSnapshot(currentSnapshot, state);
-          if (invalidReason) {
-            storageRemove(`${SNAPSHOT_PREFIX}${id}`);
-            detail.textContent = `${invalidReason} 게임을 처음부터 다시 시작하지 않습니다. 세션 만료 또는 장애 복구 상태를 다시 확인해 주세요.`;
-            check.textContent = '복구 상태 확인';
-            check.disabled = false;
-            return;
-          }
-          await this.resumeActiveSession(container, router, renderToken, state, currentSnapshot);
-          return;
-        }
-        const state = await api.getSession(id);
-        if (!operationIsCurrent()) return;
-        if (state.status === 'FINISHED') { this.acceptResult(state.result || state, router); router.navigate('result'); return; }
-        if (state.status === 'ABORTED') {
-          this.clearSessionStorage(id);
-          await router.refreshState();
-          if (!operationIsCurrent()) return;
-          analytics.track('game_recovered', { status: 'ABORTED' }, { gameSessionId: id });
-          router.navigate('home');
-          return;
-        }
-        detail.textContent = '서버가 장애 기록을 확인 중입니다. 잠시 후 다시 확인해 주세요.';
-      } catch (error) { if (operationIsCurrent()) ui.showToast(error.message); }
-      if (operationIsCurrent()) check.disabled = false;
-    };
+    const title = document.createElement('h2'); title.textContent = '새 게임을 준비하고 있어요';
+    const detail = document.createElement('p'); detail.textContent = '미완료 게임을 무효 처리하고 사용한 게임권을 돌려드려요.';
+    const retry = document.createElement('button'); retry.className = 'btn btn-primary'; retry.textContent = '다시 시도'; retry.hidden = true;
+    retry.onclick = () => { if (!retry.disabled) router.navigate('game'); };
     const home = document.createElement('button'); home.className = 'btn btn-secondary'; home.textContent = '홈으로'; home.onclick = () => router.navigate('home');
-    card.append(title, detail, check, home); container.appendChild(card);
+    card.append(title, detail, retry, home); container.appendChild(card);
+    try {
+      const state = await api.abandonSession(id);
+      if (!isCurrent()) return;
+      this.clearSessionStorage(id);
+      const raw = storageGet(PENDING_RESULT_KEY);
+      try { if (JSON.parse(raw)?.sessionId === id) storageRemove(PENDING_RESULT_KEY); } catch (_) {}
+      if (state.status === 'FINISHED') {
+        this.acceptResult(state.result || state, router);
+        router.navigate('result');
+        return;
+      }
+      router.state.pendingGameSession = null;
+      if (state.tickets) router.state.tickets = state.tickets;
+      router.updateNav();
+      router.announceStateChange();
+      if (router.config?.campaign?.status && router.config.campaign.status !== 'ACTIVE') {
+        router.navigate('home');
+        return;
+      }
+      this.renderGameShell(container);
+      await this.startNewSession(container, router, renderToken);
+    } catch (error) {
+      if (!isCurrent()) return;
+      title.textContent = '연결을 다시 확인해 주세요';
+      detail.textContent = error.message || '게임권 복구를 완료하지 못했어요. 다시 시도해 주세요.';
+      retry.hidden = false;
+    }
   },
 
   readResumeSnapshot(sessionId) {
@@ -288,6 +271,10 @@ export const GameView = {
   async startNewSession(container, router, renderToken) {
     const session = await api.createSession();
     if (!router.isCurrent(renderToken)) return;
+    if (session.existing_session) {
+      await this.renderInterruptedSession(container, router, renderToken, session);
+      return;
+    }
     this.sessionId = session.session_id;
     this.ticketKind = session.ticket_kind || null;
     this.gameVersion = session.version || router.config?.campaign?.game_version || '2.1.0';
@@ -534,6 +521,8 @@ export const GameView = {
       bestScore: result.best_score || 0,
       rank: result.rank,
       verification: result.verification || 'VERIFIED',
+      top3_gap: result.top3_gap ?? null,
+      refund: result.refund || null,
       draw: result.draw || { status: 'AVAILABLE' },
       top3Profile: result.top3_profile || { required: false, status: 'NOT_REQUIRED' },
     };

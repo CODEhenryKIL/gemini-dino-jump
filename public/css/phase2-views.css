@@ -273,3 +273,15 @@ a[aria-disabled="true"] {
 .modal-actions.claim-save-actions { display: flex; gap: 8px; }
 .claim-save-actions > .btn-secondary { flex: 0 0 62px; min-width: 0; padding: 12px 6px; font-size: 14px; }
 .claim-save-actions > .claim-save-share { flex: 1 1 0; min-width: 0; padding: 12px 8px; font-size: 15px; white-space: pre; line-height: 1.5; }
+
+/* Short TOP3 celebration, contained within the result card and non-interactive. */
+.result-card { position: relative; overflow: hidden; }
+.result-celebration { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.result-celebration i { position: absolute; top: 130px; width: 8px; height: 12px; border-radius: 2px; opacity: 0; animation: result-confetti 1.45s cubic-bezier(.15,.65,.3,1) var(--delay) both; }
+@keyframes result-confetti {
+  0% { opacity: 0; transform: translate(0, 0) scale(.2); }
+  12% { opacity: 1; }
+  65% { opacity: 1; transform: translate(var(--x), var(--y)) rotate(var(--turn)); }
+  100% { opacity: 0; transform: translate(var(--x), calc(var(--y) + 100px)) rotate(calc(var(--turn) + 90deg)); }
+}
+@media (prefers-reduced-motion: reduce) { .result-celebration { display: none; } }

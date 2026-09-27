@@ -352,8 +352,7 @@ class AppRouter {
       try {
         const result = await api.qualifyReferral({ code, visit_nonce: this.inviteVisit.visit_nonce, active_ms: Math.round(currentVisible()), interacted: true, event_id: eventId });
         cleanup();
-        analytics.track(result.status === 'REWARDED' ? 'invite_visit_qualified' : 'invite_visit_rejected', { status: result.status, reason: result.reason || '' });
-        if (result.status === 'REWARDED') ui.showToast('초대 방문이 확인되어 친구에게 게임권이 지급됐어요.');
+        analytics.track(result.status === 'QUALIFIED' ? 'invite_visit_qualified' : 'invite_visit_rejected', { status: result.status, reason: result.reason || '' });
         await this.refreshState({ quiet: true });
       } catch (error) {
         const retryable = !error.status || error.status === 408 || error.status === 429 || error.status >= 500;

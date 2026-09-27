@@ -88,23 +88,40 @@ function loadGameView(apiOverrides = {}) {
   return { view: context.GameView, stored, created };
 }
 
-test('missing or stale snapshots never restart an active session at tick zero', async () => {
-  let starts = 0;
-  const state = { session_id: 'session-1', status: 'ACTIVE', version: '2.0.0', seed: 41, last_checkpoint_tick: 300, expires_at: new Date(Date.now() + 60_000).toISOString() };
-  const loaded = loadGameView({ getSession: async () => state, startSession: async () => { starts += 1; } });
-  const navigations = [];
-  const router = { isCurrent: () => true, state: {}, navigate: (name) => navigations.push(name), refreshState: async () => {} };
-  const container = { children: [], replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); } };
-  loaded.view.renderInterruptedSession(container, router, 1, state);
-  const primary = loaded.created.find((element) => element.tag === 'button' && element.className.includes('btn-primary'));
-  await primary.onclick();
-  assert.equal(starts, 0);
-  assert.deepEqual(navigations, []);
-  assert.match(loaded.created.find((element) => element.tag === 'p').textContent, /처음부터 다시 시작하지 않습니다/);
+for (const status of ['ACTIVE', 'RESERVED', 'FAULT_REPORTED']) test(`${status} is automatically invalidated and refunded before a new game`, async () => {
+  const order = [];
+  const loaded = loadGameView({ abandonSession: async (id) => { order.push(`abandon:${id}`); return { status: 'ABORTED', tickets: { initial: 1 } }; } });
+  const state = { session_id: 'session-1', status };
+  const router = { isCurrent: () => true, state: { pendingGameSession: state }, updateNav() {}, announceStateChange() {} };
+  const container = { replaceChildren() {}, appendChild() {} };
+  loaded.stored.set('dino_snapshot_session-1', '{}');
+  loaded.view.renderGameShell = () => {};
+  loaded.view.startNewSession = async () => { order.push('start'); assert.equal(router.state.tickets.initial, 1); };
+  await loaded.view.renderInterruptedSession(container, router, 1, state);
+  assert.deepEqual(order, ['abandon:session-1', 'start']);
+  assert.equal(router.state.pendingGameSession, null);
+  assert.equal(loaded.stored.has('dino_snapshot_session-1'), false);
+});
 
-  const stale = { sessionId: 'session-1', version: '2.0.0', seed: 41, tick: 299, jumpTicks: [] };
-  assert.match(loaded.view.validateResumeSnapshot(stale, state), /서버 체크포인트보다 오래/);
-  assert.match(loaded.view.validateResumeSnapshot({ ...stale, tick: 300, version: '1.2.0' }, state), /버전이 일치하지/);
+test('a concurrently finished game shows its result instead of being restarted', async () => {
+  const result = { session_id: 'session-1', score: 300, best_score: 300, rank: 2 };
+  const loaded = loadGameView({ abandonSession: async () => ({ status: 'FINISHED', result }) });
+  const routes = [];
+  const router = { isCurrent: () => true, state: { tickets: {} }, navigate: (route) => routes.push(route), announceStateChange() {}, updateNav() {} };
+  loaded.view.startNewSession = () => assert.fail('finished game must not restart');
+  await loaded.view.renderInterruptedSession({ replaceChildren() {}, appendChild() {} }, router, 1, { id: 'session-1' });
+  assert.deepEqual(routes, ['result']);
+  assert.equal(router.state.lastResult.score, 300);
+});
+
+test('failed abandon retains pending session and offers retry without spending another ticket', async () => {
+  const loaded = loadGameView({ abandonSession: async () => { throw new Error('offline'); } });
+  const pending = { id: 'session-1', status: 'ACTIVE' };
+  const router = { isCurrent: () => true, state: { pendingGameSession: pending }, navigate() {} };
+  loaded.view.startNewSession = () => assert.fail('do not start before successful refund');
+  await loaded.view.renderInterruptedSession({ replaceChildren() {}, appendChild() {} }, router, 1, pending);
+  assert.equal(router.state.pendingGameSession, pending);
+  assert.equal(loaded.created.find((node) => node.textContent === '다시 시도').hidden, false);
 });
 
 test('cleanup persists a PII-free active snapshot for the same session', () => {

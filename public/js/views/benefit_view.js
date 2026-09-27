@@ -1,6 +1,7 @@
 import { analytics } from '../analytics.js';
+import { api } from '../api.js';
 import { ui } from '../ui.js';
-import { loadKakaoSdk } from '../referral_share.js';
+import { loadKakaoSdk, prepareKakaoPrizeImage } from '../referral_share.js';
 
 function safeExternalUrl(value) {
   if (typeof value !== 'string' || !/^https:\/\/[^\s]+$/i.test(value)) return null;
@@ -62,10 +63,19 @@ export const BenefitView = {
     const safeUrl = safeExternalUrl(configuredUrl);
     const kakaoButton = container.querySelector('#btn-kakao-benefit');
     let kakao = null;
+    let prizeImageUrl = null;
+    let prizeShareText = '나 게임 한 판 하고\n복주머니 열어봄!\n\n삼텐바이미 받을 수도 있다던데,\n너도 한번 해봐';
     kakaoButton.disabled = true;
-    loadKakaoSdk(router.config?.share?.kakao_javascript_key || '').catch(() => null).then((sdk) => {
+    Promise.all([
+      loadKakaoSdk(router.config?.share?.kakao_javascript_key || ''),
+      api.getReferralInfo().catch(() => null),
+    ]).then(async ([sdk, referral]) => {
+      if (referral?.won_prize_name) prizeShareText = `나 ${referral.won_prize_name} 이거 받음\n아직 삼텐바이미 남았다는데\n\n너도 게임 한 판 하고\n상품 뽑아봐!`;
+      return { sdk, imageUrl: await prepareKakaoPrizeImage(sdk) };
+    }).catch(() => ({ sdk: null, imageUrl: null })).then(({ sdk, imageUrl }) => {
       if (!isActiveRender()) return;
       kakao = sdk;
+      prizeImageUrl = imageUrl;
       kakaoButton.disabled = !safeUrl;
     });
     ui.text(container.querySelector('#benefit-official-url'), safeUrl || '공식 링크 준비 중');
@@ -208,7 +218,17 @@ export const BenefitView = {
         if (preferKakao && kakao) {
           trackShare('kakao', 'attempted', trackingContext);
           try {
-            kakao.Share.sendDefault({ objectType: 'text', text: 'Gemini 1년 무료 혜택, 친구와 함께 확인해 보세요!', link: { mobileWebUrl: safeUrl, webUrl: safeUrl }, buttonTitle: '혜택 확인하기' });
+            kakao.Share.sendDefault({
+              objectType: 'feed',
+              content: {
+                title: prizeShareText.split('\n')[0],
+                description: prizeShareText.split('\n').slice(1).join('\n').trim(),
+                imageUrl: prizeImageUrl,
+                imageWidth: 1254, imageHeight: 1254,
+                link: { mobileWebUrl: safeUrl, webUrl: safeUrl },
+              },
+              buttons: [{ title: '혜택 확인하기', link: { mobileWebUrl: safeUrl, webUrl: safeUrl } }],
+            });
             return;
           } catch (_) { trackShare('kakao', 'failed', trackingContext); }
         }
@@ -226,7 +246,9 @@ export const BenefitView = {
         }
         trackShare('native', 'attempted', trackingContext);
         try {
-          await navigator.share({ title: 'Gemini 학생 혜택', url: safeUrl });
+          await navigator.share(preferKakao
+            ? { title: prizeShareText.split('\n')[0], text: prizeShareText, url: safeUrl }
+            : { title: 'Gemini 학생 혜택', url: safeUrl });
           trackShare('native', 'share_sheet_closed', trackingContext);
         } catch (error) {
           trackShare('native', error?.name === 'AbortError' ? 'cancelled' : 'failed', trackingContext);

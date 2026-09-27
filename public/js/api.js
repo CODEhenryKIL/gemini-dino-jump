@@ -84,6 +84,11 @@ export const api = {
   reportSessionFault(sessionId, fault, idempotencyKey) {
     return request(`/api/game-sessions/${encodeURIComponent(sessionId)}/fault`, { method: 'POST', idempotent: true, idempotencyKey, body: JSON.stringify({ ...fault, event_id: idempotencyKey }) });
   },
+  abandonSession(sessionId) {
+    return request(`/api/game-sessions/${encodeURIComponent(sessionId)}/abandon`, {
+      method: 'POST', idempotent: true, idempotencyKey: `abandon_${sessionId}`, body: JSON.stringify({}),
+    });
+  },
   getSession(sessionId) { return request(`/api/game-sessions/${encodeURIComponent(sessionId)}`); },
   getLeaderboard() { return request('/api/leaderboard'); },
   getDraw() { return request('/api/draws/me'); },
@@ -106,6 +111,15 @@ export const api = {
     return request(`/api/claims/${encodeURIComponent(claimId)}/submit`, { method: 'POST', idempotent: true, idempotencyKey: eventId, body: JSON.stringify({ ...payload, event_id: eventId }) });
   },
   getReferralInfo() { return request('/api/referrals/me'); },
+  createReferralShareIntent(kind, claimId = null) {
+    return request('/api/referrals/share-intents', {
+      method: 'POST', idempotent: true,
+      body: JSON.stringify({ kind, ...(claimId ? { claim_id: claimId } : {}) }),
+    });
+  },
+  getReferralShareIntent(shareId) {
+    return request(`/api/referrals/share-intents/${encodeURIComponent(shareId)}`);
+  },
   qualifyReferral(payload) {
     return request('/api/referrals/qualify', { method: 'POST', idempotent: true, idempotencyKey: payload.event_id, body: JSON.stringify(payload) });
   },

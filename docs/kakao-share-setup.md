@@ -1,22 +1,48 @@
-# KakaoTalk share setup
+# 카카오 전송 확인 기반 초대권
 
-The result screen can open KakaoTalk Share directly when the Kakao JavaScript SDK is configured. Without that configuration it opens the device share sheet, then falls back to copying the invite link. None of these client APIs can confirm that the user actually sent the message.
+작성: 2026-09-27. 이 결정이 이전 친구 유효 방문 보상 및 최초 2회 공유창 보너스 규칙을 대체한다.
 
-## Kakao Developers
+## 지급 규칙
 
-1. Create or select the service app in Kakao Developers.
-2. Copy the **JavaScript key** from **App > Platform Key > JavaScript key**. Do not use the Native, REST API, or Admin key.
-3. Register every origin that serves the game as a **JavaScript SDK domain** for that key, and register the invitation destination under **App > Product Link > Web domain**:
-   - `https://google-korea-team-gemini.vercel.app`
-   - each immutable Vercel Preview origin that will be tested with direct KakaoTalk Share
-   - the production origin when production is approved
-4. Enable KakaoTalk Share for the app if the Kakao console requests product activation.
+- 친구에게 **카카오톡 공유 메시지 전송이 성공했다는 웹훅**을 서버가 인증한 경우에만 초대권 1장을 지급한다.
+- 최초 2회 예외는 없다. 버튼 클릭, 공유창 열기, 기본 공유창 닫기, 링크 복사, 친구 방문은 지급 근거가 아니다.
+- `MemoChat`(나에게 보내기)은 인정하지 않는다.
+- 한 번 준비한 공유 요청으로 여러 채팅방에 보내거나 동일 웹훅이 중복 도착해도 최대 1장이다. 새로운 공유는 새 요청을 발급한다.
+- 초대권과 환급 예약분을 합쳐 최대 3장이다. 새 공유 보상으로 잔액이 3장이 되면 10시간 추가 적립 대기를 시작한다.
+- 한도 또는 대기 중 확인된 전송은 나중에 소급 지급하지 않는다. 대기 종료 후 새 공유 전송이 필요하다.
+- 친구 방문은 유입 분석에만 남긴다. 과거에 지급한 게임권·게임 기록은 보존한다.
+- Gemini 혜택이나 외부 콘텐츠 링크 공유는 초대권 지급 대상이 아니다.
+- 수령 정보의 공유 단계도 해당 수령 건에 연결된 전송 성공을 확인한 뒤 완료한다. 게임권 한도에 걸려도 전송 자체가 확인되면 접수할 수 있다.
 
-Set `KAKAO_JAVASCRIPT_KEY` in the matching Vercel deployment environment. This key is intentionally returned by `/api/config` because Kakao's browser SDK requires it; it is an app identifier, not an Admin key or server secret.
+## 연결 설정
 
-The implementation pins Kakao JavaScript SDK `2.8.3` and calls `Kakao.Share.sendDefault()` from the existing result-page button. The shared URL keeps `link=record_share` and a new `share` ID for attribution. Tracking records the share request or chooser outcome, never a completed message delivery.
+1. 기존 Kakao Developers 앱의 JavaScript SDK 도메인에 실제 사이트의 origin을 등록한다.
+2. `KAKAO_JAVASCRIPT_KEY`는 현재처럼 공개 앱 식별자로 설정한다.
+3. 같은 앱의 **대표 어드민 키**를 서버 비밀 환경변수 `KAKAO_ADMIN_KEY`에 설정한다. Git, 브라우저, 공개 설정 API, 채팅에 이 값을 넣지 않는다.
+4. Kakao Developers **앱 → 웹훅 → 카카오톡 공유 웹훅 → 웹훅 등록**에서 다음 주소와 POST 방식을 등록한다.
+   - `https://google-korea-team-gemini.vercel.app/api/webhooks/kakao-share`
+5. 배포 시 필요한 DB 마이그레이션을 먼저 적용하고 서버 코드를 배포한 뒤 공식 웹훅 테스트 도구와 실제 기기로 검증한다. 로컬 주소는 카카오 서버에서 접근할 수 없다.
 
-Official references:
+어드민 키가 없으면 웹훅 인증과 전송 보상은 비활성화된다. `/api/config`는 비밀값 대신 `share.webhook_enabled` 여부만 제공한다. 이 표시는 서버에 키가 준비됐다는 뜻이며, 카카오 콘솔 등록이나 실제 메시지 성공을 증명하지 않는다.
 
-- <https://developers.kakao.com/docs/en/javascript/download>
-- <https://developers.kakao.com/docs/en/kakaotalk-share/js-link>
+## 처리 흐름
+
+1. 브라우저가 로그인 쿠키로 공유 요청을 미리 준비한다. 공유 종류·참가자·행사·수령 건(해당 시)은 서버가 연결한다.
+2. 클릭 시 `Kakao.Share.sendDefault()`의 `serverCallbackArgs`에 서버가 발급한 `share_id`와 일회성 확인 토큰을 전달한다. 참가자 인증 쿠키와 어드민 키는 전달하지 않는다.
+3. 카카오 웹훅 전용 경로에서 `Authorization: KakaoAK …`를 상수 시간 비교로 검증한다. `X-Kakao-Resource-ID`와 서버 발급 공유 요청으로 중복·위조를 차단한다.
+4. 인증·확인·게임권 원장 기록을 DB 트랜잭션으로 처리하고 2xx로 응답한다. 공유 웹훅의 재전송은 보장된 것으로 가정하지 않는다.
+5. 화면은 자신의 공유 요청 상태를 조회한다. 전송 확인 전에는 완료나 지급을 표시하지 않는다. 접수 화면의 대기·새로고침·재접속도 서버 확인 기록으로 복구한다.
+
+## 검증 범위 및 적용 상태
+
+- 로컬에서 위조·중복·동시 웹훅, 보유 상한·쿨다운, 본인 채팅, 다른 참가자 접근, 수령 정보의 서버 확인 조건을 검증한다.
+- 2026-09-27 기존 원격 개발 DB에 관련 마이그레이션 3개를 적용하고 베타 주소에 배포했다. 카카오 콘솔 POST 웹훅과 Vercel Preview 비밀 설정을 연결했다. 상세 증거는 [배포 검증](webhook-beta-release-20260927.md)을 참조한다.
+- 카카오 공식 테스트 도구 → 배포 서버 → DB 적립은 확인했다. 실제 친구 메시지 전송을 통한 모바일 종단 검증은 별도이며 아직 완료로 기록하지 않는다.
+- 카카오가 성공 알림을 보내기 전에는 수신자가 메시지를 읽었는지 또는 링크를 방문했는지 알 수 없다. 이 정책은 **전송 성공**만 기준으로 삼는다.
+
+## 공식 문서
+
+- [공유 웹훅 명세](https://developers.kakao.com/docs/ko/kakaotalk-share/callback)
+- [JavaScript 공유 및 serverCallbackArgs](https://developers.kakao.com/docs/ko/kakaotalk-share/js-link)
+- [웹훅 등록](https://developers.kakao.com/docs/ko/app-setting/app)
+- [웹훅 테스트](https://developers.kakao.com/docs/ko/tool/webhook-test)

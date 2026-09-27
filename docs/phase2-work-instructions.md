@@ -1,4 +1,6 @@
 2차 작업 지시서 — 페이지별 UX·게임·바이럴·Gemini 전환 완성
+
+> 2026-09-27 최신 결정: 초대권은 카카오 전송 성공 웹훅 확인으로만 지급한다. 이전 유효 방문 보상과 최초 2회 공유창 보너스 규칙은 폐기한다. 최대 3장·10시간 대기는 유지한다. 수령 정보 공유 확인도 웹훅을 사용한다. 상세: [카카오 공유 설정](kakao-share-setup.md).
 대상: https://github.com/CODEhenryKIL/gemini-dino-jump
 공통 기준: 00_scope_and_decisions.md / 원문: source_user_plan.md
 선행 산출물: 1차 코드·migration·이벤트 계약·docs/phase1-report.md

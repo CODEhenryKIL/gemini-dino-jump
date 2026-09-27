@@ -10,7 +10,7 @@ function loadView(file, exportName, globals = {}) {
   const source = fs.readFileSync(path.join(root, file), 'utf8')
     .replace(/^import .*;$/gm, '')
     .replace(`export const ${exportName} =`, 'globalThis.__view =');
-  const context = { console, URL, loadKakaoSdk: async () => null, ...globals };
+  const context = { console, URL, api: { getReferralInfo: async () => ({}) }, loadKakaoSdk: async () => null, ...globals };
   context.globalThis = context;
   vm.runInNewContext(source, context, { filename: file });
   return context.__view;
@@ -54,9 +54,9 @@ test('home enables a newly earned ticket and uses the latest pending game after 
   router.state.pendingGameSession = { status: 'ACTIVE' };
   view.updateState(container, router);
   assert.equal(start.disabled, false);
-  assert.equal(start.textContent, '진행 중 게임 복원');
+  assert.equal(start.textContent, '게임 시작');
   start.onclick();
-  assert.deepEqual(routes, ['guide', 'game']);
+  assert.deepEqual(routes, ['guide', 'guide']);
 });
 
 test('home distinguishes expired cooldown from current waiting and explains an ended campaign accurately', () => {
@@ -141,9 +141,13 @@ test('prize claim preserves the form and rejects an empty school before sending 
     api: {
       getClaimDraft: async () => ({ draft: { name: 'TEST_사용자', contact: '01000000000', school: '', consent: true } }),
       saveClaimDraft: async () => ({ draft_saved: true }),
+      getReferralShareIntent: async (shareId) => { assert.equal(shareId, 'share-claim-1'); return { status: 'confirmed' }; },
       submitClaim: async () => { submitted += 1; },
     },
-    prepareResultReferralShare: async () => ({ share: async () => ({ method: 'copy', status: 'copied' }) }),
+    prepareResultReferralShare: async (_router, options) => {
+      assert.equal(options.claimId, 'claim-1');
+      return { share: async () => ({ method: 'kakao', status: 'pending', shareId: 'share-claim-1' }) };
+    },
     ui: {
       formField(_label, _type, name, options) {
         const input = { name, required: options.required, value: '' };
@@ -225,7 +229,7 @@ test('record sharing uses the prepared public share and preserves authoritative 
     { share_method: 'copy', share_id: 'share_phase2_1234', link_kind: 'record_share', status: 'attempted' },
     { share_method: 'copy', share_id: 'share_phase2_1234', link_kind: 'record_share', status: 'copied' },
   ]);
-  referral = { ...referral, invitation_balance: 3, valid_visits: 8, cooldown_until: '2000-01-01T00:00:00Z', ticket_totals: { granted: 6, used: 2, refunded: 1 } };
+  referral = { ...referral, invitation_balance: 3, valid_visits: 8, confirmed_shares: 8, cooldown_until: '2000-01-01T00:00:00Z', ticket_totals: { granted: 6, used: 2, refunded: 1 } };
   router.state.draw.status = 'DRAWN';
   await view.updateState(container, router, 1);
   assert.equal(draw.textContent, '내 복주머니 결과 보기');

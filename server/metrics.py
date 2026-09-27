@@ -367,7 +367,7 @@ def build_overview(conn, query, ctx):
     invitation_sharing_summary = sharing_summary(invitation_sharing, invitation_sharing_totals)
     invitation_performance = one(""", grants as (
       select l.* from dino_dev.ticket_ledger l join people p on p.id=l.participant_id
-      where l.ticket_kind='INVITATION' and l.source_type='INVITATION_GRANT'
+      where l.ticket_kind='INVITATION' and l.source_type in ('INVITATION_GRANT','SHARE_GRANT')
         and l.created_at>=%s and l.created_at<%s
     ), uses as (
       select l.* from dino_dev.ticket_ledger l join people p on p.id=l.participant_id
