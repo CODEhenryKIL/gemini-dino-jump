@@ -99,6 +99,13 @@
 - 실제 카카오 새 GAME/DRAW 전송·보상 검증은 **사용자 요청으로 나중에 확인**한다. 기존 전송 성공 기록이나 이번 버튼 표시를 새 DRAW 보상 성공 증거로 취급하지 않는다.
 - 비공개 증거: `.local/phase3/remote-preservation-before.json`, `remote-preservation-after.json`, `cutover-before-rows.json.gz`, `phase3-preview-deploy.json`.
 
+### 후속 베타 반영 — 행사 시간·설정 검사
+
+- 실행 코드 `b4a99365caf1c2f970c92395ca8408ab2a6158c2`, Preview `dpl_Er4udZgHpGPx8Z2CzqbbfuCiXiHp`로 위 시간창 보완을 반영했다. 빌드 READY와 공개 API를 확인한 뒤 기존 베타 고정 주소를 연결했다.
+- 고정 주소의 health/config는 200이며 새 배포 ID·DB ready·ACTIVE·카카오 웹훅 설정 활성·시작/종료 미정을 확인했다. 기존 Preview 무제한 설정을 유지했다.
+- 이번 후속 반영에는 DB migration·재고 변경이 없다. 원래 운영 주소는 `dpl_2rTHbCNUGMLeA1nUMycDzLvBUFW8`에 연결된 상태임을 다시 확인했다.
+- 배포 기록은 `.local/phase3/phase3-window-preview-deploy.json`에 별도 보관한다. 실제 카카오 전송·원격 부하 시험은 실행하지 않았다.
+
 ## 공개 전 남은 작업
 
 1. 새 게임권/뽑기권의 실제 카카오 전송·적립 및 카드 확인. 사용자 요청으로 추후 진행한다.
