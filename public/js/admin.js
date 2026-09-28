@@ -562,7 +562,7 @@ function renderRankingContacts(data) {
 }
 
 function claimEditor(claim) {
-  const item = document.createElement('article'); item.className = 'admin-claim-row';
+  const item = document.createElement('article'); item.className = 'admin-claim-row admin-payment-editor';
   const info = document.createElement('div');
   const claimTitle = claim.claim_type === 'RANKING' ? '잠정 TOP3 연락 접수' : (claim.prize_name || '경품 수령 요청');
   const title = document.createElement('strong'); title.textContent = `${claimTitle} · ${CLAIM_STATUS_LABELS[claim.status] || claim.status}`;
@@ -589,23 +589,54 @@ function claimEditor(claim) {
       || (awaitingInformation ? status !== 'AWAITING_INFORMATION' : status === 'AWAITING_INFORMATION');
     state.appendChild(option);
   }
+  state.value = claim.status;
+  state.ariaLabel = '수령 처리 상태';
   const assignee = document.createElement('input'); assignee.placeholder = '담당자 user id'; assignee.value = claim.assignee_user_id || ''; assignee.maxLength = 80;
   const reason = document.createElement('input'); reason.placeholder = '변경 사유'; reason.maxLength = 160;
+  const verificationLabel = document.createElement('label');
+  const verificationText = document.createElement('span'); verificationText.textContent = '자격 확인';
+  const verification = document.createElement('select'); verification.ariaLabel = '자격 확인 상태';
+  for (const [value, label] of Object.entries({ NOT_REQUESTED: '확인 전', PENDING: '확인 중', VERIFIED: '확인 완료', REJECTED: '자격 미충족' })) {
+    const option = document.createElement('option'); option.value = value; option.textContent = label;
+    verification.appendChild(option);
+  }
+  verification.value = claim.verification_status || 'NOT_REQUESTED';
+  verificationLabel.append(verificationText, verification);
+  const reference = document.createElement('input'); reference.ariaLabel = '자격 확인 참조';
+  reference.placeholder = '확인 참조 (TEST_REF_...)'; reference.maxLength = 109; reference.value = claim.verification_reference || '';
   const external = document.createElement('label'); const externalBox = document.createElement('input'); externalBox.type = 'checkbox'; externalBox.checked = Boolean(claim.external_delivery); externalBox.disabled = awaitingInformation || needsContact; const externalText = document.createElement('span'); externalText.textContent = '외부 전달 완료'; external.append(externalBox, externalText);
+  const paymentNote = document.createElement('p'); paymentNote.className = 'status-note';
+  paymentNote.textContent = '지급 완료 전 자격 확인과 외부 전달을 확인하고, 전달 확인 사유를 입력해 주세요. 증빙 원본·연락처는 적지 마세요.';
+  const updatePaymentNote = () => {
+    paymentNote.hidden = state.value !== 'PAID';
+    reason.placeholder = state.value === 'PAID' ? '전달 확인 사유 (3자 이상)' : '변경 사유';
+  };
+  state.onchange = updatePaymentNote; updatePaymentNote();
+  if (claim.status === 'PAID') { verification.disabled = true; reference.disabled = true; externalBox.disabled = true; }
   const save = document.createElement('button'); save.className = 'btn btn-primary btn-sm'; save.textContent = '상태 저장';
   if (!adminPermissions.has('claims:write') || awaitingInformation || needsContact) {
-    state.disabled = true; assignee.disabled = true; reason.disabled = true; externalBox.disabled = true; save.disabled = true;
+    state.disabled = true; assignee.disabled = true; reason.disabled = true; verification.disabled = true; reference.disabled = true; externalBox.disabled = true; save.disabled = true;
     save.textContent = awaitingInformation ? '수령 정보 입력 대기' : needsContact ? '수령 정보 확인 필요' : '읽기 전용';
   }
   save.onclick = async () => {
+    const verificationReference = reference.value.trim() || null;
+    if (verificationReference && !/^TEST_REF_[A-Za-z0-9_-]{1,100}$/.test(verificationReference)) {
+      ui.showToast('확인 참조는 TEST_REF_로 시작하는 영문·숫자·밑줄·하이픈으로 입력해 주세요.'); return;
+    }
+    if (verification.value !== 'NOT_REQUESTED' && !verificationReference) { ui.showToast('자격 확인 참조를 입력해 주세요.'); return; }
+    if (state.value === 'PAID') {
+      if (verification.value !== 'VERIFIED') { ui.showToast('자격 확인을 완료한 뒤 지급 완료로 변경해 주세요.'); return; }
+      if (!externalBox.checked) { ui.showToast('실제로 전달한 뒤 외부 전달 완료를 체크해 주세요.'); return; }
+      if (claim.status !== 'PAID' && reason.value.trim().length < 3) { ui.showToast('전달 확인 사유를 3자 이상 입력해 주세요.'); return; }
+    }
     save.disabled = true;
     try {
-      await adminRequest(`/api/admin/claims/${encodeURIComponent(claim.id)}`, { method: 'PATCH', body: JSON.stringify({ status: state.value, assignee_user_id: assignee.value.trim() || null, reason: reason.value.trim(), external_delivery: externalBox.checked, expected_version: claim.version, event_id: api.createRequestId('evt') }) });
+      await adminRequest(`/api/admin/claims/${encodeURIComponent(claim.id)}`, { method: 'PATCH', body: JSON.stringify({ status: state.value, assignee_user_id: assignee.value.trim() || null, reason: reason.value.trim(), verification_status: verification.value, verification_reference: verificationReference, external_delivery: externalBox.checked, expected_version: claim.version, event_id: api.createRequestId('evt') }) });
       ui.showToast('수령 상태를 저장했습니다.');
       await Promise.all([loadClaims(), ...(adminPermissions.has('analytics:read') ? [loadMetrics()] : [])]);
     } catch (error) { ui.showToast(error.message); save.disabled = false; }
   };
-  item.append(info, state, assignee, reason, external, save); return item;
+  item.append(info, state, assignee, verificationLabel, reference, reason, external, paymentNote, save); return item;
 }
 
 document.querySelector('#btn-admin-login').onclick = login;

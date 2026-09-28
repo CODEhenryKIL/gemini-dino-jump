@@ -23,11 +23,12 @@ function loadUi() {
       return nodes.get(selector);
     },
   };
-  const context = { document, sessionStorage: { getItem: () => '' }, api: {}, ui: {} };
+  const toasts = [];
+  const context = { document, sessionStorage: { getItem: () => '' }, api: { createRequestId: () => 'test-request' }, ui: { showToast: (message) => toasts.push(message) } };
   const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8').replace(/^import .*;\n/gm, '');
-  vm.runInNewContext(`${read('public/js/admin.js')}\n globalThis.admin = { claimEditor, renderDrawSummary, renderOperationalBreakdowns, setPermissions: (values) => { adminPermissions = new Set(values); } };`, context);
+  vm.runInNewContext(`${read('public/js/admin.js')}\n globalThis.admin = { claimEditor, renderDrawSummary, renderOperationalBreakdowns, setPermissions: (values) => { adminPermissions = new Set(values); }, setRequest: (handler) => { adminRequest = handler; } };`, context);
   vm.runInNewContext(`${read('public/js/views/prize_view.js').replace('export const PrizeView', 'const PrizeView')}\n globalThis.prize = PrizeView;`, context);
-  return { ...context, nodes };
+  return { ...context, nodes, toasts };
 }
 
 function descendants(node, tag) {
@@ -54,7 +55,7 @@ test('unsubmitted winner sees information waiting and the administrator cannot p
   assert.equal(descendants(editor, 'select')[0].disabled, true);
   assert.equal(descendants(editor, 'button')[0].disabled, true);
   assert.ok(descendants(editor, 'input').every((input) => input.disabled));
-  const options = descendants(editor, 'option');
+  const options = descendants(descendants(editor, 'select')[0], 'option');
   assert.equal(options.find((option) => option.selected).value, 'AWAITING_INFORMATION');
   assert.ok(options.filter((option) => option.value !== 'AWAITING_INFORMATION').every((option) => option.disabled));
 });
@@ -88,6 +89,60 @@ test('legacy claim without real contact cannot be processed even if its status p
     assert.equal(descendants(editor, 'select')[0].disabled, true);
     assert.ok(descendants(editor, 'input').every((input) => input.disabled));
   }
+});
+
+test('administrator must confirm eligibility, delivery and evidence before recording payment', async () => {
+  const { admin, toasts } = loadUi();
+  admin.setPermissions(['claims:write']);
+  const requests = [];
+  admin.setRequest(async (url, options = {}) => { requests.push({ url, options }); return { claims: [] }; });
+  const editor = admin.claimEditor({ id: 'payment-1', claim_type: 'DRAW', status: 'CONTACTED', version: 7,
+    contact_submitted_at: '2026-09-29T00:00:00Z', recipient_name: 'TEST', contact: '01000000000' });
+  const [state, verification] = descendants(editor, 'select');
+  const reference = descendants(editor, 'input').find((node) => node.ariaLabel === '자격 확인 참조');
+  const reason = descendants(editor, 'input').find((node) => node.placeholder === '변경 사유');
+  const external = descendants(editor, 'input').find((node) => node.type === 'checkbox');
+  const save = descendants(editor, 'button')[0];
+  state.value = 'PAID'; state.onchange();
+  await save.onclick();
+  assert.match(toasts.at(-1), /자격 확인을 완료/);
+  verification.value = 'VERIFIED';
+  await save.onclick();
+  assert.match(toasts.at(-1), /확인 참조/);
+  reference.value = 'TEST_REF_student';
+  await save.onclick();
+  assert.match(toasts.at(-1), /외부 전달 완료/);
+  external.checked = true;
+  await save.onclick();
+  assert.match(toasts.at(-1), /전달 확인 사유/);
+  assert.equal(requests.length, 0);
+  assert.equal(save.disabled, false);
+  reason.value = 'TEST_DELIVERY_CONFIRMED';
+  await save.onclick();
+  const mutation = requests.filter((request) => request.options.method === 'PATCH');
+  assert.equal(mutation.length, 1);
+  const body = JSON.parse(mutation[0].options.body);
+  assert.equal(body.status, 'PAID');
+  assert.equal(body.verification_status, 'VERIFIED');
+  assert.equal(body.verification_reference, 'TEST_REF_student');
+  assert.equal(body.external_delivery, true);
+  assert.equal(body.reason, 'TEST_DELIVERY_CONFIRMED');
+  assert.equal(body.expected_version, 7);
+});
+
+test('paid evidence cannot be unchecked and verification remains disabled for read-only administrators', () => {
+  const { admin } = loadUi();
+  const claim = { claim_type: 'DRAW', status: 'PAID', version: 8, contact_submitted_at: '2026-09-29T00:00:00Z',
+    recipient_name: 'TEST', contact: '01000000000', verification_status: 'VERIFIED', verification_reference: 'TEST_REF_verified', external_delivery: true };
+  admin.setPermissions(['claims:write']);
+  const paid = admin.claimEditor(claim);
+  assert.equal(descendants(paid, 'select')[1].disabled, true);
+  assert.equal(descendants(paid, 'input').find((node) => node.ariaLabel === '자격 확인 참조').disabled, true);
+  assert.equal(descendants(paid, 'input').find((node) => node.type === 'checkbox').disabled, true);
+  admin.setPermissions(['claims:read']);
+  const readonly = admin.claimEditor({ ...claim, status: 'CONTACTED' });
+  assert.ok(descendants(readonly, 'select').every((node) => node.disabled));
+  assert.ok(descendants(readonly, 'input').every((node) => node.disabled));
 });
 
 test('claim forms are not offered for finalized claims with missing legacy contact information', () => {

@@ -52,6 +52,19 @@
 - 게임권은 3장 보유·10시간 규칙을 유지한다. 뽑기권은 사용 수+미사용 권리가 10을 넘지 않고, 실제 상품 당첨 후에는 새로 적립하지 않는다.
 - 공유 확인과 보상 지급은 별개다. `confirmed`여도 `NO_REWARD`, 한도·쿨다운 차단 등일 수 있으므로 `reward_status`까지 확인한다.
 
+## 관리자 수동 지급 확인
+
+`PATCH /api/admin/claims/{id}`는 `claims:write` 권한과 최신 `expected_version`을 확인한다. 연락 완료 상태의 실제 상품 수령 건을 `PAID`로 바꿀 때는 다음을 함께 확인한다.
+
+- `verification_status: VERIFIED`와 유효한 `verification_reference`: 관리자의 자격 확인 기록.
+- `external_delivery: true`: 운영자가 실제 외부 전달을 확인했다는 명시적 값. 문자열 `"true"`는 허용하지 않는다.
+- 3자 이상의 `reason`: 전달 확인 사유. 개인정보·증빙 원본을 기록하는 용도가 아니다.
+- 현재 베타 참조 형식은 기존 `TEST_REF_...`를 유지한다. 본행사의 자격 판정 기준과 증빙 처리 정책을 이 필드로 임의 확정하지 않는다.
+
+자격·전달·증거 누락은 각각 `CLAIM_VERIFICATION_REQUIRED`, `DELIVERY_CONFIRMATION_REQUIRED`, `DELIVERY_EVIDENCE_REQUIRED`의 `409`로 거부한다. 실패하면 수령 상태·버전·재고·감사 기록을 변경하지 않는다. 성공 시 수령 상태, 재고의 RESERVED→PAID, 재고 이력, 전후 확인 상태와 담당자 감사 기록을 한 트랜잭션에 저장한다. 오래된 버전 재요청은 `VERSION_CONFLICT`로 거부하며 재고를 다시 처리하지 않는다.
+
+이미 지급 완료된 건에서도 필수 확인 상태를 해제할 수 없다. 기존 기록을 소급 수정하지 않으며, 랭킹 지급은 최종 수상 정책이 미정인 동안 계속 `FINAL_RANKING_UNDECIDED`로 차단한다. 이 API는 실제 쿠폰·경품을 발송하지 않는다.
+
 ## 배포·호환성
 
 - 새 migration은 기존 추첨을 1회차로 보존하고 최초 지급·소비 원장을 연결한다. 기존 claim·연락처·지급 상태를 초기화하지 않는다.

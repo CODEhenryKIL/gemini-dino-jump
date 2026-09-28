@@ -981,7 +981,14 @@ def admin_claim_patch(conn,cid,body,ctx):
     if changing_status and status in {"ON_HOLD","INELIGIBLE","NO_RESPONSE"} and len(reason)<3:raise DomainError("VALIDATION_ERROR","처리 사유를 입력해 주세요.")
     verification=str(body.get("verification_status") or claim["verification_status"]);reference=body.get("verification_reference",claim["verification_reference"])
     if verification not in {"NOT_REQUESTED","PENDING","VERIFIED","REJECTED"} or (reference is not None and not re.fullmatch(r"TEST_REF_[A-Za-z0-9_-]{1,100}",str(reference))):raise DomainError("VALIDATION_ERROR","합성 검증 상태와 참조를 확인해 주세요.")
+    external_delivery=body.get("external_delivery",claim["external_delivery"])
+    paid_evidence_required=status=="PAID" or claim["status"]=="PAID"
+    if paid_evidence_required and verification!="VERIFIED":raise DomainError("CLAIM_VERIFICATION_REQUIRED","자격 확인을 완료한 뒤 지급 완료로 처리해 주세요.",409)
+    if paid_evidence_required and reference is None:raise DomainError("DELIVERY_EVIDENCE_REQUIRED","자격 확인 참조와 전달 확인 사유를 남겨 주세요.",409)
     if verification!="NOT_REQUESTED" and reference is None:raise DomainError("VALIDATION_ERROR","검증 참조를 입력해 주세요.")
+    if paid_evidence_required and external_delivery is not True:raise DomainError("DELIVERY_CONFIRMATION_REQUIRED","실제 경품 전달을 확인한 뒤 지급 완료로 처리해 주세요.",409)
+    if changing_status and status=="PAID" and len(reason)<3:raise DomainError("DELIVERY_EVIDENCE_REQUIRED","실제 전달 확인 사유를 입력해 주세요.",409)
+    if not isinstance(external_delivery,bool):raise DomainError("VALIDATION_ERROR","외부 전달 확인 값을 확인해 주세요.")
     assignee=body.get("assignee_user_id") or (str(claim["assignee_user_id"]) if claim["assignee_user_id"] else str(admin["auth_user_id"]))
     assigned=_one(conn,"select auth_user_id from dino_dev.admin_member where auth_user_id=%s and active and 'claims:write'=any(permissions)",(assignee,))
     if not assigned:raise DomainError("INVALID_ASSIGNEE","활성 수령 업무 담당자를 지정해 주세요.",409)
@@ -990,12 +997,15 @@ def admin_claim_patch(conn,cid,body,ctx):
         if not inventory or inventory["status"]!="RESERVED":raise DomainError("INVENTORY_STATE_CONFLICT","경품 재고 상태가 일치하지 않습니다.",409)
     updated=_one(conn,"""update dino_dev.claim set status=%s,assignee_user_id=%s,hold_reason=%s,external_delivery=%s,verification_status=%s,verification_reference=%s,version=version+1,
       contacted_at=case when %s='CONTACTED' then coalesce(contacted_at,clock_timestamp()) else contacted_at end,
-      paid_at=case when %s='PAID' then coalesce(paid_at,clock_timestamp()) else paid_at end,updated_at=clock_timestamp() where id=%s returning *""",(status,assignee,reason or claim["hold_reason"],body.get("external_delivery",claim["external_delivery"]),verification,reference,status,status,cid))
+      paid_at=case when %s='PAID' then coalesce(paid_at,clock_timestamp()) else paid_at end,updated_at=clock_timestamp() where id=%s returning *""",(status,assignee,reason or claim["hold_reason"],external_delivery,verification,reference,status,status,cid))
     if changing_status and status=="PAID" and claim["inventory_item_id"]:
         result=conn.execute("update dino_dev.inventory_item set status='PAID',paid_at=clock_timestamp() where id=%s and status='RESERVED'",(claim["inventory_item_id"],))
         if result.rowcount!=1:raise DomainError("INVENTORY_STATE_CONFLICT","경품 재고 상태가 일치하지 않습니다.",409)
-    conn.execute("insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'CLAIM_UPDATE','claim',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],cid,json.dumps({"status":claim["status"],"verification_status":claim["verification_status"],"version":claim["version"]}),json.dumps({"status":status,"verification_status":verification,"version":updated["version"]}),reason or None,str(body.get("event_id"))))
-    return 200,{"id":cid,"status":status,"verification_status":verification,"version":updated["version"],"assignee_user_id":str(updated["assignee_user_id"])}
+        conn.execute("insert into dino_dev.inventory_history(inventory_item_id,from_status,to_status,reason,related_type,related_id) values(%s,'RESERVED','PAID','CLAIM_PAID','claim',%s)",(claim["inventory_item_id"],cid))
+    before_evidence={"status":claim["status"],"verification_status":claim["verification_status"],"verification_reference":claim["verification_reference"],"external_delivery":claim["external_delivery"],"version":claim["version"]}
+    after_evidence={"status":status,"verification_status":verification,"verification_reference":reference,"external_delivery":external_delivery,"version":updated["version"]}
+    conn.execute("insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'CLAIM_UPDATE','claim',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],cid,json.dumps(before_evidence),json.dumps(after_evidence),reason or None,str(body.get("event_id"))))
+    return 200,{"id":cid,"status":status,"verification_status":verification,"verification_reference":reference,"external_delivery":external_delivery,"version":updated["version"],"assignee_user_id":str(updated["assignee_user_id"])}
 def admin_events(conn,query,ctx):
     _admin(conn,ctx,"analytics:read"); rows=_all(conn,"select event_id,event_name,screen,active_ms,dimensions,source,occurred_at,participant_id is not null connected from dino_dev.analytics_event order by received_at desc limit 200")
     return 200,{"events":[{**dict(r),"occurred_at":_iso(r["occurred_at"])} for r in rows]}

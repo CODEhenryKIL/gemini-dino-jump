@@ -669,14 +669,22 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
             self.assertEqual(submitted["status"], initial_status)
 
             with self.app_tx() as conn:
+                body = {
+                    "status": next_status,
+                    "expected_version": 1,
+                    "event_id": f"evt_continue_{initial_status.lower()}",
+                }
+                if next_status == "PAID":
+                    body.update(
+                        verification_status="VERIFIED",
+                        verification_reference="TEST_REF_repaired_claim",
+                        external_delivery=True,
+                        reason="실제 전달 확인",
+                    )
                 continued = operations.admin_claim_patch(
                     conn,
                     claim_id,
-                    {
-                        "status": next_status,
-                        "expected_version": 1,
-                        "event_id": f"evt_continue_{initial_status.lower()}",
-                    },
+                    body,
                     _context(admin_user_id=self.admin_id),
                 )[1]
             self.assertEqual(continued["status"], next_status)
