@@ -172,6 +172,7 @@ function renderMetrics(data) {
   renderScoreDistribution(data.score_distribution || []);
   renderLeaderboard(data.leaderboard || []);
   renderTicketLedger(data.ticket_ledger || []);
+  renderDrawSummary(data.draws, data.draw_credit_ledger);
   renderClaimSummary(data.claims || []);
   renderOperationalBreakdowns(data);
   ui.text(document.querySelector('#metrics-scope'), `${data.synthetic_only ? '합성 테스트 데이터만 표시' : '운영 데이터 포함'} · 게임 버전 ${data.campaign?.game_version || data.game?.game_version || '미제공'} · 필터 귀속 ${data.filter_attribution || '미제공'} · 환경 ${data.environment || '현재 환경'}`);
@@ -290,6 +291,26 @@ function renderTicketLedger(rows) {
   ], rows, '조회된 게임권 원장 집계가 없습니다.');
 }
 
+function renderDrawSummary(draws = {}, creditRows = []) {
+  const summary = [
+    { label: '총 추첨 횟수', value: draws?.total_draws ?? 0 },
+    { label: '실제 상품 당첨', value: draws?.actual_prize_draws ?? 0 },
+    { label: '실제 상품 당첨자', value: draws?.actual_prize_winners ?? 0 },
+    { label: 'Gemini 혜택 결과', value: draws?.benefit_results ?? 0 },
+    { label: '실제 지급 완료', value: draws?.paid_prizes ?? 0 },
+  ];
+  renderTable(document.querySelector('#draw-summary'), [
+    { label: '항목', value: (row) => row.label },
+    { label: '건수', value: (row) => row.value },
+  ], summary, '조회된 복주머니 결과가 없습니다.');
+  renderTable(document.querySelector('#draw-credit-ledger'), [
+    { label: '뽑기권 원장 사유', value: (row) => row.source_type },
+    { label: '건수', value: (row) => row.events },
+    { label: '고유 참가자', value: (row) => row.participants },
+    { label: '순증감', value: (row) => row.net_credits },
+  ], Array.isArray(creditRows) ? creditRows : [], '조회된 뽑기권 원장 집계가 없습니다.');
+}
+
 const CLAIM_STATUS_LABELS = {
   AWAITING_INFORMATION: '정보 입력 대기', INFORMATION_RECEIVED: '정보 접수', PENDING_REVIEW: '확인 대기',
   CONTACTED: '연락 완료', PAID: '지급 완료', ON_HOLD: '보류', INELIGIBLE: '대상 아님', NO_RESPONSE: '응답 없음',
@@ -310,6 +331,8 @@ function objectRows(value) {
 
 function sharingRows(sharing) {
   return [
+    { label: '카카오 인증 전송', value: sharing?.server_confirmed_intents },
+    { label: '카카오 인증 전송 참가자', value: sharing?.server_confirmed_participants },
     { label: '공유 시도', value: sharing?.attempt_events }, { label: '복사 성공', value: sharing?.copy_success_events },
     { label: '공유창 종료', value: sharing?.share_sheet_closed_events }, { label: '공유 취소', value: sharing?.cancelled_events },
     { label: '공유 실패', value: sharing?.failed_events }, { label: '실제 전송 완료', value: sharing?.actual_delivery || 'unknown' },
@@ -393,7 +416,7 @@ function renderOperationalBreakdowns(data) {
       ],
     },
     {
-      title: '초대 공유 수단과 확인 가능한 상태', rows: data.sharing?.invitation_sharing?.by_method_status || [], emptyText: '조회된 초대 공유 시도가 없습니다.',
+      title: '게임 재도전 공유 수단과 확인 가능한 상태', rows: data.sharing?.invitation_sharing?.by_method_status || [], emptyText: '조회된 게임 재도전 공유 시도가 없습니다.',
       columns: sharingMethodColumns(),
     },
     {
@@ -409,7 +432,11 @@ function renderOperationalBreakdowns(data) {
       columns: sharingMethodColumns(),
     },
     {
-      title: '초대 공유·전환 요약', rows: [
+      title: '수령 정보 자랑 공유 수단과 확인 가능한 상태', rows: data.sharing?.claim_share_sharing?.by_method_status || [], emptyText: '조회된 수령 정보 자랑 공유 시도가 없습니다.',
+      columns: sharingMethodColumns(),
+    },
+    {
+      title: '게임 재도전 공유·전환 요약', rows: [
         ...sharingRows(data.sharing?.invitation_sharing),
         { label: '초대권 지급', value: data.invitation_performance?.grant_events }, { label: '지급 참가자', value: data.invitation_performance?.granted_participants },
         { label: '초대권 사용', value: data.invitation_performance?.use_events }, { label: '사용 참가자', value: data.invitation_performance?.using_participants },

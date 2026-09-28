@@ -26,7 +26,7 @@ const slides = [
   {
     title: '랭킹 TOP3에 도전하세요',
     description: '행사 종료 시 최종 순위에 따라 선물을 드려요.',
-    scene: `<div class="guide-rank-rewards"><div><span>1위</span><strong>5만원</strong></div><div><span>2위</span><strong>3만원</strong></div><div><span>3위</span><strong>1만원</strong></div></div><section class="guide-live-ranking" aria-label="현재 랭킹"><h4>현재 TOP3</h4><div class="guide-rank-content" aria-live="polite"></div></section>`,
+    scene: `<div class="guide-rank-rewards"><div><span>🥇</span><strong>무신사 5만원권</strong></div><div><span>🥈</span><strong>배민 2만원권</strong></div><div><span>🥉</span><strong>스타벅스 1만원권</strong></div></div><section class="guide-live-ranking" aria-label="현재 랭킹"><h4>현재 TOP3</h4><div class="guide-rank-content" aria-live="polite"></div></section>`,
     className: 'guide-slide-ranking',
   },
 ];

@@ -112,7 +112,7 @@ def create_observation(conn,body,ctx):
     if not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",oid) or not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",eid): raise DomainError("VALIDATION_ERROR","관측 식별자를 확인해 주세요.")
     link=str(body.get("link_kind") or "unknown");channel=str(body.get("channel_code") or "unknown");campaign_code=str(body.get("campaign_code") or "");share_id=str(body.get("share_id") or "")
     code_pattern=r"(?:unknown|[A-Za-z][A-Za-z0-9_-]{0,31})"
-    if link not in {"initial","retry_invite","record_share","prize_share","direct","unknown"} or not re.fullmatch(code_pattern,channel) or (campaign_code and not re.fullmatch(code_pattern,campaign_code)) or (share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id)): raise DomainError("VALIDATION_ERROR","유입 값을 확인해 주세요.")
+    if link not in {"initial","retry_invite","record_share","draw_retry","prize_share","general_share","direct","unknown"} or not re.fullmatch(code_pattern,channel) or (campaign_code and not re.fullmatch(code_pattern,campaign_code)) or (share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id)): raise DomainError("VALIDATION_ERROR","유입 값을 확인해 주세요.")
     referrer=str(body.get("referrer_origin") or "");parsed=urlparse(referrer) if referrer else None
     if parsed and (parsed.scheme not in {"http","https"} or not parsed.hostname or parsed.path not in {"","/"} or parsed.query or parsed.fragment or parsed.username): raise DomainError("VALIDATION_ERROR","유입 출처는 origin만 허용합니다.")
     key=ctx.get("idempotency_key")
@@ -188,11 +188,11 @@ def get_me(conn,ctx):
     p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
     ranking=_ranking_info(conn,p["id"],_game_version(conn,ctx),p["campaign_id"])
     live=_one(conn,"select id,status,ticket_kind,expires_at,last_checkpoint_tick from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1",(p["id"],))
-    draw=_one(conn,"select id from dino_dev.draw where campaign_id=%s and participant_id=%s",(p["campaign_id"],p["id"]))
     eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
     contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
     claims=_one(conn,"select count(*)::int n from dino_dev.claim where participant_id=%s",(p["id"],))["n"]
-    return 200,{"participant":_public(p),"tickets":_tickets(p,ctx),**ranking,"pending_game_session":dict(live) if live else None,"draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":_ranking_profile_state(contact,ranking["rank"],_game_version(conn,ctx)),"claim_count":claims}
+    draw_state=_draw_state(conn,p,eligible)
+    return 200,{"participant":_public(p),"tickets":_tickets(p,ctx),**ranking,"pending_game_session":dict(live) if live else None,"draw":draw_state,"top3_profile":_ranking_profile_state(contact,ranking["rank"],_game_version(conn,ctx)),"claim_count":claims}
 
 def patch_profile(conn,body,ctx):
     p=_participant(conn,ctx,True,True); nickname=str(body.get("nickname") or "").strip(); public=body.get("is_public",p["is_public"])
@@ -219,11 +219,12 @@ def share_reward(conn,body,ctx):
     _participant(conn,ctx,active=True)
     raise DomainError("SHARE_WEBHOOK_REQUIRED","카카오톡 전송이 확인된 공유만 게임권을 받을 수 있습니다.",409)
 
-SHARE_KINDS={"record_share","retry_invite","prize_share","general_share"}
+SHARE_REWARD_TYPES={"record_share":"GAME","retry_invite":"GAME","draw_retry":"DRAW","prize_share":"NONE","general_share":"NONE"}
+SHARE_KINDS=set(SHARE_REWARD_TYPES)
 KAKAO_FRIEND_CHAT_TYPES={"DirectChat","MultiChat","OpenDirectChat","OpenMultiChat"}
 
 def _share_intent_response(row,tickets=None):
-    data={"share_id":row["id"],"status":str(row["status"]).lower(),"reward_status":str(row["reward_status"]).lower(),"expires_at":_iso(row["expires_at"]),"confirmed_at":_iso(row["confirmed_at"])}
+    data={"share_id":row["id"],"status":str(row["status"]).lower(),"reward_status":str(row["reward_status"]).lower(),"reward_type":row.get("reward_type") or SHARE_REWARD_TYPES.get(row.get("kind"),"NONE"),"expires_at":_iso(row["expires_at"]),"confirmed_at":_iso(row["confirmed_at"])}
     if tickets is not None:data["tickets"]=tickets
     return data
 
@@ -233,20 +234,31 @@ def create_share_intent(conn,body,ctx):
     p=_participant(conn,ctx,True,True);campaign=_campaign(conn);_mutable(campaign)
     kind=str(body.get("kind") or "")
     if kind not in SHARE_KINDS:raise DomainError("VALIDATION_ERROR","공유 종류를 확인해 주세요.")
+    reward_type=SHARE_REWARD_TYPES[kind]
     claim_id=str(body.get("claim_id") or "") or None
     if claim_id:
-        claim=_one(conn,"select id from dino_dev.claim where id=%s and participant_id=%s and campaign_id=%s",(claim_id,p["id"],p["campaign_id"]))
+        claim=_one(conn,"select id,claim_type from dino_dev.claim where id=%s and participant_id=%s and campaign_id=%s",(claim_id,p["id"],p["campaign_id"]))
         if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
+        allowed={"DRAW":{"prize_share"},"RANKING":{"prize_share","record_share"}}[claim["claim_type"]]
+        if kind not in allowed:raise DomainError("CLAIM_SHARE_KIND_INVALID","수령 접수용 공유 유형을 확인해 주세요.",409)
+        reward_type="NONE"
+    if reward_type=="DRAW":
+        latest=_one(conn,"select outcome_kind from dino_dev.draw where campaign_id=%s and participant_id=%s order by round_number desc limit 1",(p["campaign_id"],p["id"]))
+        state=_draw_state(conn,p)
+        if not latest or latest["outcome_kind"]!="BENEFIT" or state["used_count"]>=state["max_count"] or state["actual_prize_won"]:
+            raise DomainError("DRAW_SHARE_NOT_AVAILABLE","혜택 결과 확인 후 남은 횟수 안에서 추가 뽑기를 받을 수 있습니다.",409)
     raw_token=ctx.get("new_share_callback_token");token_hash=ctx.get("new_share_callback_token_hash")
     if not raw_token or not token_hash:raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
     share_id=_id("share")
     row=_one(conn,"""insert into dino_dev.kakao_share_intent
-      (id,participant_id,campaign_id,claim_id,kind,callback_token_hash,environment,expires_at)
-      values(%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '30 minutes') returning *""",
-      (share_id,p["id"],p["campaign_id"],claim_id,kind,token_hash,ctx["environment"]))
+      (id,participant_id,campaign_id,claim_id,kind,reward_type,reward_contract_version,callback_token_hash,environment,expires_at)
+      values(%s,%s,%s,%s,%s,%s,2,%s,%s,clock_timestamp()+interval '30 minutes') returning *""",
+      (share_id,p["id"],p["campaign_id"],claim_id,kind,reward_type,token_hash,ctx["environment"]))
     callback_args={"share_id":share_id,"callback_token":raw_token}
     if ctx.get("kakao_app_id"):callback_args["app_id"]=ctx["kakao_app_id"]
-    return 201,{**_share_intent_response(row),"callback_args":callback_args}
+    response={**_share_intent_response(row),"callback_args":callback_args}
+    if reward_type=="DRAW":response["draw_state"]=_draw_state(conn,p)
+    return 201,response
 
 def get_share_intent(conn,share_id,ctx):
     p=_participant(conn,ctx)
@@ -254,7 +266,9 @@ def get_share_intent(conn,share_id,ctx):
     if not row:raise DomainError("SHARE_INTENT_NOT_FOUND","공유 확인 요청을 찾을 수 없습니다.",404)
     status="EXPIRED" if row["status"]=="PENDING" and row["expires_at"]<=dt.datetime.now(UTC) else row["status"]
     if status!=row["status"]:row={**dict(row),"status":status,"reward_status":"NOT_ELIGIBLE"}
-    return 200,_share_intent_response(row,_tickets(p,ctx))
+    response=_share_intent_response(row,_tickets(p,ctx))
+    if response["reward_type"]=="DRAW":response["draw_state"]=_draw_state(conn,p)
+    return 200,response
 
 def kakao_share_webhook(conn,body,ctx):
     if ctx.get("kakao_webhook_verified") is not True:raise DomainError("WEBHOOK_UNAUTHORIZED","웹훅 인증이 올바르지 않습니다.",401)
@@ -275,7 +289,9 @@ def kakao_share_webhook(conn,body,ctx):
         raise DomainError("INVALID_WEBHOOK","공유 확인 환경이 일치하지 않습니다.",403)
     if row["status"]!="PENDING":
         p=_one(conn,"select * from dino_dev.participant where id=%s",(row["participant_id"],))
-        return 200,{"accepted":True,"duplicate":True,**_share_intent_response(row,_tickets(p,ctx))}
+        response={"accepted":True,"duplicate":True,**_share_intent_response(row,_tickets(p,ctx))}
+        if response["reward_type"]=="DRAW":response["draw_state"]=_draw_state(conn,p)
+        return 200,response
     now=dt.datetime.now(UTC);chat_type=str(body.get("CHAT_TYPE") or "");hash_chat_id=str(body.get("HASH_CHAT_ID") or "")
     single_room=body.get("IS_SINGLE_CHATROOM") is True or str(body.get("IS_SINGLE_CHATROOM") or "").lower()=="true"
     if row["expires_at"]<=now:
@@ -286,8 +302,23 @@ def kakao_share_webhook(conn,body,ctx):
           chat_type=%s,hash_chat_id=%s,updated_at=clock_timestamp() where id=%s returning *""",(resource_id,chat_type,hash_chat_id or None,share_id))
         return 200,{"accepted":True,**_share_intent_response(row)}
     p=_one(conn,"select * from dino_dev.participant where id=%s for update",(row["participant_id"],));campaign=_campaign(conn)
+    reward_type=row.get("reward_type") or SHARE_REWARD_TYPES.get(row["kind"],"NONE")
     reward_status="NOT_ELIGIBLE"
+    draw_state=None
     if not p or p["status"]!="ACTIVE" or campaign["status"]!="ACTIVE":reward_status="NOT_ELIGIBLE"
+    elif reward_type=="NONE":reward_status="NO_REWARD"
+    elif reward_type=="DRAW":
+        draw_state=_draw_state(conn,p)
+        if draw_state["actual_prize_won"]:reward_status="BLOCKED_PRIZE_WON"
+        elif draw_state["used_count"]+draw_state["available_credits"]>=draw_state["max_count"]:reward_status="BLOCKED_DRAW_LIMIT"
+        else:
+            new_balance=draw_state["available_credits"]+1
+            conn.execute("""insert into dino_dev.draw_credit_ledger
+              (participant_id,campaign_id,delta,source_type,source_id,balance_after)
+              values(%s,%s,1,'SHARE_GRANT',%s,%s)""",(p["id"],p["campaign_id"],share_id,new_balance))
+            reward_status="GRANTED"
+            _event(conn,"draw_share_granted",ctx,p["id"],"draw_share_granted:"+share_id,dimensions={"balance":new_balance,"method":"kakao"})
+            draw_state=_draw_state(conn,p)
     elif p["cooldown_until"] and p["cooldown_until"]>now:reward_status="BLOCKED_COOLDOWN"
     elif p["invitation_balance"]+p["invitation_refund_pending"]>=3:reward_status="BLOCKED_CAP"
     else:
@@ -303,7 +334,9 @@ def kakao_share_webhook(conn,body,ctx):
     row=_one(conn,"""update dino_dev.kakao_share_intent set status='CONFIRMED',reward_status=%s,resource_id=%s,chat_type=%s,
       hash_chat_id=%s,confirmed_at=clock_timestamp(),updated_at=clock_timestamp() where id=%s returning *""",
       (reward_status,resource_id,chat_type,hash_chat_id,share_id))
-    return 200,{"accepted":True,"duplicate":False,**_share_intent_response(row,_tickets(p,ctx))}
+    response={"accepted":True,"duplicate":False,**_share_intent_response(row,_tickets(p,ctx))}
+    if reward_type=="DRAW":response["draw_state"]=draw_state or _draw_state(conn,p)
+    return 200,response
 
 def qualify_referral(conn,body,ctx):
     visitor=_participant(conn,ctx,active=True); raw=str(body.get("visit_nonce") or "")
@@ -452,14 +485,14 @@ def finish_response(conn,s,ctx=None):
     ticket_entries=_one(conn,"""select exists(select 1 from dino_dev.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME' and source_id=%s) consumed,
       exists(select 1 from dino_dev.ticket_ledger where participant_id=%s and source_type='LOW_SCORE_REFUND' and source_id=%s) low_score_refunded""",
       (s["participant_id"],s["id"],s["participant_id"],s["id"]))
-    draw=_one(conn,"select id from dino_dev.draw where campaign_id=%s and participant_id=%s",(s["campaign_id"],s["participant_id"]))
     contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(s["participant_id"],))
     eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' limit 1",(s["participant_id"],s["campaign_id"]))
+    draw_state=_draw_state(conn,p,eligible)
     return {"session_id":s["id"],"status":s["status"],"verification":s["verification_result"],"score":s["score"],**ranking,
       "summary":s.get("game_summary") or {},"end_reason":s.get("end_reason"),
       "tickets":_tickets(p,ctx or {}),"ticket_consumed":bool(ticket_entries["consumed"] and not ticket_entries["low_score_refunded"]),
       "refund":{"status":s["ticket_refund_status"],"ticket_kind":s["ticket_kind"],"reason":"LOW_SCORE" if ticket_entries["low_score_refunded"] else None},
-      "draw":{"status":"DRAWN" if draw else "AVAILABLE" if eligible else "LOCKED","draw_id":draw["id"] if draw else None},"top3_profile":_ranking_profile_state(contact,ranking["rank"],s["version"])}
+      "draw":draw_state,"top3_profile":_ranking_profile_state(contact,ranking["rank"],s["version"])}
 
 def report_fault(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
@@ -599,28 +632,69 @@ def ranking_profile_post(conn,body,ctx):
     row=_one(conn,"update dino_dev.ranking_contact set status='SUBMITTED',recipient_name=null,contact=null,school=null,submitted_at=coalesce(submitted_at,clock_timestamp()),updated_at=clock_timestamp() where participant_id=%s returning *",(p["id"],))
     return 200,{"status":"SUBMITTED","submitted_at":_iso(row["submitted_at"]),"claim_id":claim_id}
 
+MAX_DRAW_COUNT=10
 DRAW_SELECT="""select d.*,p.name prize_name,p.category prize_category,p.image_url,c.id claim_id from dino_dev.draw d join dino_dev.prize p on p.id=d.prize_id left join dino_dev.claim c on c.draw_id=d.id"""
 def _draw_response(row):
-    return {"draw_id":row["id"],"pouch_index":row["pouch_index"],"is_won":row["is_won"],"prize":{"id":row["prize_id"],"name":row["prize_name"],"category":row["prize_category"],"image_url":row["image_url"]},"revealed":row["revealed"],"scratch_completed":row["scratch_completed"],"claim_id":row["claim_id"]}
+    return {"draw_id":row["id"],"round_number":row.get("round_number") or 1,"pouch_index":row["pouch_index"],"is_won":row["is_won"],"outcome_kind":row.get("outcome_kind") or ("PRIZE" if row["is_won"] else "BENEFIT"),"is_actual_prize":bool(row["is_won"]),"prize":{"id":row["prize_id"],"name":row["prize_name"],"category":row["prize_category"],"image_url":row["image_url"]},"revealed":row["revealed"],"scratch_completed":row["scratch_completed"],"claim_id":row["claim_id"]}
+
+def _draw_state(conn,p,eligible=None):
+    if eligible is None:eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],p["campaign_id"]))
+    rows=_all(conn,DRAW_SELECT+" where d.campaign_id=%s and d.participant_id=%s order by d.round_number",(p["campaign_id"],p["id"]))
+    credits=_one(conn,"select coalesce(sum(delta),0)::int balance from dino_dev.draw_credit_ledger where participant_id=%s and campaign_id=%s",(p["id"],p["campaign_id"]))["balance"]
+    first_recorded=bool(_one(conn,"select 1 from dino_dev.draw_credit_ledger where participant_id=%s and campaign_id=%s and source_type='FIRST_GRANT'",(p["id"],p["campaign_id"])))
+    missing_consumes=_one(conn,"""select count(*)::int n from dino_dev.draw d
+      where d.participant_id=%s and d.campaign_id=%s and not exists(
+        select 1 from dino_dev.draw_credit_ledger l where l.participant_id=d.participant_id
+          and l.campaign_id=d.campaign_id and l.source_type='DRAW_CONSUME' and l.source_id=d.id)""",
+      (p["id"],p["campaign_id"]))["n"]
+    # During a rolling deploy, the previous application may insert its first
+    # draw after the migration backfill. Treat that preserved draw as already
+    # consuming the virtual first right even before the next mutation reconciles
+    # the append-only ledger.
+    available=max(0,credits+(1 if eligible and not first_recorded else 0)-missing_consumes)
+    won=any(bool(row["is_won"]) for row in rows);used=len(rows);latest=rows[-1] if rows else None
+    if not eligible:status="LOCKED"
+    elif won:status="WON"
+    elif used>=MAX_DRAW_COUNT:status="EXHAUSTED"
+    elif available>0:status="AVAILABLE"
+    elif latest:status="DRAWN"
+    else:status="AVAILABLE"
+    return {"status":status,"draw_id":latest["id"] if latest else None,"used_count":used,"max_count":MAX_DRAW_COUNT,"available_credits":available,"remaining_possible":max(0,MAX_DRAW_COUNT-used-available),"actual_prize_won":won}
+
+def _ensure_first_draw_credit(conn,p,eligible):
+    old=_one(conn,"select 1 from dino_dev.draw_credit_ledger where participant_id=%s and campaign_id=%s and source_type='FIRST_GRANT'",(p["id"],p["campaign_id"]))
+    balance=_one(conn,"select coalesce(sum(delta),0)::int balance from dino_dev.draw_credit_ledger where participant_id=%s and campaign_id=%s",(p["id"],p["campaign_id"]))["balance"]
+    if not old:
+        result=conn.execute("""insert into dino_dev.draw_credit_ledger(participant_id,campaign_id,delta,source_type,source_id,balance_after)
+          values(%s,%s,1,'FIRST_GRANT',%s,%s) on conflict(participant_id,source_type,source_id) do nothing""",(p["id"],p["campaign_id"],eligible["id"],balance+1))
+        if result.rowcount:balance+=1
+    missing=_all(conn,"""select d.id,d.created_at from dino_dev.draw d
+      where d.participant_id=%s and d.campaign_id=%s and not exists(
+        select 1 from dino_dev.draw_credit_ledger l where l.participant_id=d.participant_id
+          and l.campaign_id=d.campaign_id and l.source_type='DRAW_CONSUME' and l.source_id=d.id)
+      order by d.round_number,d.created_at,d.id""",(p["id"],p["campaign_id"]))
+    for draw in missing:
+        if balance<=0:raise DomainError("DRAW_LEDGER_INVALID","복주머니 사용 기록을 확인하고 있습니다.",503)
+        balance-=1
+        conn.execute("""insert into dino_dev.draw_credit_ledger
+          (participant_id,campaign_id,delta,source_type,source_id,balance_after,created_at)
+          values(%s,%s,-1,'DRAW_CONSUME',%s,%s,%s)
+          on conflict(participant_id,source_type,source_id) do nothing""",
+          (p["id"],p["campaign_id"],draw["id"],balance,draw["created_at"]))
+
 def draw_me(conn,ctx):
-    p=_participant(conn,ctx); row=_one(conn,DRAW_SELECT+" where d.campaign_id=%s and d.participant_id=%s",(p["campaign_id"],p["id"]))
-    if row:return 200,{"status":"DRAWN","draw":_draw_response(row)}
+    p=_participant(conn,ctx); rows=_all(conn,DRAW_SELECT+" where d.campaign_id=%s and d.participant_id=%s order by d.round_number",(p["campaign_id"],p["id"]))
     eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
-    return 200,{"status":"AVAILABLE" if eligible else "LOCKED","eligible_session_id":eligible["id"] if eligible else None,"draw":None}
-def create_draw(conn,body,ctx):
-    p=_participant(conn,ctx,True,True); old=_one(conn,DRAW_SELECT+" where d.campaign_id=%s and d.participant_id=%s for update of d",(p["campaign_id"],p["id"]))
-    if old:return 200,_draw_response(old)
-    try:pouch=int(body.get("pouch_index"))
-    except (TypeError,ValueError):pouch=-1
-    if pouch not in (0,1,2):raise DomainError("VALIDATION_ERROR","복주머니를 확인해 주세요.")
-    session=_one(conn,"select * from dino_dev.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1 for update",(p["id"],))
-    if not session:raise DomainError("DRAW_NOT_AVAILABLE","정상 게임 완료 후 열 수 있습니다.",409)
-    campaign=_campaign(conn); prizes=_all(conn,"select * from dino_dev.prize where campaign_id=%s and is_active order by id",(campaign["id"],))
-    roll=secrets.randbelow(10_000_000)/10_000_000; acc=0; prize=None
+    state=_draw_state(conn,p,eligible)
+    return 200,{**state,"eligible_session_id":eligible["id"] if eligible else None,"draw":_draw_response(rows[-1]) if rows else None,"draws":[_draw_response(row) for row in rows],"draw_state":state}
+
+def _legacy_prize(conn,campaign):
+    prizes=_all(conn,"select * from dino_dev.prize where campaign_id=%s and is_active order by id",(campaign["id"],))
+    roll=secrets.randbelow(10_000_000)/10_000_000;acc=0;prize=None
     for item in prizes:
         acc+=float(item["probability"])
         if roll<acc:prize=item;break
-    prize=prize or next((x for x in prizes if x["category"]=="NO_PRIZE"),None)
+    prize=prize or next((item for item in prizes if item["category"]=="NO_PRIZE"),None)
     if not prize:raise DomainError("DRAW_CONFIG_INVALID","추첨 설정을 확인하고 있습니다.",503)
     inventory=None
     if prize["category"]!="NO_PRIZE":
@@ -628,17 +702,76 @@ def create_draw(conn,body,ctx):
         if not inventory:
             remaining=_one(conn,"select count(*)::int n from dino_dev.inventory_item where prize_id=%s and status='AVAILABLE'",(prize["id"],))["n"]
             if remaining:raise DomainError("INVENTORY_BUSY","경품 재고 확인이 지연되고 있습니다.",503,True)
-            prize=next((x for x in prizes if x["category"]=="NO_PRIZE"),None)
-            if not prize:raise DomainError("INVENTORY_EXHAUSTED","경품 재고가 소진되었습니다.",409)
-    did=_id("draw"); audit=hashlib.sha256(f"{did}:{roll}:{campaign['probability_version']}".encode()).hexdigest()
-    conn.execute("""insert into dino_dev.draw(id,campaign_id,participant_id,eligible_session_id,pouch_index,prize_id,inventory_item_id,is_won,probability_version,random_audit_hash)
-      values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",(did,campaign["id"],p["id"],session["id"],pouch,prize["id"],inventory["id"] if inventory else None,prize["category"]!="NO_PRIZE",campaign["probability_version"],audit))
+            prize=next((item for item in prizes if item["category"]=="NO_PRIZE"),None)
+    return prize,inventory,roll,None
+
+def _pool_prize(conn,campaign):
+    conn.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",("draw-pool:"+campaign["id"],))
+    counts=_one(conn,"""select count(*)::int total,
+      count(*) filter(where outcome_kind='PRIZE')::int prizes
+      from dino_dev.draw_pool_slot where campaign_id=%s""",(campaign["id"],))
+    total=counts["total"]
+    finite_pool=bool((campaign.get("settings") or {}).get("phase3_manifest_hash"))
+    if finite_pool and (total!=5000 or counts["prizes"]!=77):
+        raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
+    if not total:return _legacy_prize(conn,campaign)
+    remaining=_one(conn,"select count(*)::int n from dino_dev.draw_pool_slot where campaign_id=%s and allocated_draw_id is null",(campaign["id"],))["n"]
+    if remaining<=0:raise DomainError("DRAW_POOL_EXHAUSTED","준비된 복주머니 추첨이 모두 소진되었습니다.",409)
+    offset=secrets.randbelow(remaining)
+    slot=_one(conn,"select * from dino_dev.draw_pool_slot where campaign_id=%s and allocated_draw_id is null order by slot_number offset %s limit 1 for update",(campaign["id"],offset))
+    if not slot:raise DomainError("DRAW_POOL_BUSY","추첨 자리 확인이 지연되고 있습니다.",503,True)
+    if slot["outcome_kind"]=="BENEFIT":
+        prize=_one(conn,"select * from dino_dev.prize where campaign_id=%s and category='NO_PRIZE' and is_active order by id limit 1",(campaign["id"],));inventory=None
+    else:
+        prize=_one(conn,"select * from dino_dev.prize where id=%s and campaign_id=%s and is_active",(slot["prize_id"],campaign["id"]))
+        inventory=_one(conn,"select * from dino_dev.inventory_item where id=%s and prize_id=%s and status='AVAILABLE' for update",(slot["inventory_item_id"],slot["prize_id"]))
+    if not prize or (slot["outcome_kind"]=="PRIZE" and not inventory):raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
+    return prize,inventory,slot["slot_number"]/max(total,1),slot
+
+def create_draw(conn,body,ctx):
+    p=_participant(conn,ctx,True,True)
+    try:pouch=int(body.get("pouch_index"))
+    except (TypeError,ValueError):pouch=-1
+    if pouch not in (0,1,2):raise DomainError("VALIDATION_ERROR","복주머니를 확인해 주세요.")
+    session=_one(conn,"select * from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1 for update",(p["id"],p["campaign_id"]))
+    if not session:raise DomainError("DRAW_NOT_AVAILABLE","정상 게임 완료 후 열 수 있습니다.",409)
+    campaign=_campaign(conn);_mutable(campaign)
+    _ensure_first_draw_credit(conn,p,session);state=_draw_state(conn,p,session)
+    raw_expected=body.get("expected_round_number")
+    if raw_expected is None:
+        if state["used_count"]:
+            raise DomainError("DRAW_ROUND_REQUIRED","현재 추첨 회차를 다시 확인해 주세요.",409)
+        expected_round=1
+    else:
+        try:expected_round=int(raw_expected)
+        except (TypeError,ValueError):expected_round=0
+        if expected_round<1 or expected_round>MAX_DRAW_COUNT:
+            raise DomainError("VALIDATION_ERROR","추첨 회차를 확인해 주세요.")
+    existing=_one(conn,DRAW_SELECT+" where d.campaign_id=%s and d.participant_id=%s and d.round_number=%s",(p["campaign_id"],p["id"],expected_round))
+    if existing:
+        if existing["pouch_index"]!=pouch:
+            raise DomainError("DRAW_ROUND_CONFLICT","이미 선택한 복주머니 결과가 있습니다.",409)
+        return 200,{**_draw_response(existing),"draw_state":_draw_state(conn,p,session),"replayed":True}
+    next_round=state["used_count"]+1
+    if expected_round!=next_round:
+        raise DomainError("DRAW_ROUND_MISMATCH","추첨 상태가 바뀌었습니다. 결과를 다시 확인해 주세요.",409)
+    if state["actual_prize_won"]:raise DomainError("DRAW_PRIZE_ALREADY_WON","실제 상품 당첨자의 복주머니 추첨은 완료되었습니다.",409)
+    if state["used_count"]>=MAX_DRAW_COUNT:raise DomainError("DRAW_LIMIT_REACHED","복주머니는 최대 10회까지 확인할 수 있습니다.",409)
+    if state["available_credits"]<=0:raise DomainError("DRAW_CREDIT_REQUIRED","카카오톡 공유 후 추가 복주머니를 확인할 수 있습니다.",409)
+    prize,inventory,roll,slot=_pool_prize(conn,campaign);round_number=expected_round
+    outcome_kind="PRIZE" if inventory else "BENEFIT";did=_id("draw");audit=hashlib.sha256(f"{did}:{roll}:{campaign['probability_version']}:{slot['id'] if slot else 'legacy'}".encode()).hexdigest()
+    conn.execute("""insert into dino_dev.draw(id,campaign_id,participant_id,eligible_session_id,round_number,pouch_index,prize_id,inventory_item_id,is_won,outcome_kind,probability_version,random_audit_hash)
+      values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",(did,campaign["id"],p["id"],session["id"],round_number,pouch,prize["id"],inventory["id"] if inventory else None,bool(inventory),outcome_kind,campaign["probability_version"],audit))
+    balance=state["available_credits"]-1
+    conn.execute("""insert into dino_dev.draw_credit_ledger(participant_id,campaign_id,delta,source_type,source_id,balance_after)
+      values(%s,%s,-1,'DRAW_CONSUME',%s,%s)""",(p["id"],p["campaign_id"],did,balance))
+    if slot:conn.execute("update dino_dev.draw_pool_slot set allocated_draw_id=%s,allocated_at=clock_timestamp() where id=%s",(did,slot["id"]))
     claim_id=None
     if inventory:
         conn.execute("update dino_dev.inventory_item set status='RESERVED',reserved_by_draw_id=%s,reserved_at=clock_timestamp() where id=%s",(did,inventory["id"])); conn.execute("insert into dino_dev.inventory_history(inventory_item_id,from_status,to_status,reason,related_type,related_id) values(%s,'AVAILABLE','RESERVED','DRAW','draw',%s)",(inventory["id"],did))
         claim_id=_id("claim"); conn.execute("insert into dino_dev.claim(id,campaign_id,participant_id,draw_id,claim_type,prize_id,inventory_item_id) values(%s,%s,%s,%s,'DRAW',%s,%s)",(claim_id,campaign["id"],p["id"],did,prize["id"],inventory["id"]))
-    row=_one(conn,DRAW_SELECT+" where d.id=%s",(did,)); _event(conn,"draw_fixed",ctx,p["id"],"draw:"+did,dimensions={"result_type":"won" if inventory else "no_prize"})
-    return 201,_draw_response(row)
+    row=_one(conn,DRAW_SELECT+" where d.id=%s",(did,));_event(conn,"draw_fixed",ctx,p["id"],"draw:"+did,dimensions={"result_type":"prize" if inventory else "benefit","round_number":round_number})
+    return 201,{**_draw_response(row),"draw_state":_draw_state(conn,p,session)}
 def scratch_complete(conn,did,ctx):
     p=_participant(conn,ctx); row=_one(conn,"update dino_dev.draw set revealed=true,scratch_completed=true where id=%s and participant_id=%s returning *",(did,p["id"]))
     if not row:raise DomainError("DRAW_NOT_FOUND","추첨 결과를 찾을 수 없습니다.",404)
@@ -668,8 +801,10 @@ def claim_draft_get(conn,cid,ctx):
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
     row=_one(conn,"select recipient_name,contact,school,address,consent_version from dino_dev.claim_contact_draft where claim_id=%s",(cid,))
     draft=None if not row else {"name":row["recipient_name"],"contact":row["contact"],"school":row["school"],"address":row["address"] or "","consent":True,"notice_version":row["consent_version"]}
-    intent=_one(conn,"""select id,status,reward_status,expires_at,confirmed_at from dino_dev.kakao_share_intent
-      where claim_id=%s and participant_id=%s and (status='CONFIRMED' or (status='PENDING' and expires_at>clock_timestamp()))
+    intent=_one(conn,"""select id,status,reward_status,reward_type,reward_contract_version,kind,expires_at,confirmed_at from dino_dev.kakao_share_intent
+      where claim_id=%s and participant_id=%s
+      and (reward_contract_version=1 or (reward_type='NONE' and kind in ('prize_share','record_share')))
+      and (status='CONFIRMED' or (status='PENDING' and expires_at>clock_timestamp()))
       order by (status='CONFIRMED') desc,created_at desc limit 1""",(cid,p["id"]))
     return 200,{"draft":draft,"share_intent_id":intent["id"] if intent else None,"share_intent":_share_intent_response(intent) if intent else None}
 
@@ -701,7 +836,8 @@ def submit_claim(conn,cid,body,ctx):
     if not draft or not draft["consent_at"] or draft["consent_version"]!="claim-contact-v1":raise DomainError("CLAIM_DRAFT_REQUIRED","먼저 수령 정보를 저장하고 동의해 주세요.",409)
     share_intent_id=str(body.get("share_intent_id") or "")
     intent=_one(conn,"""select id from dino_dev.kakao_share_intent where id=%s and participant_id=%s and claim_id=%s
-      and status='CONFIRMED' and confirmed_at is not null""",(share_intent_id,p["id"],cid))
+      and status='CONFIRMED' and confirmed_at is not null
+      and (reward_contract_version=1 or (reward_type='NONE' and kind in ('prize_share','record_share')))""",(share_intent_id,p["id"],cid))
     if not intent:raise DomainError("SHARE_STEP_REQUIRED","카카오톡 전송이 확인된 뒤 접수해 주세요.",409)
     conn.execute("""insert into dino_dev.claim_contact
       (claim_id,recipient_name,contact,school,address,synthetic,consent_at,consent_version)
@@ -724,7 +860,7 @@ INTEGER_DIMENSION_RANGES={"score":(0,9000),"rank":(0,100000),"checkpoint":(0,360
 ENUM_DIMENSIONS={
   "previous_screen":SCREENS|{"unknown"},
   "source":{"home","result","invite","claims","gemini","phase1_load","phase2_load","unknown"},
-  "link_kind":{"initial","retry_invite","record_share","prize_share","direct","unknown"},
+  "link_kind":{"initial","retry_invite","record_share","draw_retry","prize_share","general_share","direct","unknown"},
   "content":{"study","photo","study_note","job_photo","other","unknown"},
   "position":{"benefit_main","benefit_guides","unknown"},
   "action":{"pouch_0","pouch_1","pouch_2","accessibility_button","keyboard"},
@@ -737,11 +873,11 @@ ENUM_DIMENSIONS={
     "NETWORK_ERROR","CLIENT_ERROR","SERVER_ERROR","CAMPAIGN_UNAVAILABLE","RATE_LIMITED"},
   "stage":{"stage_1","stage_2","stage_3","stage_4","stage_5","stage_6","stage_7","stage_8","stage_9","stage_10"},
   "bucket":{"0-1s","1-2s","2-3s","3s+","unknown"},
-  "result_type":{"won","no_prize","unknown"},
+  "result_type":{"won","no_prize","prize","benefit","unknown"},
   "prize_kind":{"COUPON","DIGITAL","SHIPPING","NO_PRIZE","NONE"},
   "share_method":{"kakao","copy","native","unknown"},
   "claim_type":{"DRAW","RANKING"},
-  "draw_status":{"LOCKED","AVAILABLE","DRAWN"},
+  "draw_status":{"LOCKED","AVAILABLE","DRAWN","WON","EXHAUSTED"},
   "end_reason":{"COLLISION","TIME_LIMIT"},
 }
 CODE_DIMENSIONS={"channel","campaign_code"}

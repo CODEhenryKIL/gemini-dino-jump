@@ -1,0 +1,46 @@
+{
+  "version": "phase3-20260929-v1",
+  "status": "DRAFT",
+  "event_enabled": false,
+  "campaign": {
+    "id": null,
+    "opens_at": null,
+    "closes_at": null,
+    "timezone": "Asia/Seoul"
+  },
+  "draw_pool": {"total_slots": 5000, "benefit_slots": 4923, "max_draws_per_participant": 10, "mode": "WITHOUT_REPLACEMENT"},
+  "draw_prizes": [
+    {"id": "samtanbyme", "name": "삼텐바이미", "category": "SHIPPING", "quantity": 1, "unit_price_krw": 350000},
+    {"id": "sony_ult_wear", "name": "소니 ULT WEAR 헤드셋", "category": "SHIPPING", "quantity": 2, "unit_price_krw": 259000},
+    {"id": "orthomol_7day", "name": "오쏘몰 이뮨 7일분", "category": "SHIPPING", "quantity": 2, "unit_price_krw": 38000},
+    {"id": "naverpay_50000", "name": "네이버페이 5만원권", "category": "COUPON", "quantity": 3, "unit_price_krw": 50000},
+    {"id": "musinsa_50000", "name": "무신사 5만원권", "category": "COUPON", "quantity": 2, "unit_price_krw": 50000},
+    {"id": "baemin_20000", "name": "배민 2만원권", "category": "COUPON", "quantity": 4, "unit_price_krw": 20000},
+    {"id": "starbucks_10000", "name": "스타벅스 1만원권", "category": "COUPON", "quantity": 9, "unit_price_krw": 10000},
+    {"id": "convenience_5000", "name": "편의점 5천원권", "category": "COUPON", "quantity": 24, "unit_price_krw": 5000},
+    {"id": "ghana", "name": "가나초콜릿", "category": "SHIPPING", "quantity": 10, "unit_price_krw": 1500},
+    {"id": "snickers", "name": "스니커즈", "category": "SHIPPING", "quantity": 10, "unit_price_krw": 1500},
+    {"id": "chupa_chups", "name": "츄파춥스", "category": "SHIPPING", "quantity": 10, "unit_price_krw": 500}
+  ],
+  "ranking_prizes": [
+    {"rank": 1, "id": "musinsa_50000", "name": "무신사 5만원권", "quantity": 1, "unit_price_krw": 50000},
+    {"rank": 2, "id": "baemin_20000", "name": "배민 2만원권", "quantity": 1, "unit_price_krw": 20000},
+    {"rank": 3, "id": "starbucks_10000", "name": "스타벅스 1만원권", "quantity": 1, "unit_price_krw": 10000}
+  ],
+  "policies": {
+    "pool_exhaustion": null,
+    "unallocated_inventory_at_close": null,
+    "beta_data_migration": null,
+    "ranking_ties": null,
+    "finish_after_close": null,
+    "draw_and_ranking_double_award": "ALLOW_BOTH — 2026-09-29 사용자 확정: 동일인이 복주머니 실제 상품과 랭킹 TOP3 상품을 각각 받을 수 있음",
+    "eligibility_and_proof": null,
+    "claim_deadline_and_no_response": null,
+    "duplicate_person_claims": null,
+    "privacy_retention_and_deletion": null,
+    "operator_contact": null
+  },
+  "approvals": {"environment": null, "inventory": null, "privacy": null, "benefit_and_brand": null, "public_launch": null},
+  "evidence": {"target_db_and_backup": null, "runtime_production_guard": null, "inventory_reconciliation": null, "real_kakao_game_and_draw": null, "physical_device_qa": null, "final_load_test": null, "notion_and_benefit_links": null, "rollback_rehearsal": null},
+  "production_flags": {"unlimited_play": false, "synthetic_inventory": false, "shortened_clock": false}
+}

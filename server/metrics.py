@@ -237,6 +237,17 @@ def build_overview(conn, query, ctx):
       from dino_dev.ticket_ledger l join people p on p.id=l.participant_id where l.created_at>=%s and l.created_at<%s group by 1,2''', (start, end))
     claims = rows('''select c.claim_type,c.status,count(*)::int claims,count(distinct c.participant_id)::int participants
       from dino_dev.claim c join people p on p.id=c.participant_id where c.created_at>=%s and c.created_at<%s group by 1,2''', (start, end))
+    draws = one('''select count(*)::int total_draws,
+      count(*) filter(where d.outcome_kind='PRIZE')::int actual_prize_draws,
+      count(distinct d.participant_id) filter(where d.outcome_kind='PRIZE')::int actual_prize_winners,
+      count(*) filter(where d.outcome_kind='BENEFIT')::int benefit_results,
+      count(*) filter(where c.status='PAID')::int paid_prizes
+      from dino_dev.draw d join people p on p.id=d.participant_id
+      left join dino_dev.claim c on c.draw_id=d.id
+      where d.created_at>=%s and d.created_at<%s''', (start,end))
+    draw_credits = rows('''select l.source_type,count(*)::int events,count(distinct l.participant_id)::int participants,
+      coalesce(sum(l.delta),0)::int net_credits from dino_dev.draw_credit_ledger l join people p on p.id=l.participant_id
+      where l.created_at>=%s and l.created_at<%s group by 1 order by 1''', (start,end))
     ranking = one('''select count(*)::int requested,count(*) filter(where r.status='SUBMITTED')::int submitted
       from dino_dev.ranking_contact r join people p on p.id=r.participant_id
       join dino_dev.ranking_contact_version rv on rv.participant_id=r.participant_id and rv.game_version=%s''', (game_version,))
@@ -300,12 +311,19 @@ def build_overview(conn, query, ctx):
       count(distinct v.visitor_id)::int visitors from dino_dev.invitation_visit v join people p on p.id=v.inviter_id
       where v.created_at>=%s and v.created_at<%s group by 1,2 order by 1,2""", (start,end))
     sharing_purpose_case = """case
-      when dimensions->>'source'='gemini' then 'gemini'
-      when dimensions->>'link_kind'='record_share' then 'record_share'
-      when dimensions->>'link_kind'='prize_share' then 'prize_share'
-      when screen='invite' or dimensions ? 'share_id'
-        or dimensions->>'link_kind' in ('invite','retry_invite') then 'retry_invite'
+      when e.dimensions->>'source'='gemini' then 'gemini'
+      when i.id is null then 'unknown'
+      when i.claim_id is not null then 'claim_share'
+      when i.kind='draw_retry' then 'draw_retry'
+      when i.kind='record_share' and i.reward_type='GAME' then 'record_share'
+      when i.kind='retry_invite' and i.reward_type='GAME' then 'retry_invite'
+      when i.kind='prize_share' then 'prize_share'
+      when i.kind='general_share' then 'general_share'
       else 'unknown' end"""
+    sharing_event_source = """from events e left join dino_dev.kakao_share_intent i
+      on i.id=e.dimensions->>'share_id' and i.participant_id=e.person_id
+      and i.campaign_id=e.campaign_id
+      where e.source='client' and e.event_name='share_attempted'"""
     sharing = rows("""select coalesce(dimensions->>'share_method','unknown') share_method,
       coalesce(dimensions->>'status','unknown') status,count(*)::int events,
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
@@ -319,25 +337,38 @@ def build_overview(conn, query, ctx):
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
       count(*) filter(where person_id is null)::int unlinked_events
       from (select {sharing_purpose_case} purpose,
-        coalesce(dimensions->>'share_method','unknown') share_method,
-        coalesce(dimensions->>'status','unknown') status,person_id
-        from events where source='client' and event_name='share_attempted') s
+        coalesce(e.dimensions->>'share_method','unknown') share_method,
+        coalesce(e.dimensions->>'status','unknown') status,e.person_id
+        {sharing_event_source}) s
       group by 1,2,3 order by 1,2,3""")
     sharing_purpose_totals = rows(f"""select purpose,
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
       count(*) filter(where person_id is null)::int unlinked_events
-      from (select {sharing_purpose_case} purpose,person_id
-        from events where source='client' and event_name='share_attempted') s
+      from (select {sharing_purpose_case} purpose,e.person_id
+        {sharing_event_source}) s
       group by 1 order by 1""")
-    invitation_purposes = ('retry_invite', 'record_share', 'prize_share')
+    verified_sharing = rows("""select purpose,count(*)::int intents,
+      count(distinct participant_id)::int participants from (
+        select case when i.claim_id is not null then 'claim_share'
+          when i.kind='draw_retry' then 'draw_retry'
+          when i.kind='record_share' and i.reward_type='GAME' then 'record_share'
+          when i.kind='retry_invite' and i.reward_type='GAME' then 'retry_invite'
+          when i.kind='prize_share' then 'prize_share'
+          when i.kind='general_share' then 'general_share'
+          else 'unknown' end purpose,i.participant_id
+        from dino_dev.kakao_share_intent i join people p on p.id=i.participant_id
+        where i.status='CONFIRMED' and i.confirmed_at>=%s and i.confirmed_at<%s
+      ) confirmed group by purpose order by purpose""", (start,end))
+    verified_by_purpose = {row['purpose']: row for row in verified_sharing}
+    invitation_purposes = ('retry_invite', 'record_share')
     invitation_sharing = [{k: v for k, v in row.items() if k != 'purpose'}
       for row in sharing_by_purpose if row['purpose'] in invitation_purposes]
     invitation_sharing_totals = one(f"""select
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
       count(*) filter(where person_id is null)::int unlinked_events
-      from (select {sharing_purpose_case} purpose,person_id
-        from events where source='client' and event_name='share_attempted') s
-      where purpose in ('retry_invite','record_share','prize_share')""")
+      from (select {sharing_purpose_case} purpose,e.person_id
+        {sharing_event_source}) s
+      where purpose in ('retry_invite','record_share')""")
 
     def sharing_summary(grouped, totals):
         return {
@@ -356,7 +387,7 @@ def build_overview(conn, query, ctx):
     sharing_summary_all = sharing_summary(sharing, sharing_totals)
     purpose_summaries = {}
     purpose_totals = {row['purpose']: row for row in sharing_purpose_totals}
-    for purpose in ('gemini', 'retry_invite', 'record_share', 'prize_share', 'unknown'):
+    for purpose in ('gemini', 'draw_retry', 'retry_invite', 'record_share', 'prize_share', 'general_share', 'claim_share', 'unknown'):
         grouped = [{k: v for k, v in row.items() if k != 'purpose'}
                    for row in sharing_by_purpose if row['purpose'] == purpose]
         purpose_total = purpose_totals.get(purpose, {'linked_participants': 0, 'unlinked_events': 0})
@@ -364,7 +395,16 @@ def build_overview(conn, query, ctx):
           'linked_participants': purpose_total['linked_participants'],
           'unlinked_events': purpose_total['unlinked_events'],
         })
+        verified = verified_by_purpose.get(purpose, {'intents': 0, 'participants': 0})
+        purpose_summaries[purpose]['server_confirmed_intents'] = verified['intents']
+        purpose_summaries[purpose]['server_confirmed_participants'] = verified['participants']
     invitation_sharing_summary = sharing_summary(invitation_sharing, invitation_sharing_totals)
+    invitation_sharing_summary['server_confirmed_intents'] = sum(
+      verified_by_purpose.get(purpose, {}).get('intents', 0) for purpose in invitation_purposes)
+    invitation_sharing_summary['server_confirmed_participants'] = one("""select count(distinct i.participant_id)::int n
+      from dino_dev.kakao_share_intent i join people p on p.id=i.participant_id
+      where i.status='CONFIRMED' and i.confirmed_at>=%s and i.confirmed_at<%s
+        and i.claim_id is null and i.reward_type='GAME' and i.kind in ('retry_invite','record_share')""", (start,end))['n']
     invitation_performance = one(""", grants as (
       select l.* from dino_dev.ticket_ledger l join people p on p.id=l.participant_id
       where l.ticket_kind='INVITATION' and l.source_type in ('INVITATION_GRANT','SHARE_GRANT')
@@ -483,13 +523,17 @@ def build_overview(conn, query, ctx):
       generated_at=_iso(now), observation_window_seconds=window, totals=totals, funnel=funnel, metrics=metrics,
       loading={'buckets':loading,'milestones':loading_milestones,'estimated':True}, screens=screens, game={**game,'game_version':game_version}, score_distribution=score_distribution, leaderboard=leaderboard,
       source_funnel=source_funnel, ticket_ledger=ledger, claims=claims, ranking=ranking,
+      draws=draws,draw_credit_ledger=draw_credits,
       stages=stages,result_dwell=result_dwell,invitation=invitation,
       sharing={'by_purpose':sharing_by_purpose,
         'gemini_sharing':purpose_summaries['gemini'],
+        'draw_retry_sharing':purpose_summaries['draw_retry'],
         'invitation_sharing':invitation_sharing_summary,
         'retry_invite_sharing':purpose_summaries['retry_invite'],
         'record_share_sharing':purpose_summaries['record_share'],
         'prize_share_sharing':purpose_summaries['prize_share'],
+        'general_share_sharing':purpose_summaries['general_share'],
+        'claim_share_sharing':purpose_summaries['claim_share'],
         'unknown_sharing':purpose_summaries['unknown'],
         **sharing_summary_all}, invitation_performance=invitation_performance,
       game_progress={'by_last_stage':game_progress_rows,'unlinked_checkpoint_events':unlinked_game_progress},
@@ -506,7 +550,7 @@ def build_overview(conn, query, ctx):
         'loading':'준비 완료 전 마지막 관측 기반 추정. 관측창 진행 중은 이탈 제외. unknown은 활성 시간 미관측.',
         'active_ms':'누적 체크포인트 합산이 아닌 방문·화면별 최대값 합계',
         'stage_active_dwell':'같은 화면 진입에서 후속 단계까지 관측된 누적 활성 시간 차이. 신호가 없으면 active_dwell_unknown이며 wall clock으로 대체하지 않음.',
-        'sharing':'클라이언트가 관측한 공유 수단 호출·복사 성공·취소·실패. Gemini·재도전 초대·기록 공유·당첨 공유·근거 없는 unknown 목적을 분리하며 invitation_sharing은 세 초대 보상 공유의 합계. 실제 전송·수신·도착 여부는 unknown.',
+        'sharing':'event_count와 by_method_status는 클라이언트 공유창 관측이며 실제 전송을 뜻하지 않음. share_id가 현재 참가자·행사 소유의 서버 공유 의도와 일치할 때만 목적을 분류하고, 그 외에는 unknown. invitation_sharing은 게임권 목적 retry_invite와 claim 없는 GAME record_share만 합산. server_confirmed_intents는 카카오 서버 콜백으로 확인된 전송 건수이며 수신·열람 여부는 확인하지 않음.',
         'invitation_performance':'지급·사용은 서버 티켓 원장. 쿨다운 후 재획득은 과거 cooldown_until 종료 뒤 발생한 새 지급이며, 재참여는 그 뒤의 초대권 소비.',
         'game_progress':'서버 승인 게임별 마지막 연결된 클라이언트 체크포인트. 연결되지 않은 체크포인트와 활성 시간 미관측은 별도 unknown.',
         'content':'콘텐츠별 클라이언트 노출·클릭·승인된 Notion 이동 요청. unique_ctr은 노출과 클릭이 모두 관찰된 고유 참가자 / 노출 고유 참가자이며, 클릭을 가입 완료로 계산하지 않음.',

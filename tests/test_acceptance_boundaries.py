@@ -34,6 +34,12 @@ ADDITIONS = ROOT / "supabase/migrations/20260925092759_phase1_acceptance_additio
 CLAIM_FIX = ROOT / "supabase/migrations/20260925125939_add_awaiting_claim_information_status.sql"
 PHASE2 = ROOT / "supabase/migrations/20260925140902_phase2_game_versions_and_tracking.sql"
 GAME_V21 = ROOT / "supabase/migrations/20260926093414_game_rules_v21.sql"
+REAL_TOP3_CONTACT = ROOT / "supabase/migrations/20260926103809_allow_real_top3_contact.sql"
+CLAIM_DRAFT = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
+LOW_SCORE_REFUND = ROOT / "supabase/migrations/20260927090000_low_score_ticket_refund.sql"
+KAKAO_SHARE_WEBHOOK = ROOT / "supabase/migrations/20260927091037_kakao_share_webhook.sql"
+INTERRUPTED_AND_SHARE = ROOT / "supabase/migrations/20260927140000_incomplete_refund_and_share_grant.sql"
+PHASE3 = ROOT / "supabase/migrations/20260928151903_phase3_draw_rounds_and_reward_purposes.sql"
 SEED = ROOT / "supabase/seed_dino_dev.sql"
 CAMPAIGN_ID = "gemini_dino_phase1_test"
 PEPPER = "acceptance-boundary-pepper-0123456789"
@@ -126,6 +132,12 @@ class AcceptanceBoundaryTest(unittest.TestCase):
             _run_sql(cls.database, CLAIM_FIX)
             _run_sql(cls.database, PHASE2)
             _run_sql(cls.database, GAME_V21)
+            _run_sql(cls.database, REAL_TOP3_CONTACT)
+            _run_sql(cls.database, CLAIM_DRAFT)
+            _run_sql(cls.database, LOW_SCORE_REFUND)
+            _run_sql(cls.database, KAKAO_SHARE_WEBHOOK)
+            _run_sql(cls.database, INTERRUPTED_AND_SHARE)
+            _run_sql(cls.database, PHASE3)
             with psycopg.connect(cls.dsn) as conn:
                 conn.execute(
                     "insert into dino_dev.environment_guard"
@@ -292,7 +304,7 @@ class AcceptanceBoundaryTest(unittest.TestCase):
                 request_context(admin_user_id=admin_id),
             )
 
-    def test_cooldown_boundary_and_pair_dedup_after_visit_expiry(self):
+    def test_qualified_visit_is_tracking_only_and_pair_dedups_after_expiry(self):
         with psycopg.connect(self.dsn) as conn:
             now = conn.execute("select clock_timestamp()").fetchone()[0]
 
@@ -309,7 +321,7 @@ class AcceptanceBoundaryTest(unittest.TestCase):
             _, nonce = self.pending_visit(inviter, visitor, now, label)
             outcomes.append(self.qualify(inviter, visitor, nonce, now)["status"])
 
-        self.assertEqual(outcomes, ["REWARDED", "REWARDED", "COOLDOWN"])
+        self.assertEqual(outcomes, ["QUALIFIED", "QUALIFIED", "QUALIFIED"])
 
         inviter = self.participant("dedup_inviter", initial=0)
         visitor = self.participant("dedup_visitor", initial=0)
@@ -333,9 +345,9 @@ class AcceptanceBoundaryTest(unittest.TestCase):
                 "select invitation_balance from dino_dev.participant where id=%s",
                 (inviter["id"],),
             ).fetchone()[0]
-        self.assertEqual(first["status"], "REWARDED")
-        self.assertEqual(second["status"], "ALREADY_REWARDED")
-        self.assertEqual((reward_count, balance), (1, 1))
+        self.assertEqual(first["status"], "QUALIFIED")
+        self.assertEqual(second["status"], "ALREADY_QUALIFIED")
+        self.assertEqual((reward_count, balance), (0, 0))
 
     def test_admin_fault_approve_and_deny_require_current_version(self):
         admin_id = self.admin()

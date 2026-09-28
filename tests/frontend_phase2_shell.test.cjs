@@ -80,6 +80,14 @@ test('entry parsing accepts record_share once and removes invite and attribution
   assert.doesNotMatch(loaded.historyCalls.at(-1).url, /invite|share|channel|campaign|InviteCode/);
 });
 
+test('entry parsing preserves draw_retry attribution without keeping it in browser history', () => {
+  const loaded = loadRouter('https://example.test/invite/InviteCode_123?link=draw_retry&share=share_12345678');
+  const request = loaded.router.parseInitialRequest();
+  assert.equal(request.observation.link_kind, 'draw_retry');
+  assert.equal(request.observation.share_id, 'share_12345678');
+  assert.doesNotMatch(loaded.historyCalls.at(-1).url, /draw_retry|share_12345678/);
+});
+
 test('initial brand flow has the required copy and a static reduced-motion presentation', () => {
   const html = read('public/index.html');
   const css = read('public/css/style.css');

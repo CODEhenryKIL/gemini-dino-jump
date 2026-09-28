@@ -113,7 +113,7 @@ test('final slide shows rewards and safely renders live ranking data', async () 
     me: { rank: 1, best_score: 12345 },
   }));
   h.modal().onConfirm(); h.modal().onConfirm(); h.modal().onConfirm();
-  assert.match(h.content.innerHTML, /1위[\s\S]*5만원[\s\S]*2위[\s\S]*3만원[\s\S]*3위[\s\S]*1만원/);
+  assert.match(h.content.innerHTML, /🥇[\s\S]*무신사 5만원권[\s\S]*🥈[\s\S]*배민 2만원권[\s\S]*🥉[\s\S]*스타벅스 1만원권/);
   assert.match(h.rankHost.children[0].textContent, /불러오는 중/);
   await settle();
   const list = h.rankHost.children[0];

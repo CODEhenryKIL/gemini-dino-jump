@@ -24,7 +24,11 @@ function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null, r
   const api = {
     config: { share: { kakao_javascript_key: key, webhook_enabled: true } },
     async getReferralInfo() { return referral || { invite_url: '/invite/referralcode123' }; },
-    async createReferralShareIntent(kind, claimId) { requestIndex += 1; return { share_id: `share_${requestIndex}`, callback_args: { share_id: `share_${requestIndex}`, callback_token: 'opaque_callback_token' }, expires_at: new Date(Date.now() + 60000).toISOString() }; },
+    async createReferralShareIntent(kind, claimId) {
+      requestIndex += 1;
+      const reward_type = claimId || kind === 'prize_share' || kind === 'general_share' ? 'NONE' : kind === 'draw_retry' ? 'DRAW' : 'GAME';
+      return { share_id: `share_${requestIndex}`, reward_type, callback_args: { share_id: `share_${requestIndex}`, callback_token: 'opaque_callback_token' }, expires_at: new Date(Date.now() + 60000).toISOString() };
+    },
     async getReferralShareIntent() { return { status: 'confirmed', reward_status: 'blocked_cap' }; },
     createRequestId() { requestIndex += 1; return `share_${requestIndex}`; },
   };
@@ -79,7 +83,7 @@ test('configured Kakao share initializes once and opens sendDefault with an attr
   assert.equal(sent[0].content.imageHeight, 1254);
   assert.equal(sent[0].buttons[0].link.webUrl, sent[0].content.link.webUrl);
   assert.equal(sent[0].buttons[0].title, '한 판 도전하기');
-  assert.equal(sent[0].content.title + '\n\n' + sent[0].content.description, '행사 종료 시 1위 달성하면 5만원\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
+  assert.equal(sent[0].content.title + '\n' + sent[0].content.description, '지금이면 1등 노려볼 만해! 👀\n🥇 행사 종료 1등은 무신사 5만원권!');
   assert.equal(sent[0].content.link.mobileWebUrl, sent[0].content.link.webUrl);
   assert.match(sent[0].content.link.webUrl, /^https:\/\/game\.example\/invite\/referralcode123\?/);
   assert.match(sent[0].content.link.webUrl, /(?:\?|&)link=record_share(?:&|$)/);
@@ -102,6 +106,18 @@ test('unconfigured Kakao opens native share directly and blocks duplicate clicks
   assert.equal((await first).status, 'share_sheet_closed');
   assert.deepEqual(shareEvents(harness.events).map(({ dimensions }) => dimensions.status), ['attempted', 'share_sheet_closed']);
   assert.ok(shareEvents(harness.events).every(({ extra }) => extra.screenViewId === 'result_screen_1' && extra.activeMs === 724));
+  assert.match(harness.toasts.at(-1), /\uAC8C\uC784\uAD8C/);
+});
+
+test('native fallback describes DRAW and NONE purposes without claiming a game ticket', async () => {
+  const draw = loadShare({ navigatorMock: { async share() {} } });
+  await (await draw.prepare(draw.router, { kind: 'draw_retry' })).share();
+  assert.match(draw.toasts.at(-1), /\uCD94\uAC00 \uBF51\uAE30/);
+  assert.doesNotMatch(draw.toasts.at(-1), /\uAC8C\uC784\uAD8C/);
+
+  const none = loadShare({ navigatorMock: { async share() {} } });
+  await (await none.prepare(none.router, { kind: 'general_share' })).share();
+  assert.equal(none.toasts.at(-1), '\uACF5\uC720\uB97C \uB9C8\uCCE4\uC5B4\uC694.');
 });
 
 test('Kakao invocation failure falls through to native share without claiming message delivery', async () => {
@@ -133,43 +149,74 @@ test('no sharing API copies the attributed invite URL without navigating away', 
 
   assert.equal(result.status, 'copied');
   assert.equal(copied.length, 1);
-  assert.match(copied[0], /^행사 종료 시 1위 달성하면 5만원/);
+  assert.match(copied[0], /^지금이면 1등 노려볼 만해! 👀/);
   assert.match(copied[0], /link=record_share/);
   assert.deepEqual(shareEvents(harness.events).map(({ dimensions }) => dimensions.status), ['attempted', 'copied']);
   assert.deepEqual(harness.toasts, ['초대 링크를 복사했어요. 링크 복사로는 게임권이 지급되지 않아요.']);
 });
 
+test('copy fallback describes DRAW and NONE purposes without claiming a game ticket', async () => {
+  const clipboard = { async writeText() {} };
+  const draw = loadShare({ navigatorMock: { clipboard } });
+  await (await draw.prepare(draw.router, { kind: 'draw_retry' })).share();
+  assert.match(draw.toasts.at(-1), /\uCD94\uAC00 \uBF51\uAE30/);
+  assert.doesNotMatch(draw.toasts.at(-1), /\uAC8C\uC784\uAD8C/);
+
+  const none = loadShare({ navigatorMock: { clipboard } });
+  await (await none.prepare(none.router, { kind: 'general_share' })).share();
+  assert.equal(none.toasts.at(-1), '\uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC5B4\uC694.');
+});
+
 test('ranking share copy includes participant count when the server provides it', () => {
   const harness = loadShare();
   assert.equal(harness.buildText('retry_invite', { participant_count: 37 }),
-    '행사 종료 시 1위 달성하면 5만원\n현재 참여 인원 37명, 도전해 볼 만하다!\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
+    '현재 37명, 1등 노려볼 만해! 👀\n🥇 행사 종료 1등은 무신사 5만원권!');
   assert.equal(harness.buildText('record_share', {}),
-    '행사 종료 시 1위 달성하면 5만원\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
+    '지금이면 1등 노려볼 만해! 👀\n🥇 행사 종료 1등은 무신사 5만원권!');
   assert.equal(harness.buildText('record_share', { participant_count: null }),
-    '행사 종료 시 1위 달성하면 5만원\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!');
+    '지금이면 1등 노려볼 만해! 👀\n🥇 행사 종료 1등은 무신사 5만원권!');
 });
 
 test('general and non-winning prize shares never imply that the participant won', () => {
   const harness = loadShare();
-  const expected = '나 게임 한 판 하고\n복주머니 열어봄!\n\n삼텐바이미 받을 수도 있다던데,\n너도 한번 해봐';
+  const expected = '삼탠바이미 그냥 뿌립니다. 🎁\n게임 한 판 하고 꽝 없는 상품 받아가자!';
   assert.equal(harness.buildText('general_share'), expected);
   assert.equal(harness.buildText('prize_share', { won_prize_name: null }), expected);
 });
 
 test('winning prize share names the prize and always uses the requested Samtanbimi line', () => {
   const harness = loadShare();
-  const expected = '나 소니 헤드셋 이거 받음\n아직 삼텐바이미 남았다는데\n\n너도 게임 한 판 하고\n상품 뽑아봐!';
+  const expected = '나 소니 헤드셋 뽑았다!\n삼텐바이미도 나온대! 너도 해봐!';
   assert.equal(harness.buildText('prize_share', { won_prize_name: '소니 헤드셋' }), expected);
   assert.equal(harness.buildText('prize_share', { won_prize_name: '소니 헤드셋', samtan_available: false }), expected);
 });
 
-test('general share attributes analytics and URL as prize_share', async () => {
+test('general share preserves its distinct no-reward attribution in analytics and URL', async () => {
   const copied = [];
   const harness = loadShare({ navigatorMock: { clipboard: { async writeText(value) { copied.push(value); } } } });
   const prepared = await harness.prepare(harness.router, { kind: 'general_share' });
   await prepared.share();
-  assert.match(copied[0], /link=prize_share/);
-  assert.ok(shareEvents(harness.events).every(({ dimensions }) => dimensions.link_kind === 'prize_share'));
+  assert.match(copied[0], /link=general_share/);
+  assert.ok(shareEvents(harness.events).every(({ dimensions }) => dimensions.link_kind === 'general_share'));
+});
+
+test('draw retry uses general promotion copy but keeps its distinct reward purpose', async () => {
+  const sent = [];
+  const h = loadShare({ key: 'key', Kakao: { init() {}, isInitialized: () => true, Share: { sendDefault(payload) { sent.push(payload); } } } });
+  const kinds = [];
+  const create = h.api.createReferralShareIntent;
+  h.api.createReferralShareIntent = (kind, claimId) => { kinds.push(kind); return create(kind, claimId); };
+  h.api.getReferralShareIntent = async () => ({ status: 'confirmed', reward_type: 'DRAW', reward_status: 'granted', draw_state: { status: 'AVAILABLE', available_credits: 1 } });
+  const outcome = await (await h.prepare(h.router, { kind: 'draw_retry' })).share();
+  await new Promise(setImmediate);
+  assert.deepEqual(kinds, ['draw_retry', 'draw_retry']);
+  assert.equal(sent[0].content.title, '삼탠바이미 그냥 뿌립니다. 🎁');
+  assert.equal(sent[0].content.description, '게임 한 판 하고 꽝 없는 상품 받아가자!');
+  assert.equal(sent[0].buttons[0].title, '상품 뽑으러 가기');
+  assert.match(sent[0].content.link.webUrl, /link=draw_retry/);
+  assert.equal(outcome.status, 'pending');
+  assert.equal(h.router.state.draw.available_credits, 1);
+  assert.match(h.toasts.at(-1), /한 번 더 뽑을 수/);
 });
 
 
@@ -233,6 +280,7 @@ test('a rejected Kakao self-share never awards a ticket', async () => {
   await (await h.prepare(h.router)).share();
   await new Promise(setImmediate);
   assert.equal(h.router.state.tickets.invitation, 0);
+  assert.match(h.toasts.at(-1), /게임권/);
 });
 
 test('unconfigured webhook never opens an untracked Kakao invitation', async () => {
@@ -253,4 +301,22 @@ test('claim share is bound before click and polling belongs to the claim modal',
   assert.equal(outcome.status, 'pending');
   assert.ok(outcome.shareId);
   assert.equal(preparations, 1, 'do not create an unsent claim intent that hides the pending sent one on resume');
+});
+
+test('claim-bound ranking record share trusts intent NONE and never promises a game ticket', async () => {
+  const h = loadShare({ key: 'key', Kakao: { init() {}, isInitialized: () => true, Share: { sendDefault() {} } } });
+  h.api.getReferralShareIntent = () => assert.fail('claim modal handles verification');
+  const outcome = await (await h.prepare(h.router, { kind: 'record_share', claimId: 'claim-ranking' })).share();
+  assert.equal(outcome.status, 'pending');
+  assert.equal(h.toasts.at(-1), '\uCE74\uCE74\uC624\uD1A1 \uACF5\uC720\uCC3D\uC744 \uC5F4\uC5C8\uC5B4\uC694.');
+  assert.doesNotMatch(h.toasts.at(-1), /\uAC8C\uC784\uAD8C|\uBF51\uAE30/);
+});
+
+test('claimId falls back to NONE when an older intent omits reward_type', async () => {
+  const h = loadShare({ key: 'key', Kakao: { init() {}, isInitialized: () => true, Share: { sendDefault() {} } } });
+  h.api.createReferralShareIntent = async () => ({
+    share_id: 'legacy_claim_share', callback_args: { share_id: 'legacy_claim_share', callback_token: 'opaque' }, expires_at: new Date(Date.now() + 60000).toISOString(),
+  });
+  await (await h.prepare(h.router, { kind: 'record_share', claimId: 'claim-ranking' })).share();
+  assert.equal(h.toasts.at(-1), '\uCE74\uCE74\uC624\uD1A1 \uACF5\uC720\uCC3D\uC744 \uC5F4\uC5C8\uC5B4\uC694.');
 });

@@ -459,8 +459,12 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             _,created=operations.create_session(conn,{},ctx);sid=created["session_id"]
             conn.execute("update dino_dev.game_session set status='FINISHED',score=10,valid_ticks=60,verification_result='VERIFIED',finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s",(sid,))
-            _,first=operations.create_draw(conn,{"pouch_index":0},ctx);_,second=operations.create_draw(conn,{"pouch_index":2},ctx)
+            _,first=operations.create_draw(conn,{"pouch_index":0,"expected_round_number":1},ctx)
+            _,second=operations.create_draw(conn,{"pouch_index":0,"expected_round_number":1},ctx)
+            with self.assertRaises(operations.DomainError) as conflicting_pouch:
+                operations.create_draw(conn,{"pouch_index":2,"expected_round_number":1},ctx)
         self.assertEqual(first["draw_id"],second["draw_id"]);self.assertEqual(first["pouch_index"],second["pouch_index"])
+        self.assertEqual(conflicting_pouch.exception.code,"DRAW_ROUND_CONFLICT")
         with app_tx() as conn:
             intent,token=self.create_share_intent(conn,raw);self.confirm_share(conn,intent,token);ctx["idempotency_key"]="retry-after-draw"
             _,retry=operations.create_session(conn,{},ctx)
@@ -505,7 +509,7 @@ class BackendPhase1Test(unittest.TestCase):
         participants=[self.make_participant()[0] for _ in range(12)]
         contexts=[self.make_finished_session(raw,index) for index,raw in enumerate(participants)]
         with psycopg.connect(DSN) as conn:
-            prize=conn.execute("select id from dino_dev.prize where category<>'NO_PRIZE' order by id limit 1").fetchone()[0]
+            prize=conn.execute("select id from dino_dev.prize where campaign_id='gemini_dino_phase1_test' and category<>'NO_PRIZE' order by id limit 1").fetchone()[0]
             conn.execute("update dino_dev.prize set probability=case when id=%s then 1 else 0 end",(prize,));conn.execute("update dino_dev.inventory_item set status='VOID',reserved_by_draw_id=null,reserved_at=null where prize_id=%s",(prize,));conn.execute("update dino_dev.inventory_item set status='AVAILABLE' where id=(select id from dino_dev.inventory_item where prize_id=%s order by id limit 1)",(prize,))
         def draw(args):
             raw,ctx=args

@@ -20,14 +20,23 @@ export const PrizeView = {
     const request = this.loadRequest = Symbol('claims');
     if (!keepContent) container.innerHTML = '<section class="card empty-state"><p>수령 상태를 불러오는 중...</p></section>';
     try {
-      const { claims = [] } = await api.getClaims();
+      const [claimsResult, drawsResult] = await Promise.allSettled([
+        api.getClaims(),
+        typeof api.getDraw === 'function' ? api.getDraw() : Promise.resolve(null),
+      ]);
+      if (claimsResult.status === 'rejected') throw claimsResult.reason;
+      const { claims = [] } = claimsResult.value || {};
+      const drawState = drawsResult.status === 'fulfilled' ? drawsResult.value : null;
+      const draws = Array.isArray(drawState?.draws) ? drawState.draws : [];
       if (!router.isCurrent(renderToken) || this.loadRequest !== request) return;
       container.replaceChildren();
       const intro = document.createElement('section'); intro.className = 'card compact-card';
       const heading = document.createElement('h1'); heading.textContent = '내 수령함';
       intro.append(heading); container.appendChild(intro);
+      if (draws.length) container.appendChild(this.drawHistory(draws));
+      const roundByClaim = new Map(draws.filter((draw) => draw.claim_id).map((draw) => [draw.claim_id, draw.round_number]));
       if (!claims.length) return this.renderEmpty(container, router);
-      for (const claim of claims) container.appendChild(this.claimCard(claim, router, renderToken));
+      for (const claim of claims) container.appendChild(this.claimCard({ ...claim, draw_round_number: roundByClaim.get(claim.id) }, router, renderToken));
     } catch (error) {
       if (!router.isCurrent(renderToken) || this.loadRequest !== request) return;
       if (!keepContent) container.replaceChildren();
@@ -49,17 +58,36 @@ export const PrizeView = {
     return this.render(container, router, renderToken, { keepContent: true });
   },
 
+  drawHistory(draws) {
+    const card = document.createElement('section'); card.className = 'card draw-history-card';
+    const heading = document.createElement('h2'); heading.textContent = '복주머니 기록';
+    const list = document.createElement('ol'); list.className = 'draw-history-list';
+    for (const draw of [...draws].sort((a, b) => Number(b.round_number || 0) - Number(a.round_number || 0))) {
+      const item = document.createElement('li'); item.className = 'draw-history-row';
+      const round = document.createElement('strong'); round.textContent = `${Number(draw.round_number || 1)}회차`;
+      const result = document.createElement('span');
+      const actualPrize = draw.is_actual_prize === true || draw.outcome_kind === 'PRIZE' || draw.is_won === true;
+      const resultVisible = draw.revealed === true || draw.scratch_completed === true;
+      result.textContent = resultVisible ? (actualPrize ? (draw.prize?.name || '실제 상품') : 'Gemini 혜택') : '결과 확인 전';
+      const state = document.createElement('span'); state.className = 'draw-history-state';
+      state.textContent = draw.scratch_completed === true ? '확인 완료' : draw.revealed === true ? '결과 확인' : '확인 전';
+      item.append(round, result, state); list.appendChild(item);
+    }
+    card.append(heading, list); return card;
+  },
+
   renderEmpty(container, router) {
     const card = document.createElement('section'); card.className = 'card empty-state';
     const status = router.state?.draw?.status || 'LOCKED';
     const title = document.createElement('h2'); title.textContent = status === 'LOCKED' ? '복주머니가 아직 잠겨 있어요' : '접수할 경품이 아직 없어요';
     const detail = document.createElement('p');
-    detail.textContent = status === 'LOCKED' ? '정상 검증된 게임을 한 번 완료하면 행사당 한 번 열 수 있어요.' : status === 'DRAWN' ? '이미 저장된 복주머니 결과를 다시 확인할 수 있어요.' : '첫 게임을 완료했으니 복주머니를 열 수 있어요.';
+    const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(status) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+    detail.textContent = status === 'LOCKED' ? '정상 검증된 게임을 한 번 완료하면 첫 복주머니를 열 수 있어요.' : hasDrawResult ? '이미 저장된 복주머니 결과를 다시 확인할 수 있어요.' : '첫 게임을 완료했으니 복주머니를 열 수 있어요.';
     const button = document.createElement('button'); button.className = 'btn btn-primary';
-    button.textContent = status === 'LOCKED' ? '홈에서 게임 시작하기' : status === 'DRAWN' ? '내 복주머니 결과 보기' : '복주머니 열기';
+    button.textContent = status === 'LOCKED' ? '홈에서 게임 시작하기' : hasDrawResult ? '내 복주머니 결과 보기' : '복주머니 열기';
     button.onclick = () => {
       const latest = router.state?.draw?.status || 'LOCKED';
-      if (!['AVAILABLE', 'DRAWN'].includes(latest)) { router.navigate('home'); return; }
+      if (!['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(latest)) { router.navigate('home'); return; }
       analytics.track('draw_cta_clicked', { source: 'claims', draw_status: latest });
       router.navigate('draw');
     };
@@ -73,7 +101,8 @@ export const PrizeView = {
     const name = document.createElement('h2'); name.textContent = claim.prize_name || (claimType === 'RANKING' ? 'TOP3 접수 내역' : '경품');
     const badge = document.createElement('span'); badge.className = 'sticker-badge badge-blue'; badge.textContent = claim.draft_saved && !claim.contact_submitted ? '공유 단계 대기' : STATUS_LABELS[claim.status] || claim.status;
     header.append(name, badge);
-    const type = document.createElement('p'); type.textContent = claimType === 'RANKING' ? '랭킹 경품' : '복주머니 경품';
+    const type = document.createElement('p');
+    type.textContent = claimType === 'RANKING' ? '랭킹 경품' : claim.draw_round_number ? `복주머니 ${claim.draw_round_number}회차 경품` : '복주머니 경품';
     const help = document.createElement('p'); help.className = 'claim-help'; help.textContent = STATUS_HELP[claim.status] || '운영팀 확인 상태를 표시하고 있어요.';
     if (claimType === 'RANKING' && !['PAID', 'INELIGIBLE'].includes(claim.status)) {
       help.textContent += ' TOP3 진입에 따른 정보 접수이며, 최종 수상은 이벤트 종료 시점 기준으로 결정돼요.';

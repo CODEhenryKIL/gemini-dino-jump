@@ -273,7 +273,16 @@
   cursor: pointer;
   transition: transform 0.08s ease, box-shadow 0.08s ease;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   touch-action: manipulation;
+}
+
+.big-jump-btn * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  pointer-events: none;
 }
 
 .big-jump-btn:active {

@@ -29,9 +29,13 @@ test('loading milestones content CTR and all share purposes stay distinct', () =
   }
   assert.match(metrics, /event_name in \('content_viewed','content_clicked','notion_redirect_requested'\)/);
   assert.match(metrics, /row\['unique_ctr'\] = row\['converted_participants'\] \/ row\['viewed_participants'\]/);
-  assert.match(metrics, /when dimensions->>'link_kind'='record_share' then 'record_share'/);
-  assert.match(metrics, /when dimensions->>'link_kind'='prize_share' then 'prize_share'/);
-  assert.match(metrics, /then 'retry_invite'/);
+  assert.match(metrics, /i\.id=e\.dimensions->>'share_id' and i\.participant_id=e\.person_id/);
+  assert.match(metrics, /and i\.campaign_id=e\.campaign_id/);
+  assert.match(metrics, /when i\.claim_id is not null then 'claim_share'/);
+  assert.match(metrics, /when i\.kind='record_share' and i\.reward_type='GAME' then 'record_share'/);
+  assert.match(metrics, /when i\.kind='retry_invite' and i\.reward_type='GAME' then 'retry_invite'/);
+  assert.match(metrics, /when i\.kind='prize_share' then 'prize_share'/);
+  assert.match(metrics, /where purpose in \('retry_invite','record_share'\)/);
   assert.match(admin, /record_share_sharing/);
   assert.match(admin, /retry_invite_sharing/);
   assert.match(admin, /prize_share_sharing/);

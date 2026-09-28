@@ -78,9 +78,9 @@ class AppRouter {
     const requestedViewValue = url.searchParams.get('view');
     const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requestedViewValue) ? requestedViewValue : null;
     const requestedLinkKind = url.searchParams.get('link');
-    const legacyLinkKind = requestedLinkKind === 'prize_share' ? 'prize_share' : 'retry_invite';
+    const attributedKinds = new Set(['retry_invite', 'record_share', 'draw_retry', 'prize_share', 'general_share']);
     const linkKind = inviteCode
-      ? (requestedLinkKind === 'record_share' ? 'record_share' : legacyLinkKind)
+      ? (attributedKinds.has(requestedLinkKind) ? requestedLinkKind : 'retry_invite')
       : (requestedLinkKind === 'initial' ? 'initial' : 'direct');
     const shareId = (url.searchParams.get('share') || '').match(/^[A-Za-z0-9:_-]{8,128}$/)?.[0] || null;
     const channelCode = (url.searchParams.get('channel') || '').match(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/)?.[0] || null;

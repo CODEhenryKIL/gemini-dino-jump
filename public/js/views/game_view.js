@@ -77,7 +77,7 @@ export const GameView = {
           <div class="jump-hint-box" aria-label="점프 조작 안내"><div class="jump-control-guide"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 17V7a2 2 0 0 1 4 0v7l1-1a2 2 0 0 1 3 1 2 2 0 0 1 3 1 2 2 0 0 1 3 2v4c0 5-3 8-8 8h-2c-3 0-5-2-7-5l-3-5a2 2 0 0 1 3-3l3 3"/><path class="gesture-ring" d="M7 7a7 7 0 0 1 14 0"/></svg><div><span>탭</span><strong>점프 <b aria-hidden="true">↑</b></strong></div></div><div class="jump-control-guide jump-control-super"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 17V7a2 2 0 0 1 4 0v7l1-1a2 2 0 0 1 3 1 2 2 0 0 1 3 1 2 2 0 0 1 3 2v4c0 5-3 8-8 8h-2c-3 0-5-2-7-5l-3-5a2 2 0 0 1 3-3l3 3"/><path class="gesture-ring" d="M7 7a7 7 0 0 1 14 0"/></svg><div><span>꾹 누르기</span><strong>수퍼 점프 <b aria-hidden="true">↑↑</b></strong></div></div></div>
           <div id="game-session-notice" class="game-session-notice" role="status" hidden></div>
         </div>
-        <div class="jump-bottom-dock"><button id="btn-jump" class="big-jump-btn">🚀 점프</button></div>
+        <div class="jump-bottom-dock"><button id="btn-jump" class="big-jump-btn" aria-label="점프. 짧게 누르면 점프, 길게 누르면 수퍼 점프"><span aria-hidden="true">🚀 점프</span></button></div>
       </section>`;
   },
 
@@ -401,7 +401,15 @@ export const GameView = {
     this.loadRankTargets(container, router, renderToken);
     const press = (event) => { event?.preventDefault?.(); this.engine?.jumpPress(); };
     const release = (event) => { event?.preventDefault?.(); this.engine?.jumpRelease(); };
-    for (const element of [canvas, container.querySelector('#btn-jump')]) {
+    const jumpButton = container.querySelector('#btn-jump');
+    const suppressJumpButtonCallout = (event) => event.preventDefault();
+    jumpButton.addEventListener('contextmenu', suppressJumpButtonCallout);
+    jumpButton.addEventListener('dragstart', suppressJumpButtonCallout);
+    this.cleanupTasks.push(() => {
+      jumpButton.removeEventListener('contextmenu', suppressJumpButtonCallout);
+      jumpButton.removeEventListener('dragstart', suppressJumpButtonCallout);
+    });
+    for (const element of [canvas, jumpButton]) {
       element.addEventListener('pointerdown', press);
       element.addEventListener('pointerup', release);
       element.addEventListener('pointercancel', release);

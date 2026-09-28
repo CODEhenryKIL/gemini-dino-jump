@@ -144,7 +144,7 @@ test('invite qualification requires both active time and interaction and GET can
   assert.match(app, /api\.qualifyReferral/);
   assert.doesNotMatch(app, /fetch\([^)]*invite[^)]*method:\s*['"]GET/i);
   assert.match(read('public/js/api.js'), /method: 'POST'.*\/api\/referrals\/qualify/s);
-  assert.match(app, /requestedLinkKind === 'prize_share' \? 'prize_share' : 'retry_invite'/);
+  assert.match(app, /new Set\(\['retry_invite', 'record_share', 'draw_retry', 'prize_share', 'general_share'\]\)/);
   assert.match(app, /requestedLinkKind === 'initial' \? 'initial' : 'direct'/);
   assert.match(app, /this\.inviteVisit\?\.status === 'PENDING' && this\.inviteVisit\.visit_nonce/);
   assert.match(app, /SELF_INVITE/);
@@ -155,9 +155,9 @@ test('invite qualification requires both active time and interaction and GET can
 test('draw is participant-scoped, resumes from server, and scratch listeners are cleaned up', () => {
   const draw = read('public/js/views/draw_view.js');
   assert.match(draw, /api\.getDraw\(\)/);
-  assert.match(draw, /state\.status === 'DRAWN'/);
+  assert.match(draw, /\['DRAWN', 'WON', 'EXHAUSTED'\]\.includes\(state\.status\)/);
   assert.doesNotMatch(draw, /session_id|sessionId/);
-  assert.match(draw, /draw\.is_won \? 'won' : 'no_prize'/);
+  assert.match(draw, /actualPrize \? 'prize' : 'benefit'/);
   const scratch = read('public/js/components/scratch_card.js');
   assert.match(scratch, /destroy\(\)/);
   assert.match(scratch, /removeEventListener\('touchmove'/);

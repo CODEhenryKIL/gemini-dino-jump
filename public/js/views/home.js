@@ -36,7 +36,7 @@ export const HomeView = {
     };
     container.querySelector('#btn-home-draw').onclick = () => {
       const status = router.state.draw?.status;
-      if (!['AVAILABLE', 'DRAWN'].includes(status)) return;
+      if (!['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(status)) return;
       analytics.track('draw_cta_clicked', { source: 'home', draw_status: status });
       router.navigate('draw');
     };
@@ -54,8 +54,9 @@ export const HomeView = {
     const pendingSession = router.state.pendingGameSession;
     const drawStatus = router.state.draw?.status || 'LOCKED';
     const drawButton = container.querySelector('#btn-home-draw');
-    drawButton.hidden = !['AVAILABLE', 'DRAWN'].includes(drawStatus);
-    drawButton.textContent = drawStatus === 'DRAWN' ? '내 복주머니 결과 보기' : '복주머니 열기';
+    const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus) || Boolean(router.state.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+    drawButton.hidden = !['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus);
+    drawButton.textContent = hasDrawResult ? '내 복주머니 결과 보기' : '복주머니 열기';
     const campaignStatus = router.config?.campaign?.status || 'ACTIVE';
     const note = container.querySelector('#home-ticket-note');
     note.hidden = true;

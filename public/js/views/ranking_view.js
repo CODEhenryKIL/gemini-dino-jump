@@ -22,7 +22,7 @@ export const RankingView = {
       const prizes = document.createElement('section'); prizes.className = 'ranking-prizes';
       const title = document.createElement('h1'); title.textContent = '랭킹 TOP3 선물';
       const rewards = document.createElement('div'); rewards.className = 'ranking-rewards';
-      for (const [index, amount] of ['5만원', '3만원', '1만원'].entries()) {
+      for (const [index, amount] of ['무신사 5만원권', '배민 2만원권', '스타벅스 1만원권'].entries()) {
         const reward = document.createElement('div'); reward.className = `ranking-reward ranking-reward-${index + 1}`;
         const place = document.createElement('span'); place.textContent = rankLabel(index + 1); place.className = 'ranking-reward-medal'; place.setAttribute('role', 'img'); place.setAttribute('aria-label', `${index + 1}위`);
         const value = document.createElement('strong'); value.textContent = amount;

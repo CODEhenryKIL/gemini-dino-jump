@@ -173,7 +173,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             target=share_page.share_target(code,incoming)
             settings=Settings.from_env()
             card=share_page.DEFAULT_CARD
-            if target["link"] in {"record_share","prize_share"}:
+            if target["link"] in share_page.KINDS:
                 with db.connection(settings) as conn:
                     with db.transaction(conn):
                         guard=db.check_environment(conn,settings)

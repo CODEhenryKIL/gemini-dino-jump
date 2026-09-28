@@ -25,7 +25,7 @@ function loadUi() {
   };
   const context = { document, sessionStorage: { getItem: () => '' }, api: {}, ui: {} };
   const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8').replace(/^import .*;\n/gm, '');
-  vm.runInNewContext(`${read('public/js/admin.js')}\n globalThis.admin = { claimEditor, renderOperationalBreakdowns, setPermissions: (values) => { adminPermissions = new Set(values); } };`, context);
+  vm.runInNewContext(`${read('public/js/admin.js')}\n globalThis.admin = { claimEditor, renderDrawSummary, renderOperationalBreakdowns, setPermissions: (values) => { adminPermissions = new Set(values); } };`, context);
   vm.runInNewContext(`${read('public/js/views/prize_view.js').replace('export const PrizeView', 'const PrizeView')}\n globalThis.prize = PrizeView;`, context);
   return { ...context, nodes };
 }
@@ -116,13 +116,13 @@ test('legacy nonterminal claims can submit missing contact without showing an in
 test('dashboard renders invitation, Gemini and unknown shares from separate purpose totals', () => {
   const { admin, nodes } = loadUi();
   const summary = (count, participants) => ({
-    attempt_events: count, copy_success_events: count, linked_participants: participants, unlinked_events: 0, actual_delivery: 'unknown',
+    attempt_events: count, copy_success_events: count, linked_participants: participants, unlinked_events: 0, actual_delivery: 'unknown', server_confirmed_intents: count - 1, server_confirmed_participants: Math.max(0, participants - 1),
     by_method_status: [{ share_method: 'copy', status: 'copied', events: count, linked_participants: participants, unlinked_events: 0 }],
   });
   admin.renderOperationalBreakdowns({ sharing: {
-    ...summary(99, 99), invitation_sharing: summary(2, 1), gemini_sharing: summary(7, 3), unknown_sharing: summary(5, 2),
+    ...summary(99, 99), invitation_sharing: summary(2, 1), claim_share_sharing: { ...summary(4, 2), by_method_status: [{ share_method: 'claim-kakao', status: 'confirmed', events: 4, linked_participants: 2, unlinked_events: 0 }] }, gemini_sharing: summary(7, 3), unknown_sharing: summary(5, 2),
   } });
-  const invite = Object.fromEntries(groupRows(nodes.get('#invitation-summary'), '초대 공유·전환 요약'));
+  const invite = Object.fromEntries(groupRows(nodes.get('#invitation-summary'), '게임 재도전 공유·전환 요약'));
   const gemini = Object.fromEntries(groupRows(nodes.get('#gemini-summary'), 'Gemini 링크 복사·공유 요약'));
   const unknown = Object.fromEntries(groupRows(nodes.get('#gemini-summary'), '목적 미확인 공유 (초대·Gemini 합계 제외)'));
   assert.equal(invite['복사 성공'], '2');
@@ -131,8 +131,11 @@ test('dashboard renders invitation, Gemini and unknown shares from separate purp
   assert.equal(gemini['공유 고유 참가자'], '3');
   assert.equal(unknown['복사 성공'], '5');
   assert.equal(gemini['실제 전송 완료'], 'unknown');
-  assert.deepEqual(groupRows(nodes.get('#invitation-summary'), '초대 공유 수단과 확인 가능한 상태'), [['copy', 'copied', '2', '1', '0']]);
+  assert.deepEqual(groupRows(nodes.get('#invitation-summary'), '게임 재도전 공유 수단과 확인 가능한 상태'), [['copy', 'copied', '2', '1', '0']]);
   assert.deepEqual(groupRows(nodes.get('#gemini-summary'), 'Gemini 공유 수단과 확인 가능한 상태'), [['copy', 'copied', '7', '3', '0']]);
+  assert.equal(invite['카카오 인증 전송'], '1');
+  assert.equal(invite['카카오 인증 전송 참가자'], '0');
+  assert.match(nodes.get('#invitation-summary').textContent, /claim-kakao/);
 });
 
 test('dashboard keeps open observations out of final nonclick counts and handles no closed cohort', () => {
@@ -147,4 +150,45 @@ test('dashboard keeps open observations out of final nonclick counts and handles
   assert.equal(rows['관찰 완료 후 미클릭 참가자'], '0');
   assert.equal(rows['관찰 완료 CTR'], '계산 대상 없음');
   assert.equal(rows['관찰 중 참가자 (확정 집계 제외)'], '4');
+});
+
+test('dashboard exposes draw outcomes and credits and stays safe for a legacy response', () => {
+  const { admin, nodes } = loadUi();
+  admin.renderDrawSummary({
+    total_draws: 12, actual_prize_draws: 2, actual_prize_winners: 2, benefit_results: 10, paid_prizes: 1,
+  }, [{ source_type: 'SHARE_GRANT', events: 7, participants: 5, net_credits: 7 }]);
+  const summary = descendants(nodes.get('#draw-summary'), 'tbody')[0].children
+    .map((row) => row.children.map((cell) => cell.textContent));
+  assert.deepEqual(summary, [
+    ['총 추첨 횟수', '12'], ['실제 상품 당첨', '2'], ['실제 상품 당첨자', '2'],
+    ['Gemini 혜택 결과', '10'], ['실제 지급 완료', '1'],
+  ]);
+  assert.deepEqual(descendants(nodes.get('#draw-credit-ledger'), 'tbody')[0].children
+    .map((row) => row.children.map((cell) => cell.textContent)), [['SHARE_GRANT', '7', '5', '7']]);
+  assert.doesNotThrow(() => admin.renderDrawSummary(undefined, undefined));
+  assert.match(nodes.get('#draw-summary').textContent, /총 추첨 횟수0/);
+});
+
+test('claims load ordered draw history and links an actual prize claim to its round', async () => {
+  const { api, prize } = loadUi();
+  api.getClaims = async () => ({ claims: [{ id: 'claim-2', claim_type: 'DRAW', prize_name: '헤드셋', status: 'PAID', contact_submitted: true }] });
+  api.getDraw = async () => ({ draws: [
+    { draw_id: 'draw-1', round_number: 1, outcome_kind: 'BENEFIT', scratch_completed: true, prize: {} },
+    { draw_id: 'draw-2', round_number: 2, outcome_kind: 'PRIZE', is_actual_prize: true, scratch_completed: true, claim_id: 'claim-2', prize: { name: '헤드셋' } },
+  ] });
+  const container = new Element('main');
+  await prize.render(container, { isCurrent: () => true, state: { draw: { status: 'WON' } } }, 1);
+  const history = container.children.find((child) => child.className === 'card draw-history-card');
+  assert.ok(history);
+  const rows = descendants(history, 'li').map((row) => row.children.map((child) => child.textContent));
+  assert.deepEqual(rows, [['2회차', '헤드셋', '확인 완료'], ['1회차', 'Gemini 혜택', '확인 완료']]);
+  const claimCard = container.children.find((child) => child.className === 'card claim-card');
+  assert.match(claimCard.textContent, /복주머니 2회차 경품/);
+});
+
+test('claims history does not expose an unrevealed result', () => {
+  const { prize } = loadUi();
+  const history = prize.drawHistory([{ round_number: 3, outcome_kind: 'PRIZE', scratch_completed: false, revealed: false, prize: { name: '삼텐바이미' } }]);
+  assert.match(history.textContent, /3회차결과 확인 전확인 전/);
+  assert.doesNotMatch(history.textContent, /삼텐바이미/);
 });

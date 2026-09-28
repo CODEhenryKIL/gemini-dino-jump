@@ -27,6 +27,7 @@ CLAIM_DRAFT = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql
 LOW_SCORE_REFUND = ROOT / "supabase/migrations/20260927090000_low_score_ticket_refund.sql"
 KAKAO_SHARE_WEBHOOK = ROOT / "supabase/migrations/20260927091037_kakao_share_webhook.sql"
 INTERRUPTED_AND_SHARE = ROOT / "supabase/migrations/20260927140000_incomplete_refund_and_share_grant.sql"
+PHASE3 = ROOT / "supabase/migrations/20260928151903_phase3_draw_rounds_and_reward_purposes.sql"
 
 def _guard_admin_dsn():
     parsed = urlsplit(ADMIN_DSN)
@@ -134,7 +135,9 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(REAL_TOP3_CONTACT)
         self.database.apply(CLAIM_DRAFT)
         self.database.apply(LOW_SCORE_REFUND)
+        self.database.apply(KAKAO_SHARE_WEBHOOK)
         self.database.apply(INTERRUPTED_AND_SHARE)
+        self.database.apply(PHASE3)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -151,7 +154,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
 
         self.assertEqual(
             versions,
-            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",), ("20260926215000",), ("20260927090000",), ("20260927140000",)],
+            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",), ("20260926215000",), ("20260927090000",), ("20260927091037",), ("20260927140000",), ("20260928151903",)],
         )
         self.assertTrue(
             {"participant", "game_session", "ranking_snapshot"}.issubset(
@@ -171,7 +174,9 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(REAL_TOP3_CONTACT)
         self.database.apply(CLAIM_DRAFT)
         self.database.apply(LOW_SCORE_REFUND)
+        self.database.apply(KAKAO_SHARE_WEBHOOK)
         self.database.apply(INTERRUPTED_AND_SHARE)
+        self.database.apply(PHASE3)
         self.database.apply(CLAIM_FIX)
         self.database.apply(PHASE2)
         self.database.apply(GAME_V21)
@@ -205,7 +210,9 @@ class MigrationAcceptanceTest(unittest.TestCase):
                 ("20260926103809", 1),
                 ("20260926215000", 1),
                 ("20260927090000", 1),
+                ("20260927091037", 1),
                 ("20260927140000", 1),
+                ("20260928151903", 1),
             ],
         )
         self.assertIn(("fault_review_status",), columns)

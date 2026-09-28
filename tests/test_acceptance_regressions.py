@@ -282,23 +282,27 @@ class AcceptanceRegressionTest(unittest.TestCase):
 
         def draw(index):
             barrier.wait(timeout=5)
-            with app_tx() as conn:
-                return operations.dispatch(
-                    conn,
-                    "POST",
-                    "/api/draws",
-                    {"pouch_index": index},
-                    {},
-                    context(
-                        participant_token_hash=participant["token_hash"],
-                        idempotency_key=f"concurrent-draw-{index}",
-                    ),
-                )
+            try:
+                with app_tx() as conn:
+                    return operations.dispatch(
+                        conn,
+                        "POST",
+                        "/api/draws",
+                        {"pouch_index": index, "expected_round_number": 1},
+                        {},
+                        context(
+                            participant_token_hash=participant["token_hash"],
+                            idempotency_key=f"concurrent-draw-{index}",
+                        ),
+                    )
+            except operations.DomainError as error:
+                return error.code
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             results = list(executor.map(draw, (0, 1)))
-        self.assertEqual({result[1]["draw_id"] for result in results}, {results[0][1]["draw_id"]})
-        self.assertEqual({result[1]["pouch_index"] for result in results}, {results[0][1]["pouch_index"]})
+        completed = [result for result in results if isinstance(result, tuple)]
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(results.count("DRAW_ROUND_CONFLICT"), 1)
         with psycopg.connect(DSN, row_factory=dict_row) as conn:
             counts = conn.execute(
                 "select count(*) n,count(distinct inventory_item_id) inventory_n "

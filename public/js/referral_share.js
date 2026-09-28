@@ -70,20 +70,17 @@ export function buildReferralShareText(kind, info = {}) {
   if (kind === 'retry_invite' || kind === 'record_share') {
     const count = Number(info.participant_count);
     const hasCount = info.participant_count !== null && info.participant_count !== undefined && info.participant_count !== '';
-    const countLine = hasCount && Number.isInteger(count) && count >= 0
-      ? `\n현재 참여 인원 ${count}명, 도전해 볼 만하다!`
-      : '';
-    return `행사 종료 시 1위 달성하면 5만원${countLine}\n\n참여하면 삼텐바이미 받을 수도 있대!\n너도 한 판 해봐!`;
+    return hasCount && Number.isInteger(count) && count >= 0
+      ? `현재 ${count.toLocaleString('ko-KR')}명, 1등 노려볼 만해! 👀\n🥇 행사 종료 1등은 무신사 5만원권!`
+      : '지금이면 1등 노려볼 만해! 👀\n🥇 행사 종료 1등은 무신사 5만원권!';
   }
   if (kind === 'prize_share' && info.won_prize_name) {
-    return `나 ${info.won_prize_name} 이거 받음\n아직 삼텐바이미 남았다는데\n\n너도 게임 한 판 하고\n상품 뽑아봐!`;
+    return `나 ${info.won_prize_name} 뽑았다!\n삼텐바이미도 나온대! 너도 해봐!`;
   }
-  return '나 게임 한 판 하고\n복주머니 열어봄!\n\n삼텐바이미 받을 수도 있다던데,\n너도 한번 해봐';
+  return '삼탠바이미 그냥 뿌립니다. 🎁\n게임 한 판 하고 꽝 없는 상품 받아가자!';
 }
 
-function shareLinkKind(kind) {
-  return kind === 'general_share' ? 'prize_share' : kind;
-}
+function shareLinkKind(kind) { return kind; }
 
 function buildInviteUrl(rawUrl, shareId, kind) {
   const url = new URL(rawUrl, window.location.origin);
@@ -101,14 +98,33 @@ function trackShare(method, shareId, status, context, kind) {
   }, context);
 }
 
-async function copyInvite(inviteUrl, shareText, shareId, context, kind) {
+function resolveRewardType(kind, options = {}, intent = null) {
+  if (intent?.reward_type) return intent.reward_type;
+  if (options.rewardType) return options.rewardType;
+  if (options.claimId) return 'NONE';
+  if (kind === 'draw_retry') return 'DRAW';
+  if (kind === 'prize_share' || kind === 'general_share') return 'NONE';
+  return 'GAME';
+}
+
+function fallbackRewardNotice(method, rewardType) {
+  if (rewardType === 'DRAW') return method === 'copy'
+    ? '링크를 복사했어요. 링크 복사로는 추가 뽑기가 지급되지 않아요.'
+    : '추가 뽑기는 카카오톡 전송이 확인된 경우에만 지급돼요.';
+  if (rewardType === 'NONE') return method === 'copy' ? '링크를 복사했어요.' : '공유를 마쳤어요.';
+  return method === 'copy'
+    ? '초대 링크를 복사했어요. 링크 복사로는 게임권이 지급되지 않아요.'
+    : '게임권은 카카오톡 전송이 확인된 경우에만 지급돼요.';
+}
+
+async function copyInvite(inviteUrl, shareText, shareId, context, kind, rewardType) {
   trackShare('copy', shareId, 'attempted', context, kind);
   const copyText = `${shareText}\n${inviteUrl}`;
   try {
     if (!navigator.clipboard?.writeText) throw new Error('CLIPBOARD_UNSUPPORTED');
     await navigator.clipboard.writeText(copyText);
     trackShare('copy', shareId, 'copied', context, kind);
-    ui.showToast('초대 링크를 복사했어요. 링크 복사로는 게임권이 지급되지 않아요.');
+    ui.showToast(fallbackRewardNotice('copy', rewardType));
     return { method: 'copy', status: 'copied' };
   } catch (_) {
     trackShare('copy', shareId, 'failed', context, kind);
@@ -118,18 +134,31 @@ async function copyInvite(inviteUrl, shareText, shareId, context, kind) {
 }
 
 // Only the authenticated server webhook can confirm delivery or grant a ticket.
-async function watchInvitationShare(router, shareId) {
+async function watchInvitationShare(router, shareId, options = {}) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
       const receipt = await api.getReferralShareIntent(shareId);
       if (receipt.status !== 'pending') {
         if (receipt.tickets && router?.state) router.state.tickets = receipt.tickets;
+        if (receipt.draw_state && router?.state) router.state.draw = receipt.draw_state;
         router?.updateNav?.();
         router?.announceStateChange?.();
+        const rewardType = resolveRewardType(options.kind, options, receipt);
         if (receipt.status === 'confirmed') {
-          ui.showToast(receipt.reward_status === 'granted' ? '전송이 확인되어 게임권 1장을 받았어요!' : '카카오톡 전송을 확인했어요. 초대권은 보유 한도와 대기 시간에 따라 지급돼요.');
+          if (rewardType === 'DRAW') {
+            ui.showToast(receipt.reward_status === 'granted' ? '전송이 확인되어 한 번 더 뽑을 수 있어요!' : '전송은 확인됐지만 복주머니 최대 횟수 또는 당첨 종료 상태예요.');
+          } else if (rewardType === 'GAME') {
+            ui.showToast(receipt.reward_status === 'granted' ? '전송이 확인되어 게임권 1장을 받았어요!' : '카카오톡 전송을 확인했어요. 초대권은 보유 한도와 대기 시간에 따라 지급돼요.');
+          }
           void router?.refreshState?.({ quiet: true })?.catch?.(() => {});
-        } else if (receipt.status === 'rejected') ui.showToast('친구에게 보낸 카카오톡 공유만 게임권을 받을 수 있어요.');
+        } else if (receipt.status === 'rejected') {
+          ui.showToast(rewardType === 'DRAW'
+            ? '친구에게 보낸 카카오톡 공유만 추가 뽑기로 인정돼요.'
+            : rewardType === 'GAME'
+              ? '친구에게 보낸 카카오톡 공유만 게임권을 받을 수 있어요.'
+              : '카카오톡 전송을 확인하지 못했어요.');
+        }
+        options.onReceipt?.(receipt);
         return;
       }
     } catch (_) { /* A delayed webhook remains recoverable from server state. */ }
@@ -142,7 +171,7 @@ async function watchInvitationShare(router, shareId) {
  * share() from the click handler keeps Kakao's popup inside the user gesture.
  */
 export async function prepareResultReferralShare(router, options = {}) {
-  const allowedKinds = new Set(['record_share', 'retry_invite', 'prize_share', 'general_share']);
+  const allowedKinds = new Set(['record_share', 'retry_invite', 'draw_retry', 'prize_share', 'general_share']);
   const requestedKind = options.kind || 'record_share';
   const kind = allowedKinds.has(requestedKind) ? requestedKind : 'record_share';
   const referral = options.referral || await api.getReferralInfo();
@@ -184,6 +213,7 @@ export async function prepareResultReferralShare(router, options = {}) {
           }
           const sendingIntent = intent;
           intent = null;
+          const rewardType = resolveRewardType(kind, options, sendingIntent);
           trackShare('kakao', shareId, 'attempted', context, kind);
           try {
             kakao.Share.sendDefault({
@@ -197,10 +227,10 @@ export async function prepareResultReferralShare(router, options = {}) {
                 imageHeight: 1254,
                 link: { mobileWebUrl: inviteUrl, webUrl: inviteUrl },
               },
-              buttons: [{ title: '한 판 도전하기', link: { mobileWebUrl: inviteUrl, webUrl: inviteUrl } }],
+              buttons: [{ title: kind === 'draw_retry' ? '상품 뽑으러 가기' : '한 판 도전하기', link: { mobileWebUrl: inviteUrl, webUrl: inviteUrl } }],
             });
-            ui.showToast('카카오톡으로 전송하면 확인 후 게임권이 적립돼요.');
-            if (!options.claimId) void watchInvitationShare(router, shareId);
+            ui.showToast(rewardType === 'DRAW' ? '카카오톡 전송이 확인되면 한 번 더 뽑을 수 있어요.' : rewardType === 'GAME' ? '카카오톡으로 전송하면 확인 후 게임권이 적립돼요.' : '카카오톡 공유창을 열었어요.');
+            if (!options.claimId) void watchInvitationShare(router, shareId, { ...options, kind, rewardType });
             return { method: 'kakao', status: 'pending', shareId };
 
           } catch (_) {
@@ -216,7 +246,7 @@ export async function prepareResultReferralShare(router, options = {}) {
               url: inviteUrl,
             });
             trackShare('native', shareId, 'share_sheet_closed', context, kind);
-            ui.showToast('게임권은 카카오톡 전송이 확인된 경우에만 지급돼요.');
+            ui.showToast(fallbackRewardNotice('native', resolveRewardType(kind, options)));
             return { method: 'native', status: 'share_sheet_closed' };
           } catch (error) {
             const status = error?.name === 'AbortError' ? 'cancelled' : 'failed';
@@ -224,7 +254,7 @@ export async function prepareResultReferralShare(router, options = {}) {
             return { method: 'native', status };
           }
         }
-        return await copyInvite(inviteUrl, shareText, shareId, context, kind);
+        return await copyInvite(inviteUrl, shareText, shareId, context, kind, resolveRewardType(kind, options));
       } finally {
         pending = false;
         if (!intent && !options.claimId) void prepareIntent();

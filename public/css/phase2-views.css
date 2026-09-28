@@ -154,6 +154,13 @@
   font-size: 13px;
 }
 
+.draw-history-card h2 { margin: 0 0 10px; font-size: 18px; }
+.draw-history-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.draw-history-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid rgba(60, 64, 67, .1); font-size: 13px; }
+.draw-history-row:first-child { border-top: 0; }
+.draw-history-row > span:not(.draw-history-state) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draw-history-state { color: var(--text-sub); font-size: 12px; white-space: nowrap; }
+
 .ticket-ledger {
   display: flex;
   justify-content: center;

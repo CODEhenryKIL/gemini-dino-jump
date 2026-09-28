@@ -189,7 +189,7 @@ test('ranking shows prizes without old TOP3 information request cards', async ()
   await RankingView.render(container, router, 4);
   const holder = container.querySelector('#top3-request');
   assert.equal(holder, null);
-  assert.match(container.textContent, /5만원.*3만원.*1만원/);
+  assert.match(container.textContent, /무신사 5만원권.*배민 2만원권.*스타벅스 1만원권/);
   assert.doesNotMatch(container.textContent, /이전 게임 규칙|합성 테스트 정보|검증된 최고 점수 랭킹/);
 });
 
@@ -438,7 +438,7 @@ test('result sharing opens the prepared share action in place above the pouch', 
   assert.ok(container.innerHTML.indexOf('id="btn-share-record"') < container.innerHTML.indexOf('id="btn-go-pouch"'));
   assert.ok(container.innerHTML.indexOf('id="top3-request"') > container.innerHTML.indexOf('id="btn-go-pouch"'));
   assert.doesNotMatch(container.innerHTML, /기록 검증 완료/);
-  assert.match(container.innerHTML, /#TeamGemini/);
+  assert.doesNotMatch(container.innerHTML, /#TeamGemini|2026 캠퍼스 챌린지|랭킹 닉네임|이번 판/);
   assert.match(nodes.get('#result-top3-gap').textContent, /TOP3까지 약 5초만 더!/);
 });
 
