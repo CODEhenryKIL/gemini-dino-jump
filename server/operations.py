@@ -19,6 +19,17 @@ def _campaign(conn,lock=False):
     return row
 def _mutable(campaign):
     if campaign["status"]!="ACTIVE": raise DomainError("CAMPAIGN_UNAVAILABLE","현재 행사가 일시 중단되었습니다.",409)
+def _new_entry_allowed(conn,campaign):
+    opens_at,closes_at=campaign.get("opens_at"),campaign.get("closes_at")
+    if opens_at is None and closes_at is None:return
+    valid=(isinstance(opens_at,dt.datetime) and isinstance(closes_at,dt.datetime)
+      and opens_at.tzinfo is not None and closes_at.tzinfo is not None and opens_at<closes_at)
+    if not valid:raise DomainError("CAMPAIGN_WINDOW_INVALID","행사 운영 시간을 확인하고 있습니다.",503,True)
+    now=_one(conn,"select clock_timestamp() as now")["now"]
+    if not isinstance(now,dt.datetime) or now.tzinfo is None:
+        raise DomainError("CAMPAIGN_WINDOW_INVALID","행사 운영 시간을 확인하고 있습니다.",503,True)
+    if now<opens_at:raise DomainError("CAMPAIGN_NOT_OPEN","행사 시작 전입니다.",409)
+    if now>=closes_at:raise DomainError("CAMPAIGN_CLOSED","행사가 종료되었습니다.",409)
 def _participant(conn,ctx,lock=False,active=False):
     token_hash=ctx.get("participant_token_hash")
     if not token_hash: raise DomainError("UNAUTHORIZED","참가자 인증이 필요합니다.",401)
@@ -388,6 +399,7 @@ def create_session(conn,body,ctx):
     if old:return 200,_session(old)
     live=_one(conn,"select * from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1 for update",(p["id"],))
     if live:return 200,{**_session(live),"existing_session":True}
+    _new_entry_allowed(conn,campaign)
     unlimited=_unlimited_play(p,ctx)
     kind="INITIAL" if unlimited or p["initial_balance"]>0 else "INVITATION" if p["invitation_balance"]>0 else None
     if not kind: raise DomainError("NO_TICKETS","게임권이 부족합니다.",409)
@@ -736,7 +748,7 @@ def create_draw(conn,body,ctx):
     session=_one(conn,"select * from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1 for update",(p["id"],p["campaign_id"]))
     if not session:raise DomainError("DRAW_NOT_AVAILABLE","정상 게임 완료 후 열 수 있습니다.",409)
     campaign=_campaign(conn);_mutable(campaign)
-    _ensure_first_draw_credit(conn,p,session);state=_draw_state(conn,p,session)
+    state=_draw_state(conn,p,session)
     raw_expected=body.get("expected_round_number")
     if raw_expected is None:
         if state["used_count"]:
@@ -757,6 +769,8 @@ def create_draw(conn,body,ctx):
         raise DomainError("DRAW_ROUND_MISMATCH","추첨 상태가 바뀌었습니다. 결과를 다시 확인해 주세요.",409)
     if state["actual_prize_won"]:raise DomainError("DRAW_PRIZE_ALREADY_WON","실제 상품 당첨자의 복주머니 추첨은 완료되었습니다.",409)
     if state["used_count"]>=MAX_DRAW_COUNT:raise DomainError("DRAW_LIMIT_REACHED","복주머니는 최대 10회까지 확인할 수 있습니다.",409)
+    _new_entry_allowed(conn,campaign)
+    _ensure_first_draw_credit(conn,p,session);state=_draw_state(conn,p,session)
     if state["available_credits"]<=0:raise DomainError("DRAW_CREDIT_REQUIRED","카카오톡 공유 후 추가 복주머니를 확인할 수 있습니다.",409)
     prize,inventory,roll,slot=_pool_prize(conn,campaign);round_number=expected_round
     outcome_kind="PRIZE" if inventory else "BENEFIT";did=_id("draw");audit=hashlib.sha256(f"{did}:{roll}:{campaign['probability_version']}:{slot['id'] if slot else 'legacy'}".encode()).hexdigest()

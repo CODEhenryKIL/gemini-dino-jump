@@ -43,14 +43,22 @@ def validate(manifest):
         errors.append("확정 경품 수량 또는 예산 합계가 다릅니다")
     if pool != {"total_slots": 5000, "benefit_slots": 4923, "max_draws_per_participant": 10, "mode": "WITHOUT_REPLACEMENT"}:
         errors.append("추첨 설정은 총 5,000자리·혜택 4,923자리·참가자당 최대 10회 비복원 방식이어야 합니다")
-    if not manifest.get("version"):
+    if not isinstance(manifest.get("version"), str) or not manifest["version"].strip():
         errors.append("설정 버전이 필요합니다")
+    if manifest.get("status") not in {"DRAFT", "APPROVED"}:
+        errors.append("설정 상태는 DRAFT 또는 APPROVED여야 합니다")
+    elif manifest["status"] != "APPROVED":
+        pending.append("status.APPROVED")
+    if type(manifest.get("event_enabled")) is not bool:
+        errors.append("event_enabled는 true 또는 false여야 합니다")
 
     campaign = manifest.get("campaign", {})
-    if not campaign.get("id"):
+    if not isinstance(campaign.get("id"), str) or not campaign["id"].strip():
         pending.append("campaign.id")
     if campaign.get("timezone") != "Asia/Seoul":
         errors.append("행사 표시 시간대는 Asia/Seoul이어야 합니다")
+    if bool(campaign.get("opens_at")) != bool(campaign.get("closes_at")):
+        errors.append("행사 시작과 종료는 함께 설정해야 합니다")
     dates = {}
     for key in ("opens_at", "closes_at"):
         value = campaign.get(key)

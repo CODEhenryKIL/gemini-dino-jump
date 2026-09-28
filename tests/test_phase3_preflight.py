@@ -25,9 +25,32 @@ class Phase3PreflightTest(unittest.TestCase):
         self.manifest["event_enabled"] = True
         self.assertTrue(MODULE.validate(self.manifest)["errors"])
 
+    def test_complete_draft_still_requires_explicit_approved_state(self):
+        self.manifest["campaign"].update(id="phase3_unit_only", opens_at="2026-10-01T12:00:00+09:00", closes_at="2026-10-02T12:00:00+09:00")
+        for group in ("policies", "approvals", "evidence"):
+            self.manifest[group] = {key: "unit-test reference, not a real approval" for key in self.manifest[group]}
+        self.assertEqual(MODULE.validate(self.manifest)["pending"], ["status.APPROVED"])
+        self.manifest["status"] = "APPROVED"
+        self.assertEqual(MODULE.validate(self.manifest)["pending"], [])
+        self.assertFalse(self.manifest["event_enabled"])
+
+    def test_invalid_launch_control_types_and_status_are_rejected(self):
+        for key, value in (("event_enabled", "false"), ("event_enabled", 0), ("status", "READY"), ("version", 123)):
+            with self.subTest(key=key, value=value):
+                manifest = copy.deepcopy(self.manifest)
+                manifest[key] = value
+                self.assertTrue(MODULE.validate(manifest)["errors"])
+
     def test_ranking_stock_cannot_be_accidentally_added_to_draws(self):
         self.manifest["draw_prizes"][4]["quantity"] += 1
         self.assertTrue(MODULE.validate(self.manifest)["errors"])
+
+    def test_only_one_campaign_date_is_a_configuration_error(self):
+        for key in ("opens_at", "closes_at"):
+            with self.subTest(key=key):
+                manifest = copy.deepcopy(self.manifest)
+                manifest["campaign"][key] = "2026-10-01T12:00:00+09:00"
+                self.assertIn("행사 시작과 종료는 함께 설정해야 합니다", MODULE.validate(manifest)["errors"])
 
     def test_equal_total_cannot_hide_wrong_prize_distribution(self):
         self.manifest["draw_prizes"][8]["quantity"] -= 1
