@@ -194,6 +194,8 @@ body {
 .modal-actions { display: flex; gap: 10px; }
 .form-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; text-align: left; }
 .form-field input, .filter-grid input, .filter-grid select, .inline-controls input, .inline-controls select, .admin-claim-row input, .admin-claim-row select { padding: 10px; border: 1px solid #cbd2dc; border-radius: 10px; font: inherit; background: #fff; }
+/* Keep text fields readable and prevent iPhone focus zoom; pinch zoom stays enabled. */
+.form-field input:not([type="checkbox"]):not([type="radio"]) { font-size: max(16px, 1em); min-width: 0; }
 .stack-form { display: flex; flex-direction: column; gap: 10px; }
 .consent-row { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; }
 .profile-row, .claim-card-header, .section-heading, .admin-session-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
