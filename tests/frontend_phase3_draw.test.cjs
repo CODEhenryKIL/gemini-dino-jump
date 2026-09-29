@@ -122,11 +122,11 @@ test('the tenth benefit result ends repeat draws without preparing a new share i
   assert.equal(h.status.textContent, '10회 복주머니를 모두 확인했어요.');
 });
 
-test('jump callout suppression stays scoped to the jump button and preserves press/release handlers', () => {
+test('callout suppression stays scoped to the game controls and preserves press/release handlers', () => {
   const game = fs.readFileSync(path.join(root, 'public/js/views/game_view.js'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'public/css/game.css'), 'utf8');
-  assert.match(game, /jumpButton\.addEventListener\('contextmenu'/);
-  assert.match(game, /jumpButton\.addEventListener\('dragstart'/);
+  assert.match(game, /for \(const element of \[viewport, jumpButton\]\)/);
+  assert.match(game, /\['contextmenu', 'dragstart', 'selectstart', 'dblclick'\]/);
   assert.match(game, /for \(const element of \[canvas, jumpButton\]\)/);
   assert.match(game, /element\.addEventListener\('pointerdown', press\)/);
   assert.match(game, /element\.addEventListener\('pointerup', release\)/);

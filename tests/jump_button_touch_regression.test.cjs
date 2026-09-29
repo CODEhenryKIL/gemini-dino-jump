@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-function eventTarget() {
+function eventTarget(parent) {
   const listeners = new Map();
   return {
     listeners,
@@ -21,6 +21,7 @@ function eventTarget() {
     dispatch(type, event = {}) {
       event.type = type;
       for (const { listener } of [...(listeners.get(type) || [])]) listener(event);
+      parent?.dispatch(type, event);
     },
   };
 }
@@ -60,8 +61,9 @@ function loadGameView() {
 
 function createHarness() {
   const jumpButton = eventTarget();
-  const canvas = eventTarget();
-  const sound = {};
+  const viewport = eventTarget();
+  const canvas = eventTarget(viewport);
+  const sound = eventTarget(viewport);
   const inertNode = {
     textContent: '', offsetWidth: 0,
     classList: { add() {}, remove() {} },
@@ -69,11 +71,12 @@ function createHarness() {
   };
   const nodes = new Map([
     ['#game-canvas', canvas],
+    ['.game-viewport-container', viewport],
     ['#btn-jump', jumpButton],
     ['#btn-toggle-sound', sound],
   ]);
   const container = { querySelector(selector) { return nodes.get(selector) || inertNode; } };
-  return { canvas, container, jumpButton, sound };
+  return { canvas, container, jumpButton, sound, viewport };
 }
 
 function cancelableEvent() {
@@ -112,9 +115,41 @@ test('repeated jump-button touches suppress Safari selection while pointer press
   }
 });
 
-test('cleanup removes every jump-button suppression and pointer handler', () => {
+test('game board cancels native selection without duplicating or prematurely releasing a held jump', () => {
+  const { view, engines } = loadGameView();
+  const { container, canvas, viewport, sound } = createHarness();
+  view.bindEngine(container, { isCurrent: () => true }, 1, 7);
+
+  canvas.dispatch('pointerdown', cancelableEvent());
+  for (const eventName of ['contextmenu', 'dragstart', 'selectstart', 'dblclick', 'touchstart', 'touchmove', 'touchend']) {
+    const event = cancelableEvent();
+    canvas.dispatch(eventName, event);
+    assert.equal(event.defaultPrevented, true, `${eventName} must be cancelled on the canvas`);
+  }
+  assert.equal(engines[0].presses, 1);
+  assert.equal(engines[0].releases, 0, 'native-event suppression must not release a held super jump');
+  canvas.dispatch('pointerup', cancelableEvent());
+  canvas.dispatch('pointerdown', cancelableEvent());
+  canvas.dispatch('pointercancel', cancelableEvent());
+  assert.equal(engines[0].presses, 2);
+  assert.equal(engines[0].releases, 2);
+
+  const hudSelection = cancelableEvent();
+  viewport.dispatch('selectstart', hudSelection);
+  assert.equal(hudSelection.defaultPrevented, true);
+  for (const eventName of ['touchstart', 'touchmove', 'touchend']) {
+    assert.equal(canvas.listeners.get(eventName)[0].options.passive, false);
+    const soundTouch = cancelableEvent();
+    sound.dispatch(eventName, soundTouch);
+    assert.equal(soundTouch.defaultPrevented, false, 'sound control touch must remain native');
+  }
+  sound.onclick({ stopPropagation() {}, currentTarget: sound });
+  assert.equal(sound.textContent, '🔊');
+});
+
+test('cleanup removes every game-board and jump-button suppression and pointer handler', () => {
   const { view } = loadGameView();
-  const { container, jumpButton } = createHarness();
+  const { container, jumpButton, canvas, viewport } = createHarness();
   view.gameVersion = '2.1.0';
   view.bindEngine(container, { isCurrent: () => true }, 1, 7);
   view.cleanup();
@@ -124,7 +159,9 @@ test('cleanup removes every jump-button suppression and pointer handler', () => 
     'touchstart', 'touchmove', 'touchend',
     'pointerdown', 'pointerup', 'pointercancel',
   ]) {
-    assert.equal(jumpButton.listeners.get(eventName)?.length || 0, 0, `${eventName} listener leaked`);
+    for (const element of [jumpButton, canvas, viewport]) {
+      assert.equal(element.listeners.get(eventName)?.length || 0, 0, `${eventName} listener leaked`);
+    }
   }
 });
 
@@ -141,5 +178,6 @@ test('selection and touch suppression stay off unrelated form controls and globa
 
   const css = fs.readFileSync(path.join(root, 'public/css/game.css'), 'utf8');
   assert.match(css, /\.big-jump-btn \{[\s\S]*?touch-action:\s*none/);
+  assert.match(css, /\.game-viewport-container,\s*\.game-viewport-container \*\s*\{[^}]*-webkit-user-select:\s*none;[^}]*-webkit-touch-callout:\s*none;/);
   assert.doesNotMatch(css, /(?:^|\n)(?:html|body|\*)[^\{]*\{[^}]*(?:touch-action:\s*none|user-select:\s*none)/);
 });

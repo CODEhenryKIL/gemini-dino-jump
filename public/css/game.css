@@ -38,6 +38,17 @@
   touch-action: none;
 }
 
+.game-viewport-container,
+.game-viewport-container * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.game-viewport-container img {
+  -webkit-user-drag: none;
+}
+
 #game-canvas {
   position: absolute;
   inset: 0;

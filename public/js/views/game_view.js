@@ -410,28 +410,20 @@ export const GameView = {
     const press = (event) => { event?.preventDefault?.(); this.engine?.jumpPress(); };
     const release = (event) => { event?.preventDefault?.(); this.engine?.jumpRelease(); };
     const jumpButton = container.querySelector('#btn-jump');
-    const suppressJumpButtonCallout = (event) => event.preventDefault();
-    const suppressedJumpButtonEvents = ['selectstart', 'dblclick'];
-    const suppressedJumpButtonTouchEvents = ['touchstart', 'touchmove', 'touchend'];
-    jumpButton.addEventListener('contextmenu', suppressJumpButtonCallout);
-    jumpButton.addEventListener('dragstart', suppressJumpButtonCallout);
-    for (const eventName of suppressedJumpButtonEvents) {
-      jumpButton.addEventListener(eventName, suppressJumpButtonCallout);
-    }
-    for (const eventName of suppressedJumpButtonTouchEvents) {
-      jumpButton.addEventListener(eventName, suppressJumpButtonCallout, { passive: false });
-    }
-    this.cleanupTasks.push(() => {
-      jumpButton.removeEventListener('contextmenu', suppressJumpButtonCallout);
-      jumpButton.removeEventListener('dragstart', suppressJumpButtonCallout);
-      for (const eventName of suppressedJumpButtonEvents) {
-        jumpButton.removeEventListener(eventName, suppressJumpButtonCallout);
+    const viewport = container.querySelector('.game-viewport-container');
+    const suppressCallout = (event) => event.preventDefault();
+    for (const element of [viewport, jumpButton]) {
+      for (const eventName of ['contextmenu', 'dragstart', 'selectstart', 'dblclick']) {
+        element.addEventListener(eventName, suppressCallout);
+        this.cleanupTasks.push(() => element.removeEventListener(eventName, suppressCallout));
       }
-      for (const eventName of suppressedJumpButtonTouchEvents) {
-        jumpButton.removeEventListener(eventName, suppressJumpButtonCallout);
-      }
-    });
+    }
     for (const element of [canvas, jumpButton]) {
+      // Cancel native touch selection only on jump targets, keeping the sound button clickable.
+      for (const eventName of ['touchstart', 'touchmove', 'touchend']) {
+        element.addEventListener(eventName, suppressCallout, { passive: false });
+        this.cleanupTasks.push(() => element.removeEventListener(eventName, suppressCallout));
+      }
       element.addEventListener('pointerdown', press);
       element.addEventListener('pointerup', release);
       element.addEventListener('pointercancel', release);
