@@ -1,0 +1,24 @@
+{
+  "campaign_id": "gemini_dino_campus_2026",
+  "schema": "dino_prod",
+  "source": "read-only aggregate query",
+  "baseline_commit": "504bdd3ae607510e950f6e72bf031ea7a2f86223",
+  "branch": "ux/pouch-draw-conversion",
+  "timezone": "Asia/Seoul",
+  "checked_at_kst": "2026-09-29 21:59:16",
+  "participants": 135,
+  "drawn_participants": 51,
+  "undrawn_participants": 84,
+  "undrawn_percent": "62.22",
+  "drawn_percent": "37.78",
+  "total_draws": 122,
+  "unit": "unique participant_id; browser-based, not verified unique people",
+  "undrawn_definition": "Participant exists and has no draw row in the campaign; not a confirmed abandonment rate.",
+  "previous_observation": {
+    "checked_at_kst": "2026-09-29 21:50:09",
+    "participants": 118,
+    "drawn_participants": 46,
+    "undrawn_participants": 72,
+    "undrawn_percent": 61.02
+  }
+}
