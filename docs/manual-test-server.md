@@ -183,11 +183,11 @@
 - **예상 결과:** `retry_invite`·일반 `record_share`는 `GAME`, `draw_retry`는 `DRAW`, `prize_share`·`general_share`는 `NONE`이다. claim 접수용 공유는 항상 `NONE`이며 claim 종류와 허용 kind가 맞지 않으면 거부된다. 응답은 `share_id`, `status`, `reward_type`, `reward_status`, 만료·확인 시각과 카카오 전달용 `callback_args`를 구분한다.
 - **결과:** ☐ 미실행
 
-### SV-020 웹훅 인증·위조·나에게 보내기·중복
+### SV-020 웹훅 인증·위조·나에게 보내기 예외·중복
 
 - **준비:** **격리 서버 전용 합성 카카오 자격**과 SV-019의 share intent. 공개 베타와 실제 키를 사용하지 않는다.
-- **동작:** `POST /api/webhooks/kakao-share`에 정확한 인증 헤더, 누락·오류·비ASCII 헤더, 만료 callback, 나에게 보내기, 같은 `X-Kakao-Resource-ID` 중복 요청을 각각 보낸다.
-- **예상 결과:** 정확히 인증된 전송 콜백만 confirmed 처리된다. 위조·누락·만료·다른 환경·나에게 보내기는 보상하지 않는다. 같은 공유 요청을 여러 번 보내도 최대 한 번만 지급된다. `GET /api/referrals/share-intents/{id}`에서 본인만 최종 `reward_status`를 확인한다.
+- **동작:** `POST /api/webhooks/kakao-share`에 정확한 인증 헤더, 누락·오류·비ASCII 헤더, 만료 callback, `GAME`·`DRAW` 나에게 보내기, 본인 소유 `claim_id` 결합 `NONE` 수령 접수용 나에게 보내기, 같은 `X-Kakao-Resource-ID` 중복 요청을 각각 보낸다.
+- **예상 결과:** 정확히 인증된 전송 콜백만 confirmed 처리된다. 위조·누락·만료·다른 환경과 `GAME`·`DRAW` 나에게 보내기는 보상하지 않는다. 소유 `claim_id` 결합 `NONE` 수령 접수용 나에게 보내기는 confirmed되어 접수 흐름에 사용할 수 있으나 `NO_REWARD`다. 같은 공유 요청을 여러 번 보내도 최대 한 번만 지급된다. `GET /api/referrals/share-intents/{id}`에서 본인만 최종 `reward_status`를 확인한다.
 - **결과:** ☐ 미실행
 
 ### SV-021 게임권 3장 상한·쿨다운·동시 웹훅
@@ -428,7 +428,7 @@
 
 아래 항목은 결함이 아니라 운영 결정 또는 별도 실제 검증이 필요한 상태다.
 
-- 실제 카카오 친구·단체방 GAME/DRAW/NONE·접수용 공유 및 나에게 보내기 제외: 확인 완료. 모든 위치별 수신 카드·취소·복귀 조합은 추가 검증 대상.
+- 실제 카카오 친구·단체방 GAME/DRAW/NONE·접수용 공유 및 나에게 보내기 제외: 확인 완료. 이는 당시 실행 결과이며, 현재 규칙은 SV-020의 GAME/DRAW 제외와 소유 `claim_id` 결합 NONE 예외를 따른다. 모든 위치별 수신 카드·취소·복귀 조합은 추가 검증 대상.
 - 최종 200명 등 부하 시험: 보류. 실행 전 요청·시간·비용 상한 필요.
 - 행사 일정: 2026-09-29 19:00~2026-10-02 23:59 KST 확정. 원격 베타에는 미반영. 종료 경계 게임·늦은 웹훅·마감 후 수령 접수는 미정.
 - 동점: 먼저 달성한 참가자 우선으로 정책 확정, 구현 미완료. 미등록·부적격·차순위 처리는 미정이며 최종 랭킹 지급 완료는 계속 차단.

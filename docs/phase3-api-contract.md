@@ -47,11 +47,11 @@
 | `draw_retry` | `DRAW` |
 | `prize_share`, `general_share` | `NONE` |
 
-- 소유한 `claim_id`가 있는 수령 접수용 공유는 항상 `NONE`이다. DRAW 수령 요청은 `prize_share`, RANKING은 `prize_share` 또는 `record_share`만 허용한다.
+- 소유한 `claim_id`가 있는 수령 접수용 공유는 항상 `NONE`이다. 이 요청만 본인 `MemoChat` 전송 확인으로 접수를 완료할 수 있고, 추가 권리는 지급하지 않는다. DRAW 수령 요청은 `prize_share`, RANKING은 `prize_share` 또는 `record_share`만 허용한다.
 - 신규 공유는 보상 계약 v2로 저장한다. 기존 v1 전송·접수 기록은 보존한다.
 - 응답은 `share_id`, `status`, `reward_type`, `reward_status`, 만료·확인 시각을 제공한다. 생성 응답의 `callback_args`는 카카오 전달용이며 사용자 화면이나 분석 이벤트에 노출하지 않는다.
 - `GET /api/referrals/share-intents/{id}`는 본인 요청만 조회하며 게임권 상태를 함께 제공한다. `DRAW` 목적에는 `draw_state`도 포함된다.
-- 인증된 카카오 웹훅만 권리를 적립한다. 나에게 보내기·위조·만료·다른 환경·중복 요청은 적립하지 않는다.
+- 인증된 카카오 웹훅만 권리를 적립한다. `GAME`·`DRAW`의 나에게 보내기와 위조·만료·다른 환경·중복 요청은 적립하지 않는다. 소유한 `claim_id`의 `NONE` 수령 접수 공유는 본인 `MemoChat`에서도 확인할 수 있지만 적립하지 않는다.
 - 한 공유 요청은 여러 방·중복 웹훅에도 최대 1회만 적립한다. 게임권과 뽑기권은 같은 요청에서 함께 지급하지 않는다.
 - 게임권은 3장 보유·10시간 규칙을 유지한다. 뽑기권은 사용 수+미사용 권리가 10을 넘지 않고, 실제 상품 당첨 후에는 새로 적립하지 않는다.
 - 공유 확인과 보상 지급은 별개다. `confirmed`여도 `NO_REWARD`, 한도·쿨다운 차단 등일 수 있으므로 `reward_status`까지 확인한다.

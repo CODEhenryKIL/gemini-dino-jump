@@ -40,6 +40,14 @@
 - 수신 호환성 보완은 `dpl_ELKJ4CvrHAg3g8LF5j1Wx1EghxpA`로 READY 배포했다. Datadog Logs Explorer에서 Production 로그 2건을 확인했다. 최신 표본은 2026-09-29 16:51:25.116 KST의 `env=production`, `campaign=gemini_dino_campus_2026`, `version=dpl_94Yqtt6yTqrELm6Rp9JGdwdeNVv7`, `GET /api/health`, HTTP 200, `duration_ms=54`, `error_class=none`이다. 16:48:31.856 KST의 보완 전 로그도 늦게 도착했으므로, 이 보완이 문제의 유일한 원인 해결이었다고 주장하지 않는다. 사용자가 제공한 메일함 화면에서 2026-09-29 14:32의 Datadog Alerting `Triggered: [TEST] Dino Preview`와 `Recovered: [TEST] Dino Preview` 메일 수신을 확인했다. 이는 베타 모니터의 테스트 발생·복구 알림이며 실제 장애가 아니다. 운영 모니터의 실제 발송까지 확인한 증거로 확대하지 않는다.
 - GA4 운영 허용 origin은 친근 공개 도메인만 허용한다. 따라서 후보 고유 URL에서는 동의 후에도 운영 이벤트를 전송할 수 없으며, 후보에서의 미전송은 설계된 차단이다. Preview 동의 흐름은 확인했지만 실제 Production 동의·전송은 공개 별칭 전환 직후의 cutover 검사로 남아 있다.
 
+## 카카오 운영 도메인 확인
+
+- 2026-09-29 17:46~17:50 KST에 Kakao Developers 앱 `1588671`(`Google Student Ambassador`)의 보이는 설정을 읽기 전용으로 확인했다. JS SDK 허용 도메인과 기본 제품 링크 도메인은 모두 `https://google-korea-team-gemini.vercel.app` 한 개였다.
+- 공유 웹훅은 `사용함`, `POST`, `https://google-korea-team-gemini.vercel.app/api/webhooks/kakao-share`였다. 관리자 키 조회·변경, 새 권한 부여, 메시지 전송은 하지 않았다. 확인용 탭은 닫았다.
+- 공개 베타 `dpl_4oga5WktqE7j4g8VSQQm1YdgVnMY`와 운영 OFF 후보 `dpl_2QNuiZQHwoBqsYDvmFwti9Yo4zeH`의 공개 설정 모두 JavaScript 키 준비와 `share.webhook_enabled=true`를 반환했다. 이 설정 확인을 실제 카카오 전송 성공으로 확대하지 않는다. 비밀값 없는 요약은 `.local/final-launch/kakao-console-verification.json`에 보관했다.
+- 수령 접수용 `claim_id` 결합 `NONE` 공유만 자기 전송을 허용하고 `GAME`·`DRAW`의 자기 전송 보상은 제외하는 현재 규칙으로 규범 문서 5개를 맞췄다. 과거 자기 전송이 거절됐던 실행 결과는 당시 증거로 보존했다. 실제 모바일 수령용 자기 전송 검증은 별도 미완료다.
+- 격리 PostgreSQL에 베타 GAME/DRAW 요청을 만들고 운영 역할·guard·webhook dispatch로 전달해 `SHARE_INTENT_NOT_FOUND`를 확인했다. 베타 요청 상태·운영 게임권/뽑기권 원장·초대권 잔액은 불변이었다. 운영 요청의 환경·캠페인을 각각 불일치시킨 경우도 `INVALID_WEBHOOK`으로 거절됐다. 기존 전환 잠금·운영 격리 검사와 함께 3/3 통과했고 증거는 `.local/final-launch/late-beta-callback-regressions.log`에 보관했다. 실제 카카오 전송을 모사한 로컬 서버 검사이며 원격 보상 지급은 없었다.
+
 ## 코드·회귀 검증
 
 | 검사 | 결과 | 증거·한계 |

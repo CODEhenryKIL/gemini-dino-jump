@@ -231,6 +231,130 @@ class ProductionRuntimeSmokeTest(unittest.TestCase):
         self.assertEqual(status, 201)
         return raw_token, result["participant"]
 
+    def test_late_beta_callbacks_cannot_grant_production_rewards(self):
+        beta_participant = "beta_callback_" + secrets.token_hex(8)
+        beta_token_hash = hashlib.sha256(beta_participant.encode()).hexdigest()
+        beta_referral_code = "BetaCallback" + secrets.token_hex(8)
+        production_participant = "prod_callback_" + secrets.token_hex(8)
+        production_token_hash = hashlib.sha256(production_participant.encode()).hexdigest()
+        production_referral_code = "ProdCallback" + secrets.token_hex(8)
+
+        def cleanup():
+            with psycopg.connect(self.database.dsn) as conn:
+                conn.execute("delete from dino_prod.participant where id=%s", (production_participant,))
+                conn.execute("delete from dino_dev.participant where id=%s", (beta_participant,))
+
+        self.addCleanup(cleanup)
+        beta_callbacks = []
+        with psycopg.connect(self.database.dsn) as conn:
+            conn.execute(
+                """insert into dino_dev.participant
+                (id,campaign_id,token_hash,token_expires_at,nickname,referral_code,environment)
+                values(%s,'gemini_dino_phase1_test',%s,clock_timestamp()+interval '1 hour',
+                       'beta_callback',%s,'test')""",
+                (beta_participant, beta_token_hash, beta_referral_code),
+            )
+            for kind, reward_type in (("retry_invite", "GAME"), ("draw_retry", "DRAW")):
+                share_id = "share_" + secrets.token_hex(16)
+                callback_token = secrets.token_urlsafe(32)
+                beta_callbacks.append((share_id, callback_token, reward_type))
+                conn.execute(
+                    """insert into dino_dev.kakao_share_intent
+                    (id,participant_id,campaign_id,kind,reward_type,reward_contract_version,
+                     callback_token_hash,environment,expires_at)
+                    values(%s,%s,'gemini_dino_phase1_test',%s,%s,2,%s,'test',
+                           clock_timestamp()+interval '30 minutes')""",
+                    (share_id, beta_participant, kind, reward_type,
+                     auth.token_hash(callback_token, PEPPER)),
+                )
+
+        with psycopg.connect(self.database.dsn) as conn:
+            beta_before = conn.execute(
+                """select id,status,reward_status,resource_id from dino_dev.kakao_share_intent
+                where participant_id=%s order by id""", (beta_participant,)
+            ).fetchall()
+            prod_before = conn.execute(
+                """select
+                (select count(*) from dino_prod.ticket_ledger),
+                (select count(*) from dino_prod.draw_credit_ledger),
+                (select coalesce(sum(invitation_balance),0) from dino_prod.participant)"""
+            ).fetchone()
+
+        for share_id, callback_token, reward_type in beta_callbacks:
+            with self.subTest(reward_type=reward_type), self.assertRaises(operations.DomainError) as caught:
+                with self.app_tx() as conn:
+                    db.check_business_environment(conn, self.settings)
+                    operations.dispatch(
+                        conn,
+                        "POST",
+                        "/api/webhooks/kakao-share",
+                        {"share_id": share_id, "callback_token": callback_token,
+                         "CHAT_TYPE": "DirectChat", "HASH_CHAT_ID": "beta-chat"},
+                        {},
+                        self.context(kakao_webhook_verified=True,
+                                     kakao_resource_id="late-beta-" + reward_type,
+                                     share_callback_token_hash=auth.token_hash(callback_token, PEPPER)),
+                    )
+            self.assertEqual(caught.exception.code, "SHARE_INTENT_NOT_FOUND")
+
+        guard_token = secrets.token_urlsafe(32)
+        guard_share_id = "share_" + secrets.token_hex(16)
+        with psycopg.connect(self.database.dsn) as conn:
+            conn.execute(
+                """insert into dino_prod.participant
+                (id,campaign_id,token_hash,token_expires_at,nickname,referral_code,environment,synthetic)
+                values(%s,%s,%s,clock_timestamp()+interval '1 hour','prod_callback',%s,'production',false)""",
+                (production_participant, self.settings.campaign_id, production_token_hash,
+                 production_referral_code),
+            )
+            conn.execute(
+                """insert into dino_prod.kakao_share_intent
+                (id,participant_id,campaign_id,kind,reward_type,reward_contract_version,
+                 callback_token_hash,environment,expires_at)
+                values(%s,%s,%s,'retry_invite','GAME',2,%s,'production',
+                       clock_timestamp()+interval '30 minutes')""",
+                (guard_share_id, production_participant, self.settings.campaign_id,
+                 auth.token_hash(guard_token, PEPPER)),
+            )
+
+        for label, mismatched_context in (
+            ("environment", {"environment": "preview"}),
+            ("campaign", {"campaign_id": "beta_campaign"}),
+        ):
+            with self.subTest(guard=label), self.assertRaises(operations.DomainError) as caught:
+                with self.app_tx() as conn:
+                    db.check_business_environment(conn, self.settings)
+                    operations.dispatch(
+                        conn,
+                        "POST",
+                        "/api/webhooks/kakao-share",
+                        {"share_id": guard_share_id, "callback_token": guard_token,
+                         "CHAT_TYPE": "DirectChat", "HASH_CHAT_ID": "guard-chat"},
+                        {},
+                        self.context(kakao_webhook_verified=True,
+                                     kakao_resource_id="guard-" + label,
+                                     share_callback_token_hash=auth.token_hash(guard_token, PEPPER),
+                                     **mismatched_context),
+                    )
+            self.assertEqual(caught.exception.code, "INVALID_WEBHOOK")
+
+        with psycopg.connect(self.database.dsn) as conn:
+            beta_after = conn.execute(
+                """select id,status,reward_status,resource_id from dino_dev.kakao_share_intent
+                where participant_id=%s order by id""", (beta_participant,)
+            ).fetchall()
+            prod_after = conn.execute(
+                """select
+                (select count(*) from dino_prod.ticket_ledger),
+                (select count(*) from dino_prod.draw_credit_ledger),
+                (select coalesce(sum(invitation_balance),0) from dino_prod.participant)"""
+            ).fetchone()
+        self.assertEqual(beta_after, beta_before)
+        self.assertEqual(prod_after, prod_before)
+        cleanup()
+        with psycopg.connect(self.database.dsn) as conn:
+            self.assertEqual(self._beta_snapshot(conn), self.beta_before)
+
     def test_cutover_waits_for_business_commit_then_stale_runtime_is_refused(self):
         marker = "rollback_lock_" + secrets.token_hex(8)
         stale_marker = "rollback_stale_" + secrets.token_hex(8)
