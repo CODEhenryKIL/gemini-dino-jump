@@ -94,7 +94,7 @@ test('Gemini benefit result prepares draw_retry and confirmed webhook exposes a 
   await h.view.preparePostDrawShare(h.container, h.router, 4, { round_number: 2, prize: {} }, { used_count: 2, max_count: 10 }, false);
   assert.equal(options.kind, 'draw_retry');
   assert.equal(h.button.hidden, false);
-  assert.match(h.button.textContent, /공유하고 한 번 더 뽑기/);
+  assert.match(h.button.textContent, /공유하고\s+한 번 더 뽑기/);
   await h.button.onclick();
   assert.match(h.status.textContent, /전송 확인 후/);
   options.onReceipt({ status: 'confirmed', reward_status: 'granted', reward_type: 'DRAW', draw_state: { status: 'AVAILABLE', used_count: 2, max_count: 10, available_credits: 1 } });

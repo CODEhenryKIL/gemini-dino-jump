@@ -3,6 +3,11 @@ const BUFFER_LIMIT = 12;
 const DEDUP_LIMIT = 64;
 const DEDUP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEDUP_STORAGE_PREFIX = 'dino_ga4_dedup_v1:';
+const REGIONAL_CONSENT_DENIED = [
+  'AT', 'BE', 'BG', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GB', 'GR',
+  'HR', 'HU', 'IE', 'IS', 'IT', 'LI', 'LT', 'LU', 'LV', 'MT', 'NL', 'NO', 'PL', 'PT',
+  'RO', 'SE', 'SI', 'SK',
+];
 
 const SCREENS = new Set(['loading', 'home', 'game', 'result', 'draw', 'claims', 'ranking', 'invite', 'benefit']);
 const SOURCES = new Set(['home', 'result', 'invite', 'claims', 'gemini', 'benefit']);
@@ -189,6 +194,7 @@ export class Ga4Analytics {
     this.configured = false;
     this.enabled = false;
     this.consent = null;
+    this.consentSource = 'unset';
     this.loaded = false;
     this.blocked = false;
     this.measurementId = '';
@@ -233,9 +239,10 @@ export class Ga4Analytics {
     return true;
   }
 
-  setConsent(granted) {
+  setConsent(granted, source = 'explicit') {
     const wasGranted = this.consent === true;
     this.consent = granted === true;
+    this.consentSource = typeof source === 'string' && source ? source : 'explicit';
     if (!this.consent) {
       this.buffer = [];
       this.dedup.clear();
@@ -256,7 +263,7 @@ export class Ga4Analytics {
     }
     if (this.measurementId) this.runtime[`ga-disable-${this.measurementId}`] = false;
     if (this.configured && this.enabled) this.loadPersistentDedup();
-    if (this.loaded && typeof this.runtime.gtag === 'function') {
+    if (!wasGranted && source !== 'automatic' && this.loaded && typeof this.runtime.gtag === 'function') {
       this.runtime.gtag('consent', 'update', {
         analytics_storage: 'granted',
         ad_storage: 'denied',
@@ -266,6 +273,10 @@ export class Ga4Analytics {
     }
     if (!wasGranted && this.currentScreen) this.pageView(this.currentScreen);
     this.start();
+  }
+
+  persistentStorageAllowed() {
+    return this.consent === true && ['explicit', 'stored_choice'].includes(this.consentSource);
   }
 
   setAttribution(dimensions = {}) {
@@ -328,7 +339,7 @@ export class Ga4Analytics {
   }
 
   loadPersistentDedup() {
-    if (this.consent !== true || !this.dedupStorageKey) return;
+    if (!this.persistentStorageAllowed() || !this.dedupStorageKey) return;
     try {
       const parsed = JSON.parse(this.runtime.localStorage?.getItem(this.dedupStorageKey) || '{}');
       const now = this.now();
@@ -345,7 +356,7 @@ export class Ga4Analytics {
   }
 
   persistDedup() {
-    if (this.consent !== true || !this.dedupStorageKey) return;
+    if (!this.persistentStorageAllowed() || !this.dedupStorageKey) return;
     try {
       const now = this.now();
       const entries = [...this.dedup.entries()]
@@ -411,12 +422,22 @@ export class Ga4Analytics {
       ad_user_data: 'denied',
       ad_personalization: 'denied',
     });
+    this.runtime.gtag('consent', 'default', {
+      analytics_storage: 'denied',
+      ad_storage: 'denied',
+      ad_user_data: 'denied',
+      ad_personalization: 'denied',
+      region: REGIONAL_CONSENT_DENIED,
+    });
     this.runtime.gtag('js', new Date());
     this.runtime.gtag('config', this.measurementId, {
       send_page_view: false,
       debug_mode: this.debugMode,
       cookie_expires: 60 * 86400,
       cookie_update: false,
+      allow_google_signals: false,
+      allow_ad_personalization_signals: false,
+      ads_data_redaction: true,
     });
     const script = documentRef.createElement('script');
     script.async = true;
@@ -480,4 +501,4 @@ export class Ga4Analytics {
 }
 
 export const ga4Analytics = new Ga4Analytics();
-export { BUFFER_LIMIT, DEDUP_LIMIT, DEDUP_TTL_MS, EVENT_NAMES, SCREENS };
+export { BUFFER_LIMIT, DEDUP_LIMIT, DEDUP_TTL_MS, EVENT_NAMES, REGIONAL_CONSENT_DENIED, SCREENS };

@@ -1,46 +1,65 @@
 import { ga4Analytics } from './ga4_analytics.js';
 
 const PREFERENCE_KEY = 'dino_ga4_consent_v1';
-let configured = false;
-let preference = storedPreference();
-// Read an existing choice before the application's first analytics event.
-if (preference !== null) ga4Analytics.setConsent(preference);
+const OPTOUT_COOKIE = 'dino_ga4_optout';
+let optoutListenerBound = false;
 
-function storedPreference() {
+function hasOptoutCookie() {
   try {
-    const value = localStorage.getItem(PREFERENCE_KEY);
-    return value === 'granted' ? true : value === 'denied' ? false : null;
-  } catch (_) { return null; }
+    return String(document.cookie || '').split(';').some((part) => part.trim() === `${OPTOUT_COOKIE}=1`);
+  } catch (_) { return false; }
 }
 
-function choose(value) {
-  const wasGranted = preference === true;
-  preference = value;
-  try { localStorage.setItem(PREFERENCE_KEY, value ? 'granted' : 'denied'); } catch (_) {}
-  ga4Analytics.setConsent(value);
-  const notice = document.getElementById('analytics-consent');
-  if (notice) notice.hidden = true;
-  // A loaded Google SDK can emit automatic cookieless events after a consent
-  // update. Reload into the denied state so basic mode loads no SDK at all.
-  if (wasGranted && !value) window.location.reload();
+function storedPreference() {
+  if (hasOptoutCookie()) return false;
+  try {
+    const value = localStorage.getItem(PREFERENCE_KEY);
+    if (value === 'denied') return false;
+    if (value === 'granted') return true;
+  } catch (_) {
+    return hasOptoutCookie() ? false : undefined;
+  }
+  return null;
+}
+
+function privacySignalEnabled() {
+  try {
+    if (navigator.globalPrivacyControl === true) return true;
+    const values = [navigator.doNotTrack, window.doNotTrack, navigator.msDoNotTrack];
+    return values.some((value) => value === '1' || String(value).toLowerCase() === 'yes');
+  } catch (_) { return false; }
+}
+
+function browserOptoutEnabled(config) {
+  const measurementId = config?.ga4?.measurement_id;
+  return typeof measurementId === 'string' && window[`ga-disable-${measurementId}`] === true;
+}
+
+function bindCrossTabOptout() {
+  if (optoutListenerBound || typeof window.addEventListener !== 'function') return;
+  optoutListenerBound = true;
+  window.addEventListener('storage', (event) => {
+    if (event.key !== PREFERENCE_KEY || event.newValue !== 'denied') return;
+    try { ga4Analytics.setConsent(false, 'stored_optout'); } catch (_) {}
+  });
 }
 
 // Optional analytics must never interfere with participant creation or gameplay.
 export function configureAnalyticsConsent(config) {
   try {
+    bindCrossTabOptout();
+    const preference = storedPreference();
+    const browserOptout = privacySignalEnabled() || browserOptoutEnabled(config);
+    const collectionAllowed = !browserOptout && (preference === true || preference === null);
+    const source = browserOptout ? 'browser_signal'
+      : preference === true ? 'stored_choice'
+        : collectionAllowed ? 'automatic'
+          : preference === false ? 'stored_optout' : 'storage_unavailable';
+    ga4Analytics.setConsent(collectionAllowed, source);
     ga4Analytics.configure(config);
-    const settings = document.getElementById('analytics-settings');
-    const notice = document.getElementById('analytics-consent');
-    if (!settings || !notice) return;
-    settings.hidden = !config?.ga4?.enabled;
-    if (!config?.ga4?.enabled) { notice.hidden = true; return; }
-    if (!configured) {
-      configured = true;
-      document.getElementById('analytics-accept')?.addEventListener('click', () => choose(true));
-      document.getElementById('analytics-decline')?.addEventListener('click', () => choose(false));
-      settings.addEventListener('click', () => { notice.hidden = false; document.getElementById('analytics-consent-title')?.focus(); });
-    }
-    if (preference !== null) ga4Analytics.setConsent(preference);
-    notice.hidden = preference !== null;
-  } catch (_) { /* The game remains usable when analytics or storage is blocked. */ }
+  } catch (_) {
+    try { ga4Analytics.setConsent(false, 'check_failed'); } catch (_) {}
+  }
 }
+
+export { OPTOUT_COOKIE, PREFERENCE_KEY };

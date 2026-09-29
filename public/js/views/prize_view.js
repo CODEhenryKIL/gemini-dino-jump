@@ -91,7 +91,7 @@ export const PrizeView = {
         : campaignStatus(router) === 'ENDED' ? '추가 뽑기가 종료됐어요' : '추가 뽑기가 잠시 중단됐어요';
       share.onclick = () => { if (campaignStatus(router) === 'ACTIVE' && (!router.isCurrent || router.isCurrent(renderToken))) router.navigate?.('draw'); };
     } else if (used < max) {
-      share.textContent = '친구에게 공유하고 한 번 더 뽑기';
+      share.textContent = '친구에게 공유하고\n한 번 더 뽑기';
       share.disabled = true;
       let prepared = null;
       let preparing = false;
@@ -120,7 +120,7 @@ export const PrizeView = {
           });
           if (!isCurrent()) return;
           prepared = value;
-          share.textContent = '친구에게 공유하고 한 번 더 뽑기';
+          share.textContent = '친구에게 공유하고\n한 번 더 뽑기';
           share.disabled = campaignStatus(router) !== 'ACTIVE';
         } catch (_) {
           if (!isCurrent()) return;

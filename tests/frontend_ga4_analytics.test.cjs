@@ -94,6 +94,13 @@ test('manual page views disable automatic tracking, use fixed virtual URLs, and 
   assert.equal(config[2].send_page_view, false);
   assert.equal(config[2].cookie_expires, 60 * 86400);
   assert.equal(config[2].cookie_update, false);
+  assert.equal(config[2].allow_google_signals, false);
+  assert.equal(config[2].allow_ad_personalization_signals, false);
+  assert.equal(config[2].ads_data_redaction, true);
+  const regionalDefault = calls.find((call) => call[0] === 'consent' && call[1] === 'default' && Array.isArray(call[2].region));
+  assert.ok(regionalDefault[2].region.includes('GB'));
+  assert.ok(regionalDefault[2].region.includes('CH'));
+  assert.equal(regionalDefault[2].analytics_storage, 'denied');
   const pages = calls.filter((call) => call[0] === 'event' && call[1] === 'page_view');
   assert.equal(pages.length, 3);
   assert.equal(pages[0][2].page_location, 'https://preview.example.test/virtual/home');
@@ -291,6 +298,36 @@ test('grant after revoke reenables the loaded tag with ads consent still denied'
   }]);
   assert.equal(calls[1][0], 'event');
   assert.equal(calls[1][1], 'page_view');
+});
+
+test('automatic collection is not recorded as affirmative consent and repeated config does not override regional defaults', async () => {
+  const { Ga4Analytics } = await loadModule();
+  const storage = memoryStorage();
+  const fake = runtime('https://preview.example.test/', storage);
+  const analytics = new Ga4Analytics(fake);
+  analytics.setConsent(true, 'automatic');
+  analytics.configure(previewConfig());
+  const callsBeforeRepeat = gtagCalls(fake).length;
+  analytics.track('draw_result_viewed', { result_type: 'benefit', round_number: 1 }, { screen: 'draw', dedupKey: 'automatic-dedup' });
+  assert.equal(storage.length, 0, 'automatic policy uses only in-memory dedup');
+  analytics.setConsent(true, 'automatic');
+  analytics.configure(previewConfig());
+  const repeated = gtagCalls(fake).slice(callsBeforeRepeat);
+  assert.equal(repeated.some((call) => call[0] === 'consent' && call[1] === 'update' && call[2].analytics_storage === 'granted'), false);
+  assert.equal(analytics.consentSource, 'automatic');
+});
+
+test('automatic mode never sends a global granted update after a prior in-page denial', async () => {
+  const { Ga4Analytics } = await loadModule();
+  const fake = runtime();
+  const analytics = new Ga4Analytics(fake);
+  analytics.setConsent(true, 'automatic');
+  analytics.configure(previewConfig());
+  analytics.setConsent(false, 'browser_signal');
+  const before = gtagCalls(fake).length;
+  analytics.setConsent(true, 'automatic');
+  const calls = gtagCalls(fake).slice(before);
+  assert.equal(calls.some((call) => call[0] === 'consent' && call[1] === 'update' && call[2].analytics_storage === 'granted'), false);
 });
 
 test('the internal analytics hook forwards before its bounded delivery queue rejects an event', () => {

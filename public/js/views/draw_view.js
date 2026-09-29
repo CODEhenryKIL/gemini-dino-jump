@@ -339,7 +339,7 @@ export const DrawView = {
     }
     button.hidden = false;
     button.disabled = true;
-    button.textContent = actualPrize ? '카카오톡으로 당첨 자랑하기' : '카카오톡으로 공유하고 한 번 더 뽑기';
+    button.textContent = actualPrize ? '카카오톡으로 당첨 자랑하기' : '카카오톡으로 공유하고\n한 번 더 뽑기';
     if (!actualPrize && statusNow !== 'ACTIVE') {
       button.textContent = statusNow === 'NOT_OPEN' ? '행사 시작 후 공유하기' : statusNow === 'ENDED' ? '추가 뽑기 공유가 종료됐어요' : '추가 뽑기 공유가 잠시 중단됐어요';
       ui.text(status, '저장된 혜택 결과는 계속 확인할 수 있어요.');

@@ -81,7 +81,6 @@
         <img src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador Logo" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
       </a>
       <div class="header-actions">
-        <button id="analytics-settings" class="analytics-settings" type="button" hidden aria-label="분석 쿠키 설정">분석 설정</button>
         <div id="header-ticket-pill" class="ticket-pill">
           🎟️ 1장
         </div>
@@ -92,6 +91,10 @@
     <main id="view-container" class="view-content" data-splash-inert inert>
       <!-- Views will be mounted here dynamically by Router -->
     </main>
+
+    <footer class="site-privacy-footer" data-splash-inert inert>
+      <a href="/privacy.html">개인정보 처리 안내</a>
+    </footer>
 
     <!-- Fixed Bottom Navigation Bar -->
     <nav class="bottom-nav" aria-label="주요 메뉴" data-splash-inert inert>
@@ -119,12 +122,6 @@
 
   </div>
 
-  <aside id="analytics-consent" class="analytics-consent" role="region" aria-labelledby="analytics-consent-title" hidden>
-    <strong id="analytics-consent-title" tabindex="-1">게임 이용 분석을 허용할까요?</strong>
-    <p>Google Analytics 쿠키로 방문 경로와 화면 이용을 분석해요. 이름·연락처·학교·초대 코드는 보내지 않아요. 거절해도 모든 기능을 이용할 수 있어요.</p>
-    <details><summary>수집 내용 자세히</summary><p>Google로 화면 이동, 게임·공유 버튼 이용, 기기·브라우저 정보가 전송됩니다. 분석용 쿠키와 Google에서 생성한 식별자를 사용하며, 사용자별 분석 이벤트는 2개월 보관합니다. 상단 ‘분석 설정’에서 언제든 선택을 바꿀 수 있어요. <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a></p></details>
-    <div class="analytics-consent-actions"><button id="analytics-decline" type="button">사용 안 함</button><button id="analytics-accept" type="button">분석 허용</button></div>
-  </aside>
 
   <!-- Main Application Script (ES Module) -->
   <script type="module" src="/js/app.js?v=20260926-benefit"></script>
