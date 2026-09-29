@@ -272,7 +272,7 @@ export const ResultView = {
     accuracyNote.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';
     form.appendChild(accuracyNote);
     const eligibilityNote = document.createElement('p'); eligibilityNote.className = 'result-contact-accuracy';
-    eligibilityNote.textContent = '재학생·휴학생이 참여할 수 있어요. 개인정보는 지급 완료 후 30일 이내 삭제해요. 미지급 정보는 전체 경품 지급 종료 후 30일 이내 삭제해요. 문의: sea42471@naver.com';
+    eligibilityNote.textContent = '문의: sea42471@naver.com';
     form.appendChild(eligibilityNote);
     const feedback = document.createElement('p'); feedback.className = 'result-form-status'; feedback.setAttribute('role', 'status');
     const button = document.createElement('button'); button.type = 'submit'; button.className = 'btn btn-secondary'; button.textContent = '수령 정보 등록';

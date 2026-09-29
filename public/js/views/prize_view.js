@@ -216,7 +216,7 @@ export const PrizeView = {
     const words = document.createElement('span'); words.textContent = `경품 안내와 수령 확인을 위한\n이름·연락처·학교${claim.category === 'SHIPPING' ? '·주소' : ''} 수집에 동의합니다.`;
     consent.append(checkbox, words); form.appendChild(consent);
     const privacy = document.createElement('p'); privacy.className = 'contact-accuracy';
-    privacy.textContent = '재학생·휴학생 모두 수령 가능해요.\n개인정보는 지급 완료 후 30일 이내 삭제해요.\n미지급 정보는 전체 경품 지급 종료 후 30일 이내 삭제해요.\n문의: sea42471@naver.com';
+    privacy.textContent = '문의: sea42471@naver.com';
     form.appendChild(privacy);
     const accuracyNote = document.createElement('p'); accuracyNote.className = 'result-contact-accuracy';
     accuracyNote.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';

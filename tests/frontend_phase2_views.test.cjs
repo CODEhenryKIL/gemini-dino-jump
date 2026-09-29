@@ -274,7 +274,7 @@ test('TOP3 gap copy handles server states without promising a prize', () => {
   assert.equal(view.top3GapMessage({ rank: 4, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 0, tied: true, participant_count: 8 } }), 'TOP3 기준을 계산하는 중이에요.');
 });
 
-test('TOP3 information form states eligibility, retention, and contact policy', () => {
+test('TOP3 information form keeps a compact contact note', () => {
   const view = loadView('public/js/views/result_view.js', 'ResultView', {
     document: { createElement: () => node() },
     ui: { formField: () => ({ label: node(), input: { value: '' } }) },
@@ -282,8 +282,7 @@ test('TOP3 information form states eligibility, retention, and contact policy', 
   });
   const form = view.top3Form({ renderToken: 1, isCurrent: () => true });
   const copy = form.children.map((child) => child.textContent).join(' ');
-  assert.match(copy, /재학생·휴학생/);
-  assert.match(copy, /지급 완료 후 30일 이내 삭제/);
+  assert.doesNotMatch(copy, /재학생·휴학생|지급 완료 후 30일|미지급 정보/);
   assert.match(copy, /sea42471@naver\.com/);
 });
 
