@@ -146,7 +146,7 @@ async function watchInvitationShare(router, shareId, options = {}) {
         const rewardType = resolveRewardType(options.kind, options, receipt);
         if (receipt.status === 'confirmed') {
           if (rewardType === 'DRAW') {
-            ui.showToast(receipt.reward_status === 'granted' ? '전송이 확인되어 한 번 더 뽑을 수 있어요!' : '전송은 확인됐지만 복주머니 최대 횟수 또는 당첨 종료 상태예요.');
+            ui.showToast(receipt.reward_status === 'granted' ? '전송이 확인되어 한 번 더 뽑을 수 있어요!' : '전송은 확인됐지만 경품 뽑기 최대 횟수에 도달했거나 당첨이 완료됐어요.');
           } else if (rewardType === 'GAME') {
             ui.showToast(receipt.reward_status === 'granted' ? '전송이 확인되어 게임권 1장을 받았어요!' : '카카오톡 전송을 확인했어요. 초대권은 보유 한도와 대기 시간에 따라 지급돼요.');
           }

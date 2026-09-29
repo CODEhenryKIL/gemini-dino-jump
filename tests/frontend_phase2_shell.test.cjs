@@ -97,7 +97,7 @@ test('initial brand flow has the required copy and a static reduced-motion prese
   assert.match(html, /Google Student Ambassador/);
   assert.match(html, /Google AI로 만든/);
   assert.match(html, /한 판 즐기고,[\s\S]*경품에 도전하세요\./);
-  assert.match(html, /공룡 게임 한 판![\s\S]*복주머니를 고르고[\s\S]*복권을 긁어 결과 확인![\s\S]*삼텐바이미부터 상품권까지/);
+  assert.match(html, /공룡 게임 한 판![\s\S]*경품 뽑기에 도전![\s\S]*복권을 긁어 결과 확인![\s\S]*삼텐바이미부터 상품권까지/);
   assert.doesNotMatch(html, /프리뷰|시안|게임은 누구나 참여 가능 · 경품은 대학생 대상/);
   assert.match(app, /prefers-reduced-motion: reduce/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation: none !important/);

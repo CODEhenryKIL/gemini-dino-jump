@@ -76,6 +76,6 @@ test('Gemini benefit card respects the ten-draw limit and prepares no extra rewa
   const card = view.benefitCard({ used_count: 10, max_count: 10, available_credits: 0 }, { isCurrent: () => true }, 1);
   const share = descendants(card, 'button')[1];
   assert.equal(preparations, 0);
-  assert.equal(share.textContent, '10회 복주머니 확인 완료');
+  assert.equal(share.textContent, '경품 뽑기 10회 완료');
   assert.equal(share.disabled, true);
 });

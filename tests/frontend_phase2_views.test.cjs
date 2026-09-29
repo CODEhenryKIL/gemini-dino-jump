@@ -398,7 +398,7 @@ test('restored scratched draw reveals the same server result without another dra
   assert.equal(restored, true, 'restoring a server result must not count as a new scratch');
   assert.match(nodes.get('#restored-pouch').textContent, /3번 주머니/);
   assert.equal(nodes.get('#post-reveal-actions').hidden, false);
-  assert.equal(nodes.get('#scratch-title').textContent, '복주머니 결과를 확인하세요');
+  assert.equal(nodes.get('#scratch-title').textContent, '경품 뽑기 결과를 확인하세요');
   assert.equal(nodes.get('#scratch-instruction').textContent, '');
   assert.equal(nodes.get('#scratch-instruction').hidden, true);
   assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);
@@ -448,7 +448,7 @@ test('scratch result enters the accessibility tree only when revealed and canvas
   assert.equal(canvas.tabIndex, -1);
   assert.equal(canvas.getAttribute('aria-hidden'), 'true');
   assert.equal(document.activeElement, nodes.get('#btn-after-draw'));
-  assert.equal(nodes.get('#scratch-title').textContent, '복주머니 결과를 확인하세요');
+  assert.equal(nodes.get('#scratch-title').textContent, '경품 뽑기 결과를 확인하세요');
   assert.equal(nodes.get('#scratch-instruction').textContent, '');
   assert.equal(nodes.get('#scratch-instruction').hidden, true);
   assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);

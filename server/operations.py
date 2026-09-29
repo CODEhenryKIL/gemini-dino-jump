@@ -765,7 +765,7 @@ def _ensure_first_draw_credit(conn,p,eligible):
           and l.campaign_id=d.campaign_id and l.source_type='DRAW_CONSUME' and l.source_id=d.id)
       order by d.round_number,d.created_at,d.id""",(p["id"],p["campaign_id"]))
     for draw in missing:
-        if balance<=0:raise DomainError("DRAW_LEDGER_INVALID","복주머니 사용 기록을 확인하고 있습니다.",503)
+        if balance<=0:raise DomainError("DRAW_LEDGER_INVALID","경품 뽑기 사용 기록을 확인하고 있습니다.",503)
         balance-=1
         conn.execute(f"""insert into {database_schema()}.draw_credit_ledger
           (participant_id,campaign_id,delta,source_type,source_id,balance_after,created_at)
@@ -828,7 +828,7 @@ def create_draw(conn,body,ctx):
     p=_participant(conn,ctx,True,True)
     try:pouch=int(body.get("pouch_index"))
     except (TypeError,ValueError):pouch=-1
-    if pouch not in (0,1,2):raise DomainError("VALIDATION_ERROR","복주머니를 확인해 주세요.")
+    if pouch not in (0,1,2):raise DomainError("VALIDATION_ERROR","선택한 주머니를 확인해 주세요.")
     session=_one(conn,f"select * from {database_schema()}.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1 for update",(p["id"],p["campaign_id"]))
     if not session:raise DomainError("DRAW_NOT_AVAILABLE","정상 게임 완료 후 열 수 있습니다.",409)
     campaign=_campaign(conn);_mutable(campaign)
@@ -846,16 +846,16 @@ def create_draw(conn,body,ctx):
     existing=_one(conn,_draw_select()+" where d.campaign_id=%s and d.participant_id=%s and d.round_number=%s",(p["campaign_id"],p["id"],expected_round))
     if existing:
         if existing["pouch_index"]!=pouch:
-            raise DomainError("DRAW_ROUND_CONFLICT","이미 선택한 복주머니 결과가 있습니다.",409)
+            raise DomainError("DRAW_ROUND_CONFLICT","이미 선택한 경품 뽑기 결과가 있습니다.",409)
         return 200,{**_draw_response(existing),"draw_state":_draw_state(conn,p,session),"replayed":True}
     next_round=state["used_count"]+1
     if expected_round!=next_round:
         raise DomainError("DRAW_ROUND_MISMATCH","추첨 상태가 바뀌었습니다. 결과를 다시 확인해 주세요.",409)
-    if state["actual_prize_won"]:raise DomainError("DRAW_PRIZE_ALREADY_WON","실제 상품 당첨자의 복주머니 추첨은 완료되었습니다.",409)
-    if state["used_count"]>=MAX_DRAW_COUNT:raise DomainError("DRAW_LIMIT_REACHED","복주머니는 최대 10회까지 확인할 수 있습니다.",409)
+    if state["actual_prize_won"]:raise DomainError("DRAW_PRIZE_ALREADY_WON","실제 상품에 당첨되어 경품 뽑기가 완료됐어요.",409)
+    if state["used_count"]>=MAX_DRAW_COUNT:raise DomainError("DRAW_LIMIT_REACHED","경품 뽑기는 최대 10회까지 할 수 있어요.",409)
     _new_entry_allowed(conn,campaign)
     _ensure_first_draw_credit(conn,p,session);state=_draw_state(conn,p,session)
-    if state["available_credits"]<=0:raise DomainError("DRAW_CREDIT_REQUIRED","카카오톡 공유 후 추가 복주머니를 확인할 수 있습니다.",409)
+    if state["available_credits"]<=0:raise DomainError("DRAW_CREDIT_REQUIRED","카카오톡 공유 후 경품 뽑기에 한 번 더 도전할 수 있어요.",409)
     prize,inventory,roll,slot=_pool_prize(conn,campaign);round_number=expected_round
     outcome_kind="PRIZE" if inventory else "BENEFIT";did=_id("draw");audit=hashlib.sha256(f"{did}:{roll}:{campaign['probability_version']}:{slot['id'] if slot else 'legacy'}".encode()).hexdigest()
     conn.execute(f"""insert into {database_schema()}.draw(id,campaign_id,participant_id,eligible_session_id,round_number,pouch_index,prize_id,inventory_item_id,is_won,outcome_kind,probability_version,random_audit_hash)

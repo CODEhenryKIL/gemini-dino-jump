@@ -7,7 +7,7 @@ import os
 
 UTC = dt.timezone.utc
 EVENT_LABELS = {
-    'draw_cta_clicked': '복주머니 버튼 클릭',
+    'draw_cta_clicked': '경품 뽑기 버튼 클릭',
     'content_viewed': '가이드 카드 노출',
     'content_clicked': '가이드 링크 클릭',
     'scratch_reveal_requested': '긁기 보조 공개 요청',
@@ -267,7 +267,7 @@ def build_overview(conn, query, ctx):
     # Result exposure precedes the async completion save; both progress from
     # scratch start. A restored result has no new start or completion event.
     stages = rows(""" , stage_defs(key,label,entry_name,next_name) as (values
-      ('draw.select','복주머니 진입→선택','draw_entered','pouch_selected'),
+      ('draw.select','경품 뽑기 진입→선택','draw_entered','pouch_selected'),
       ('scratch.start','주머니 선택→긁기 시작','pouch_selected','scratch_started'),
       ('scratch.complete','긁기 시작→완료 저장','scratch_started','scratch_completed'),
       ('scratch.visible','긁기 시작→결과 실제 노출','scratch_started','draw_result_viewed'),

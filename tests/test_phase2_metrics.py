@@ -170,7 +170,7 @@ class Phase2MetricsTest(unittest.TestCase):
         self.assertEqual((funnel["events"], funnel["participants"]), (3, 2))
         metric = next(row for row in data["metrics"] if row["key"] == "event.client.draw_cta_clicked")
         self.assertEqual((metric["label"], metric["event_count"], metric["unique_participants"]),
-                         ("복주머니 버튼 클릭 (client)", 3, 2))
+                         ("경품 뽑기 버튼 클릭 (client)", 3, 2))
 
 
 if __name__ == "__main__":

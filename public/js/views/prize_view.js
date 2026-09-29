@@ -76,7 +76,7 @@ export const PrizeView = {
     const name = document.createElement('h2'); name.textContent = 'Gemini 1년 무료 혜택';
     const badge = document.createElement('span'); badge.className = 'sticker-badge badge-blue'; badge.textContent = '혜택';
     header.append(name, badge);
-    const help = document.createElement('p'); help.className = 'claim-help'; help.textContent = '공식 혜택을 확인하거나 친구에게 공유하고 복주머니를 한 번 더 열어 보세요.';
+    const help = document.createElement('p'); help.className = 'claim-help'; help.textContent = '공식 혜택을 확인하거나 친구에게 공유하고 경품 뽑기에 한 번 더 도전해 보세요.';
     const actions = document.createElement('div'); actions.className = 'claim-benefit-actions';
     const benefit = document.createElement('button'); benefit.type = 'button'; benefit.className = 'btn btn-secondary btn-sm'; benefit.textContent = '혜택 보러 가기';
     benefit.onclick = () => router.navigate?.('benefit');
@@ -139,7 +139,7 @@ export const PrizeView = {
       };
       void prepare();
     } else {
-      share.textContent = `${max}회 복주머니 확인 완료`;
+      share.textContent = `경품 뽑기 ${max}회 완료`;
       share.disabled = true;
     }
     actions.append(benefit, share); card.append(header, help, actions); return card;
@@ -148,10 +148,10 @@ export const PrizeView = {
   renderEmpty(container, router) {
     const card = document.createElement('section'); card.className = 'card empty-state';
     const status = router.state?.draw?.status || 'LOCKED';
-    const title = document.createElement('h2'); title.textContent = status === 'LOCKED' ? '복주머니가 아직 잠겨 있어요' : '접수할 경품이 아직 없어요';
+    const title = document.createElement('h2'); title.textContent = status === 'LOCKED' ? '경품 뽑기가 아직 잠겨 있어요' : '접수할 경품이 아직 없어요';
     const detail = document.createElement('p');
     const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(status) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
-    detail.textContent = status === 'LOCKED' ? '정상 검증된 게임을 한 번 완료하면 첫 복주머니를 열 수 있어요.' : hasDrawResult ? '이미 저장된 복주머니 결과를 다시 확인할 수 있어요.' : '첫 게임을 완료했으니 복주머니를 열 수 있어요.';
+    detail.textContent = status === 'LOCKED' ? '게임을 한 번 완료하면 경품 뽑기에 도전할 수 있어요.' : hasDrawResult ? '이미 저장된 경품 뽑기 결과를 다시 확인할 수 있어요.' : '첫 게임을 완료했으니 경품 뽑기에 도전해 보세요.';
     const button = document.createElement('button'); button.className = status === 'LOCKED' ? 'btn btn-primary' : 'btn btn-prize-draw';
     button.textContent = status === 'LOCKED' ? '홈에서 게임 시작하기' : hasDrawResult ? '내 경품 결과 보기' : '🧧 경품 뽑기';
     button.disabled = status === 'AVAILABLE' && !hasDrawResult && campaignStatus(router) !== 'ACTIVE';

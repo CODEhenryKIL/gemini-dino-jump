@@ -452,7 +452,7 @@ function renderDrawSummary(draws = {}, creditRows = []) {
   renderTable(document.querySelector('#draw-summary'), [
     { label: '항목', value: (row) => row.label },
     { label: '건수', value: (row) => row.value },
-  ], summary, '조회된 복주머니 결과가 없습니다.');
+  ], summary, '조회된 경품 뽑기 결과가 없습니다.');
   renderTable(document.querySelector('#draw-credit-ledger'), [
     { label: '뽑기권 원장 사유', value: (row) => row.source_type },
     { label: '건수', value: (row) => row.events },

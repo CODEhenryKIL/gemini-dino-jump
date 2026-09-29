@@ -34,7 +34,7 @@ export const DrawView = {
   async render(container, router, renderToken) {
     this.cleanup();
     this.renderToken = renderToken;
-    container.innerHTML = '<section class="card empty-state"><p>복주머니 상태를 확인하는 중...</p></section>';
+    container.innerHTML = '<section class="card empty-state"><p>경품 뽑기 상태를 확인하는 중...</p></section>';
     analytics.track('draw_entered');
     try {
       const state = await api.getDraw();
@@ -62,8 +62,8 @@ export const DrawView = {
     container.replaceChildren();
     const card = document.createElement('section');
     card.className = 'card empty-state';
-    const title = document.createElement('h2'); title.textContent = '복주머니가 아직 잠겨 있어요';
-    const text = document.createElement('p'); text.textContent = '정상 검증된 게임을 한 번 완료하면 첫 복주머니를 열 수 있어요.';
+    const title = document.createElement('h2'); title.textContent = '경품 뽑기가 아직 잠겨 있어요';
+    const text = document.createElement('p'); text.textContent = '게임을 한 번 완료하면 경품 뽑기에 도전할 수 있어요.';
     const button = document.createElement('button'); button.className = 'btn btn-primary'; button.textContent = '게임하러 가기'; button.onclick = () => router.navigate('home');
     card.append(title, text, button); container.appendChild(card);
   },
@@ -73,9 +73,9 @@ export const DrawView = {
     container.innerHTML = `
       <section class="card pouch-selection-container">
         <span class="sticker-badge badge-yellow">최대 10회</span>
-        <h2>복주머니 하나를 골라주세요</h2>
+        <h2>경품 뽑기</h2>
         <p class="draw-round-progress">사용 ${Number(drawState.used_count || 0)}/${Number(drawState.max_count || 10)}회 · 남은 뽑기권 ${Number(drawState.available_credits || 0)}장</p>
-        <p class="pouch-selection-description">하나를 고르면 결과가 정해져요.<br>정해진 결과는 새로고침해도 같아요.</p>
+        <p class="pouch-selection-description">주머니 하나를 고르면 결과가 정해져요.<br>정해진 결과는 새로고침해도 같아요.</p>
         <div class="pouch-grid">
           <button class="pouch-item wiggle" data-index="0"><span class="pouch-icon">🧧</span><span class="pouch-label">1번</span></button>
           <button class="pouch-item wiggle" data-index="1"><span class="pouch-icon">🧧</span><span class="pouch-label">2번</span></button>
@@ -182,8 +182,8 @@ export const DrawView = {
       context.pouches.forEach((pouch) => { pouch.disabled = true; });
       context.open.disabled = true;
       if (context.description) context.description.textContent = campaignStatus(router) === 'NOT_OPEN'
-        ? '행사 시작 후 새 복주머니를 열 수 있어요.'
-        : campaignStatus(router) === 'ENDED' ? '행사가 종료되어 새 복주머니를 열 수 없어요.' : '행사가 잠시 중단되어 새 복주머니를 열 수 없어요.';
+        ? '행사 시작 후 경품 뽑기에 도전할 수 있어요.'
+        : campaignStatus(router) === 'ENDED' ? '행사가 종료되어 경품 뽑기에 도전할 수 없어요.' : '행사가 잠시 중단되어 경품 뽑기에 도전할 수 없어요.';
       return;
     }
     if (!pending) {
@@ -240,7 +240,7 @@ export const DrawView = {
     };
     const showResult = () => {
       if (!router.isCurrent(renderToken)) return;
-      ui.text(container.querySelector('#scratch-title'), '복주머니 결과를 확인하세요');
+      ui.text(container.querySelector('#scratch-title'), '경품 뽑기 결과를 확인하세요');
       const instruction = container.querySelector('#scratch-instruction');
       ui.text(instruction, '');
       instruction.hidden = true;
@@ -323,7 +323,7 @@ export const DrawView = {
       button.hidden = false;
       button.disabled = statusNow !== 'ACTIVE';
       button.textContent = button.disabled ? (statusNow === 'NOT_OPEN' ? '행사 시작 후 한 번 더 뽑기' : statusNow === 'ENDED' ? '추가 뽑기가 종료됐어요' : '추가 뽑기가 잠시 중단됐어요') : '한 번 더 뽑기';
-      ui.text(status, button.disabled ? '저장된 결과는 계속 확인할 수 있어요.' : `사용 가능한 복주머니가 ${availableCredits}개 있어요.`);
+      ui.text(status, button.disabled ? '저장된 결과는 계속 확인할 수 있어요.' : `남은 경품 뽑기 ${availableCredits}회`);
       button.onclick = () => {
         if (!isCurrent() || campaignStatus(router) !== 'ACTIVE') return;
         router.state.draw = { ...drawState };
@@ -333,7 +333,7 @@ export const DrawView = {
       return;
     }
     if (!actualPrize && used >= max) {
-      ui.text(status, `${max}회 복주머니를 모두 확인했어요.`);
+      ui.text(status, `경품 뽑기 ${max}회를 모두 사용했어요.`);
       if (context) { context.actionKey = actionKey; context.preparingActionKey = null; }
       return;
     }
@@ -370,7 +370,7 @@ export const DrawView = {
         try {
           const outcome = await prepared.share();
           if (!isCurrent()) return;
-          if (outcome?.status === 'pending') ui.text(status, actualPrize ? '카카오톡 공유창을 열었어요.' : '전송 확인 후 새 복주머니가 열려요.');
+          if (outcome?.status === 'pending') ui.text(status, actualPrize ? '카카오톡 공유창을 열었어요.' : '전송 확인 후 경품 뽑기에 다시 도전할 수 있어요.');
           else if (outcome?.status === 'failed') ui.text(status, '공유를 열지 못했어요. 다시 시도해 주세요.');
         } finally { if (isCurrent()) button.disabled = !actualPrize && campaignStatus(router) !== 'ACTIVE'; }
       };
@@ -398,7 +398,7 @@ export const DrawView = {
   renderError(container, router, error) {
     container.replaceChildren();
     const card = document.createElement('section'); card.className = 'card empty-state';
-    const p = document.createElement('p'); p.textContent = error.message || '복주머니 상태를 불러오지 못했습니다.';
+    const p = document.createElement('p'); p.textContent = error.message || '경품 뽑기 상태를 불러오지 못했습니다.';
     const retry = document.createElement('button'); retry.className = 'btn btn-primary'; retry.textContent = '다시 시도'; retry.onclick = () => router.navigate('draw');
     card.append(p, retry); container.appendChild(card);
   },

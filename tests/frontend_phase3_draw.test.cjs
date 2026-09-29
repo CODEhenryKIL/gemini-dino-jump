@@ -119,7 +119,7 @@ test('the tenth benefit result ends repeat draws without preparing a new share i
   await h.view.preparePostDrawShare(h.container, h.router, 6, { round_number: 10, prize: {} }, { used_count: 10, max_count: 10 }, false);
   assert.equal(preparations, 0);
   assert.equal(h.button.hidden, true);
-  assert.equal(h.status.textContent, '10회 복주머니를 모두 확인했어요.');
+  assert.equal(h.status.textContent, '경품 뽑기 10회를 모두 사용했어요.');
 });
 
 test('callout suppression stays scoped to the game controls and preserves press/release handlers', () => {

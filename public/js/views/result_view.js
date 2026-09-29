@@ -109,7 +109,7 @@ export const ResultView = {
       const currentGapNode = container.querySelector('#result-top3-gap');
       if (!currentGapNode) return;
       currentGapNode.replaceChildren();
-      const message = document.createElement('span'); message.textContent = 'TOP3 기준을 불러오지 못했어요. 게임 결과와 복주머니 진행에는 영향이 없어요.';
+      const message = document.createElement('span'); message.textContent = 'TOP3 기준을 불러오지 못했어요. 게임 결과와 경품 뽑기 진행에는 영향이 없어요.';
       const retry = document.createElement('button'); retry.className = 'btn btn-secondary btn-sm'; retry.textContent = 'TOP3 기준 다시 불러오기';
       retry.onclick = () => {
         if ((router.isCurrent && !router.isCurrent(renderToken)) || retry.disabled) return;
