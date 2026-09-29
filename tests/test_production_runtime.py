@@ -6,6 +6,8 @@ import hmac
 import json
 import secrets
 import sys
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -23,7 +25,7 @@ import db
 import metrics
 import operations
 import share_page
-from config import Settings, schema_context
+from config import ConfigurationError, Settings, schema_context
 from prepare_production import provision, render_schema
 from test_migration_acceptance import (
     ADDITIONS,
@@ -228,6 +230,130 @@ class ProductionRuntimeSmokeTest(unittest.TestCase):
             )
         self.assertEqual(status, 201)
         return raw_token, result["participant"]
+
+    def test_cutover_waits_for_business_commit_then_stale_runtime_is_refused(self):
+        marker = "rollback_lock_" + secrets.token_hex(8)
+        stale_marker = "rollback_stale_" + secrets.token_hex(8)
+        off_hash = hashlib.sha256((marker + "|off").encode()).hexdigest()
+        attempting = threading.Event()
+        acquired = threading.Event()
+        completed = threading.Event()
+        worker_pid = []
+        worker_errors = []
+
+        def cutover():
+            try:
+                with psycopg.connect(self.database.dsn, autocommit=True) as conn:
+                    worker_pid.append(conn.info.backend_pid)
+                    with conn.transaction():
+                        conn.execute("set local statement_timeout='5000ms'")
+                        attempting.set()
+                        conn.execute("select pg_advisory_xact_lock(hashtext('dino-prod-cutover'))")
+                        acquired.set()
+                        conn.execute(
+                            """update dino_prod.campaign set status='PAUSED',
+                            settings=jsonb_set(settings,'{phase3_manifest_hash}',to_jsonb(%s::text),true)
+                            where id=%s""",
+                            (off_hash, self.settings.campaign_id),
+                        )
+                        conn.execute(
+                            """update dino_prod.environment_guard set event_enabled=false,
+                            launch_manifest_sha256=%s where singleton""",
+                            (off_hash,),
+                        )
+                completed.set()
+            except Exception as error:  # surfaced by the assertions below
+                worker_errors.append(error)
+                completed.set()
+
+        thread = None
+        try:
+            with self.app_tx() as conn:
+                guard = db.check_business_environment(conn, self.settings)
+                self.assertTrue(guard["event_enabled"])
+                thread = threading.Thread(target=cutover, daemon=True)
+                thread.start()
+                self.assertTrue(attempting.wait(2), "cutover did not start")
+
+                deadline = time.monotonic() + 2
+                blocked = False
+                while time.monotonic() < deadline:
+                    with psycopg.connect(self.database.dsn) as observer:
+                        wait = observer.execute(
+                            "select wait_event_type,wait_event from pg_stat_activity where pid=%s",
+                            (worker_pid[0],),
+                        ).fetchone()
+                    if wait and wait[0] == "Lock" and wait[1] == "advisory":
+                        blocked = True
+                        break
+                    time.sleep(0.02)
+                self.assertTrue(blocked, "exclusive cutover lock was not blocked by the business transaction")
+                self.assertFalse(acquired.is_set())
+                conn.execute(
+                    """insert into dino_prod.observation
+                    (id,event_id,actor_key,idempotency_key,request_hash,campaign_code,environment,synthetic)
+                    values(%s,%s,'rollback-lock','rollback-lock','rollback-lock',%s,'production',false)""",
+                    (marker, marker, self.settings.campaign_id),
+                )
+
+            self.assertTrue(acquired.wait(2), "cutover did not acquire after business commit")
+            self.assertTrue(completed.wait(2), "cutover did not complete")
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(worker_errors, [])
+
+            with psycopg.connect(self.database.dsn) as conn:
+                state = conn.execute(
+                    """select c.status,g.event_enabled,g.launch_manifest_sha256,
+                    c.settings->>'phase3_manifest_hash'
+                    from dino_prod.campaign c cross join dino_prod.environment_guard g
+                    where c.id=%s and g.singleton""",
+                    (self.settings.campaign_id,),
+                ).fetchone()
+                committed = conn.execute(
+                    "select count(*) from dino_prod.observation where id=%s", (marker,)
+                ).fetchone()[0]
+            self.assertEqual(state, ("PAUSED", False, off_hash, off_hash))
+            self.assertEqual(committed, 1)
+
+            with self.assertRaisesRegex(ConfigurationError, "PRODUCTION_GUARD_MISMATCH"):
+                with self.app_tx() as conn:
+                    db.check_business_environment(conn, self.settings)
+                    conn.execute(
+                        """insert into dino_prod.observation
+                        (id,event_id,actor_key,idempotency_key,request_hash,campaign_code,environment,synthetic)
+                        values(%s,%s,'stale-runtime','stale-runtime','stale-runtime',%s,'production',false)""",
+                        (stale_marker, stale_marker, self.settings.campaign_id),
+                    )
+            with psycopg.connect(self.database.dsn) as conn:
+                stale_writes = conn.execute(
+                    "select count(*) from dino_prod.observation where id=%s", (stale_marker,)
+                ).fetchone()[0]
+            self.assertEqual(stale_writes, 0)
+        finally:
+            if thread and thread.is_alive():
+                thread.join(timeout=6)
+            with psycopg.connect(self.database.dsn) as conn:
+                with conn.transaction():
+                    conn.execute("select pg_advisory_xact_lock(hashtext('dino-prod-cutover'))")
+                    conn.execute(
+                        """update dino_prod.campaign set status='ACTIVE',
+                        settings=jsonb_set(settings,'{phase3_manifest_hash}',to_jsonb(%s::text),true)
+                        where id=%s""",
+                        (self.digest, self.settings.campaign_id),
+                    )
+                    conn.execute(
+                        """update dino_prod.environment_guard set event_enabled=true,
+                        launch_manifest_sha256=%s where singleton""",
+                        (self.digest,),
+                    )
+                    conn.execute(
+                        "delete from dino_prod.observation where id in (%s,%s)",
+                        (marker, stale_marker),
+                    )
+        with self.app_tx() as conn:
+            restored = db.check_business_environment(conn, self.settings)
+        self.assertTrue(restored["event_enabled"])
 
     def test_production_runtime_routes_and_data_are_isolated_from_beta(self):
         raw_token, participant = self.bootstrap_participant()

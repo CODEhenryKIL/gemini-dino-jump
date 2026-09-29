@@ -64,6 +64,18 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             if origin not in settings.allowed_origins:raise DomainError("ORIGIN_DENIED","허용되지 않은 요청 출처입니다.",403)
             self.cors_origin=origin
         if self.command in {"POST","PATCH"} and self.headers.get("Sec-Fetch-Site")=="cross-site":raise DomainError("ORIGIN_DENIED","허용되지 않은 요청 출처입니다.",403)
+    def _production_host(self,settings,path):
+        # Candidate URLs remain usable for operator checks, but must never become
+        # another participant cookie domain once the event is enabled.
+        if settings.environment!="production" or not settings.event_enabled:return
+        if path in {"/api/health","/api/config"} or path.startswith("/api/admin/"):return
+        expected=urlparse(settings.base_url).netloc.lower()
+        hosts=self.headers.get_all("Host",[])
+        if len(hosts)!=1 or hosts[0].lower()!=expected:
+            raise DomainError("PUBLIC_HOST_REQUIRED","공식 행사 주소에서 다시 접속해 주세요.",403)
+        origin=self.headers.get("Origin")
+        if origin and origin!=settings.base_url:
+            raise DomainError("ORIGIN_DENIED","공식 행사 주소에서 다시 접속해 주세요.",403)
     def _cookie(self):
         raw=self.headers.get("Cookie","")
         if len(raw)>4096:raise DomainError("SESSION_INVALID","참가자 인증이 올바르지 않습니다.",401)
@@ -121,6 +133,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             received_at=dt.datetime.now(dt.timezone.utc)
             if method=="GET" and path=="/api/shared/game_constants.json":self.send_json(200,CONSTANTS);return
             settings=Settings.from_env();deployment=settings.deployment;environment=settings.environment;campaign_id=settings.campaign_id
+            self._production_host(settings,path)
             is_kakao_webhook=path==KAKAO_WEBHOOK_PATH
             if not is_kakao_webhook:self._origin(settings)
             elif method not in {"GET","POST"}:raise DomainError("NOT_FOUND","요청한 API를 찾을 수 없습니다.",404)
@@ -158,6 +171,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                     try:ctx["verification"]=game_verifier.verify_game(session["version"],session["seed"],body.get("jump_ticks",[]),body.get("score"),body.get("ticks",body.get("valid_ticks")))
                     except (TypeError,ValueError,KeyError):raise DomainError("INVALID_GAME_INPUT","게임 기록 형식을 확인해 주세요.") from None
                 with db.transaction(conn):
+                    db.check_business_environment(conn,settings)
                     if is_kakao_webhook:conn.execute("set local statement_timeout='2500ms'")
                     status,response=dispatch(conn,method,path,body,query,ctx)
             cookie=response.pop("_set_cookie_token",None)

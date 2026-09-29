@@ -131,6 +131,13 @@ def check_environment(conn,settings):
             raise ConfigurationError("PRODUCTION_GUARD_MISMATCH")
     del guard["connection_role"],guard["required_versions_present"]
     return guard
+def check_business_environment(conn,settings):
+    if settings.environment=="production":
+        # The cutover tool takes the exclusive counterpart before changing the
+        # guard. Hold this shared lock through dispatch and commit so a request
+        # admitted before cutover cannot write afterward using a stale guard.
+        conn.execute("select pg_advisory_xact_lock_shared(hashtext('dino-prod-cutover'))")
+        return check_environment(conn,settings)
 def rate_limits(conn,buckets,window=60):
     ordered=sorted(buckets)
     rows=conn.execute(f"select {database_schema()}.consume_rate_limit(k,n,%s) allowed from unnest(%s::text[],%s::integer[]) b(k,n)",(window,[k for k,_ in ordered],[n for _,n in ordered])).fetchall()
