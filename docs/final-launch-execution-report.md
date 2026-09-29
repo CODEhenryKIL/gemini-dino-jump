@@ -3,7 +3,7 @@
 - 작성일: 2026-09-29
 - 실행 계획: [최종 오픈 실행 계획](final-launch-execution-plan.md)
 - 실행 브랜치: `codex/final-launch-preflight`
-- 현재 상태: **운영 DB·Production 후보·관측 경로 준비 중. 후보 고유 URL은 외부에서 열리지만 친근 공개 별칭으로 승격하지 않았고 이벤트는 OFF. 공개 전환, 베타 삭제, 최종 원격 부하는 실행하지 않음.**
+- 현재 상태: **운영 DB·관리자·관측 경로 준비 및 전환 보호 보완 완료. 후보 고유 URL은 외부에서 열리지만 친근 공개 별칭으로 승격하지 않았고 이벤트는 OFF. 공개 전환, 베타 삭제, 최종 원격 부하는 실행하지 않음.**
 
 ## 확인한 운영 준비 상태
 
@@ -19,18 +19,26 @@
 
 ## Production 후보 검증
 
-- 최신 후보 배포 `dpl_94Yqtt6yTqrELm6Rp9JGdwdeNVv7`은 READY이며, 고유 주소 `https://dino-nanobanana-aqf4cht0m-henry-kils-projects.vercel.app`에서 관리자 복구 UI와 `event_enabled=false`를 확인했다. 고유 URL은 외부에서 접근 가능하며 친근 공개 별칭으로는 승격하지 않았다. 요약은 `.local/final-launch/admin-recovery-candidate.json`에 보관했다.
+- 최신 후보 배포 `dpl_2QNuiZQHwoBqsYDvmFwti9Yo4zeH`은 커밋 `ba5826d`의 운영 전환 보호 코드를 포함해 READY다. 고유 주소는 `https://dino-nanobanana-jwpczflr5-henry-kils-projects.vercel.app`이며, 이벤트는 OFF로 유지했다. 관리자 비밀번호 설정·실제 로그인 확인은 이전 후보 `dpl_94Yqtt6yTqrELm6Rp9JGdwdeNVv7`에서 완료했다. 두 고유 URL 모두 외부에서 접근 가능하며 친근 공개 별칭으로는 승격하지 않았다.
 - `/api/health`는 HTTP 200, `environment=production`, `database=ready`, `schema=dino_prod`, `synthetic_only=false`, `test_seed=false`, `campaign_status=PAUSED`, 남은 재고 80을 반환했다.
 - `/api/config`는 운영 캠페인·게임 버전·GA4 운영 속성·정확한 허용 origin과 `event_enabled=false`를 반환했다. 비밀값은 응답에 없었다.
-- 새 참가자, 게임, 추첨 POST는 모두 HTTP 409 `EVENT_NOT_ENABLED`로 거절됐고 미인증 관리자 API는 HTTP 401 `ADMIN_AUTH_REQUIRED`로 거절됐다. 이 쓰기 차단 증거는 이전 Production 후보에서 수집했으며 `.local/final-launch/candidate-health.json`, `candidate-config.json`, `candidate-denied-writes.json`에 보관했다. 최신 후보도 같은 DB guard와 이벤트 OFF 설정을 사용한다.
+- 최신 후보에서 새 참가자, 게임, 추첨 POST는 모두 HTTP 409 `EVENT_NOT_ENABLED`로 거절됐고 미인증 관리자 API는 HTTP 401 `ADMIN_AUTH_REQUIRED`로 거절됐다. `/api/health`·`/api/config`는 HTTP 200이다. 증거는 `.local/final-launch/cutover-candidate-verification.json`에 보관했다. 추가한 공유 트랜잭션 잠금도 실제 운영 전용 역할에서 실행됐으며 참여·추첨 기록은 생성하지 않았다.
 - 친근 공개 별칭 `google-korea-team-gemini.vercel.app`과 기존 Production 주소 `dino-nanobanana.vercel.app`는 이전 배포를 계속 가리킨다. 후보 생성 중 자동으로 변경된 보조 프로젝트 별칭은 이전 대상으로 명시적 복구했다. 이 후보를 공개 별칭으로 승격하지 않았다.
+
+행사 ON 이후에는 정식 `APP_BASE_URL`의 Host에서만 참가자·게임·추첨·공유·수령 API가 처리된다. 후보의 상태·설정 조회와 인증된 관리자 기능은 유지한다. 공개 GET·카카오 GET/POST·OPTIONS도 후보 주소에서는 거절하며 전달 헤더로 우회할 수 없다. 이 ON 분기는 격리 HTTP 검사로 확인했고 실제 운영 ON으로 시험하지 않았다. 전환 도구와 API는 같은 advisory lock을 사용하며, 업무 트랜잭션 안에서 guard를 다시 검사한다. 실제 PostgreSQL 동시성 검사에서 진행 중 요청의 commit을 기다린 뒤 중단하고, 이전 설정의 후속 쓰기를 거절했다. 관련 집중 검사 41건이 통과했다(`cutover-runtime-regressions.log`).
+
+## Gemini 학생 혜택 링크 확인
+
+- 2026-09-29 17:13~17:14 KST에 로그인·신청·데이터 제출 없이 공개 GET으로 `https://VQyu3J.s.gy/Game`을 확인했다. Short.io의 HTTP 302가 `https://gemini.google/students/?utm_source=student&utm_medium=social&utm_campaign=microsite_campus_seoultech-ambassador`로 이동했고 Google Frontend가 HTTP 200을 반환했다. 링크는 현재 Google의 공식 학생 페이지로 연결된다.
+- 공식 한국어 페이지는 Google AI Plus 학생 요금제를 12개월 무료로 제공한다고 게시하며, 공개된 약관은 2026-12-31까지 교환해야 한다고 정한다: <https://gemini.google/students/> 및 <https://one.google.com/offer/studentoffer8>. 약관 최종 갱신일은 2026-08-19다.
+- 개인별 수급 자격은 이 공개 확인으로 증명되지 않는다. 약관상 만 18세 이상, 지원되는 국가·지역의 고등교육기관 재학, SheerID 학생 인증, 개인 Google 계정, 적격 결제수단이 필요하며, 가족 그룹·일부 기존 구독 등 제외 조건이 있다. 무료 기간 종료 전 취소하지 않으면 해당 국가의 표준 월 요금이 자동 청구된다. 프로모션 UI는 이 확인으로 변경하지 않았다.
 
 ## 관측 준비
 
 - Production 전용 Vercel 로그 드레인 `drn_bzjpXu6NoqXGx75u`를 생성하고 검증 요청 HTTP 200을 확인했다. 소스는 Lambda, 환경은 Production, 프로젝트와 캠페인은 허용 목록으로 제한한다.
 - Production 오류 모니터 `22788890`은 `env:production`으로 활성화했다. 수집 공백 모니터 `22788937`은 현재 공개 heartbeat가 베타를 가리키므로 공개 전환 전까지 DRAFT로 두었다. Production 대시보드 `a27-779-mch` 내보내기에서 위젯 5개, 질의 5개 모두 `env:production`, Preview 질의 0개를 확인했다.
-- 수신 호환성 보완은 `dpl_ELKJ4CvrHAg3g8LF5j1Wx1EghxpA`로 READY 배포했다. Datadog Logs Explorer에서 Production 로그 2건을 확인했다. 최신 표본은 2026-09-29 16:51:25.116 KST의 `env=production`, `campaign=gemini_dino_campus_2026`, `version=dpl_94Yqtt6yTqrELm6Rp9JGdwdeNVv7`, `GET /api/health`, HTTP 200, `duration_ms=54`, `error_class=none`이다. 16:48:31.856 KST의 보완 전 로그도 늦게 도착했으므로, 이 보완이 문제의 유일한 원인 해결이었다고 주장하지 않는다. 실제 알림 이메일 수신은 아직 미확인이다.
-- GA4는 운영 전용 속성과 운영 origin으로 분리됐고 debug mode는 OFF다. 실제 사용자 동의·철회·전송은 공개 전 운영 후보에서 다시 확인한다.
+- 수신 호환성 보완은 `dpl_ELKJ4CvrHAg3g8LF5j1Wx1EghxpA`로 READY 배포했다. Datadog Logs Explorer에서 Production 로그 2건을 확인했다. 최신 표본은 2026-09-29 16:51:25.116 KST의 `env=production`, `campaign=gemini_dino_campus_2026`, `version=dpl_94Yqtt6yTqrELm6Rp9JGdwdeNVv7`, `GET /api/health`, HTTP 200, `duration_ms=54`, `error_class=none`이다. 16:48:31.856 KST의 보완 전 로그도 늦게 도착했으므로, 이 보완이 문제의 유일한 원인 해결이었다고 주장하지 않는다. 사용자가 제공한 메일함 화면에서 2026-09-29 14:32의 Datadog Alerting `Triggered: [TEST] Dino Preview`와 `Recovered: [TEST] Dino Preview` 메일 수신을 확인했다. 이는 베타 모니터의 테스트 발생·복구 알림이며 실제 장애가 아니다. 운영 모니터의 실제 발송까지 확인한 증거로 확대하지 않는다.
+- GA4 운영 허용 origin은 친근 공개 도메인만 허용한다. 따라서 후보 고유 URL에서는 동의 후에도 운영 이벤트를 전송할 수 없으며, 후보에서의 미전송은 설계된 차단이다. Preview 동의 흐름은 확인했지만 실제 Production 동의·전송은 공개 별칭 전환 직후의 cutover 검사로 남아 있다.
 
 ## 코드·회귀 검증
 
@@ -41,14 +49,18 @@
 | Production guard 집중 검사 | 39 통과 | manifest·역할·DB guard·GA4 운영 분리 |
 | 베타 초기화 집중 검사 | 11 통과 | 현재 도구의 direct/MCP 동일 범위, 권한 회수·잠금·지연 쓰기·교차 캠페인 보존 |
 | 5,000자리 전량 소진 증명 | 1 통과 | 격리 로컬 DB에서 5,000건 중복 0, 상품 77, 혜택 4,923, 추가 추첨 `DRAW_POOL_EXHAUSTED`; `.local/final-launch/local-pool-result.json` |
+| 전환 보호·런타임 집중 검사 | 41 통과 | 후보 호스트·Origin·전달 헤더 우회 차단, 실제 DB 잠금/설정 재검사, 기존 운영 설정·스키마·요청 경계 검사 |
+| 운영 전환 도구 | 8 통과 | 활성화→기록 생성→SQL rollback 보존, JSON 계획 왕복, 만료·스키마 전체 누락 거절, connector snapshot 일치; `cutover-tool-regressions.log` |
 
 전체 회귀에 관리자 비밀번호 복구 UI 변경을 포함했다. 지정 소스와 추적·미추적 파일을 포함한 독립 검토에서 P0는 발견하지 않았다. 앱 릴리스 소스는 커밋 `4edab6dd7d9edf0cc9c20df4315e728260bfbff1`로 push했고 draft PR [#9](https://github.com/CODEhenryKIL/gemini-dino-jump/pull/9)에서 검토 중이다.
+
+후속 런타임 전환 보호는 `ba5826d`로 push·OFF 후보 배포했고 위 집중 검사로 추가 검증했다. 운영 전환은 [전환 runbook](production-cutover-runbook.md)의 해시 검증 계획과 단일 트랜잭션 도구로 준비했다. 이 도구는 배포/별칭을 직접 변경하지 않으며, 원격 운영 활성화나 rollback에 아직 사용하지 않았다. 초기 오픈과 기록 보존 중단이 범위이며, 이미 기록이 쌓인 뒤 재개는 별도 검토가 필요하다.
 
 같은 커밋의 깨끗한 Git 아카이브에서 필수 런타임 파일, 정적 참조 77개, JavaScript 구문 24개, 집중 검사 48개, Python 컴파일 21개와 API handler import를 별도로 확인했다. 누락 파일은 없었다. 로컬 Python은 3.11이므로 3.12 실행 검증으로 확대하지 않으며, 실제 Vercel 후보의 READY·상태 API 검증과 구분한다. 이후 변경은 별도 Datadog 수신 서버와 문서이며, 수신 서버 집중 검사 10개·전체 JavaScript 293개가 통과했고 수신 서버 배포 후 실제 운영 로그가 도착했다.
 
 ## 복구 절차 확인
 
-로컬 메모리 DB 대역과 임시 manifest로 별칭 전환 실패 상황을 재현했다. 실제 런타임 설정·guard 검증 함수를 사용해 ACTIVE 설정에서 호환되는 OFF/PAUSED 조합으로 복구되고, 모의 운영 기록 3건이 유지되며, 이전 ACTIVE·이전 OFF·잘못된 파일 해시는 거절되는 것을 확인했다. 증거는 `.local/final-launch/rollback-rehearsal-result.json`에 보관했다. 이는 모의 실행으로, 실제 PostgreSQL 전환 트랜잭션이나 본행사 공개 별칭 복구의 실증으로 기록하지 않는다. 후보 배포 중 이동한 보조 Vercel 별칭은 실제로 이전 배포에 복구했고 세 공개 별칭의 기존 대상을 다시 확인했다.
+격리 PostgreSQL에서 전환 실패 롤백을 연습했다. 원자적 실패 시 롤백되고, 호환되는 `PAUSED`/OFF 조합은 성공했으며, stale manifest hash는 거절됐다. 리허설 종료 시 참가자 1명, 재고 80, 원장 1건이 보존됐다. 증거는 `.local/final-launch/rollback-postgres-result.json` 및 `rollback-postgres.log`에 보관했다. 실제 Vercel 별칭 전환 실패를 이 리허설로 검증한 것은 아니며, 그 실패 경로는 미검증이다.
 
 ## 삭제·공개·부하 현황
 
@@ -60,10 +72,10 @@
 
 1. 운영 관리자 로그인은 확인 완료. 공개 별칭 전환 후 정식 주소에서 접속 경로 확인.
 2. 실제 모바일 확대·안전 영역·키보드와 수령용 나에게 보내기→접수 완료 확인.
-3. Production Datadog 실제 알림 이메일 수신, 공개 시점 공백 모니터 활성화, GA4 동의 흐름·복구 경로 검증.
+3. Datadog 베타 테스트 메일의 수신은 확인 완료. 공개 시점 운영 모니터·수신처 재대조와 공백 모니터 활성화, 친근 공개 도메인에서의 GA4 동의·전송 cutover 검증.
 4. 혜택·브랜드·공개 승인, 링크, 물리 기기 QA, 롤백 리허설, 공개 시점 재고 수량·정책 대조. 실제 구매는 확정 정책대로 당첨자 연락처 취합 후 진행.
 5. 보류 중인 최종 부하 게이트의 재개 여부와 한계를 사용자가 정하고 manifest에 실제 증거 또는 명시적 한계 수용 기록을 남김.
-6. `config/phase3-launch.json`과 `server/production-launch-manifest.json`의 최종 승인 기록·SHA-256·DB guard 일치 확인.
+6. `config/phase3-launch.json`과 `server/production-launch-manifest.json`의 최종 승인 기록·SHA-256·DB guard 일치. 최종 ON·OFF 후보를 같은 코드로 고정하고 활성화 직전 새 전환 계획을 생성.
 7. 후속 변경까지 draft PR에 반영하고, 최종 활성 설정을 만들 때 해당 커밋·배포·manifest 해시를 다시 연결.
 
 위 게이트가 남아 있으므로 현재 상태는 **준비 진행 중**이며 **공개 완료**가 아니다.
