@@ -1,9 +1,9 @@
 {
-  "verified_at": "2026-09-29T20:34:00+09:00",
-  "state": "PRODUCTION_SCHEDULED_OPEN",
+  "verified_at": "2026-09-29T21:04:40+09:00",
+  "state": "PRODUCTION_OPEN_VERIFIED",
   "public_url": "https://google-korea-team-gemini.vercel.app/",
-  "deployment_id": "dpl_AwgKgnPi3yrhF31DAGU7c3tbvCJ6",
-  "deployment_sha": "2f29df7ab32467dc12eb014efb51841b3c46af26",
+  "deployment_id": "dpl_76jX9wu2dCiZfeE7zdmQvquLY8qn",
+  "deployment_sha": "7d5c3d6978164b9873a30123475b896b49ec380d",
   "manifest_sha256": "9de34dafb14aaa0e45e78887293df6196e6710a5b3213ea67f5fd5ddd5dcfbea",
   "opens_at": "2026-09-29T21:00:00+09:00",
   "closes_at_exclusive": "2026-10-03T00:00:00+09:00",
@@ -73,9 +73,24 @@
     "measurement_id": "G-6GMP7FRN3B",
     "sdk_loaded": true,
     "previous_optout_respected": true,
-    "report_receipt": "PENDING_FIRST_NORMAL_ENTRY_AFTER_21_00"
+    "report_receipt": "VERIFIED",
+    "original_browser_optout_restored": true,
+    "receipt_evidence": "docs/evidence/ga4-production-receipt-20260929.json"
   },
-  "first_normal_entry": "PENDING_SCHEDULED_OPEN",
+  "first_normal_entry": "VERIFIED",
   "synthetic_production_draws": 0,
-  "git_auto_deploy": false
+  "git_auto_deploy": false,
+  "initial_cutover_deployment_id": "dpl_AwgKgnPi3yrhF31DAGU7c3tbvCJ6",
+  "initial_cutover_sha": "2f29df7ab32467dc12eb014efb51841b3c46af26",
+  "auth_notice_update": "docs/evidence/stale-beta-notice-20260929.json",
+  "beta_reset_scope_audit": "docs/evidence/beta-reset-scope-audit-20260929.json",
+  "main_merge_sha": "bbd73f0ca1639cc72d1a4b7cc8dd45e37ee9a308",
+  "opening_boundary_check": {
+    "observed_at": "2026-09-29T21:00:00+09:00",
+    "config": 200,
+    "health": 200,
+    "leaderboard": 200,
+    "deployment_id": "dpl_76jX9wu2dCiZfeE7zdmQvquLY8qn"
+  },
+  "first_normal_entry_evidence": "docs/evidence/first-production-entry-20260929.json"
 }

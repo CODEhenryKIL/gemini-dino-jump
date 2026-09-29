@@ -1,0 +1,13 @@
+{
+  "verified_at": "2026-09-29T11:53:59.902127+00:00",
+  "deployment_id": "dpl_76jX9wu2dCiZfeE7zdmQvquLY8qn",
+  "source_sha": "7d5c3d6978164b9873a30123475b896b49ec380d",
+  "stale_beta_cookie_read": {
+    "method": "GET",
+    "path": "/api/me",
+    "status": 401,
+    "error": "UNAUTHORIZED",
+    "message": "참가자 인증이 필요합니다. 페이지를 새로고침해 주세요."
+  },
+  "production_record_created": false
+}

@@ -1,0 +1,35 @@
+{
+  "verified_at": "2026-09-29T20:52:42+09:00",
+  "project_ref": "igfrnexknwtiljdqjrbp",
+  "deleted_schema": "dino_dev",
+  "deleted_campaign": "gemini_dino_phase1_test",
+  "statement_review": {
+    "delete_targets_outside_beta": 0,
+    "truncate_statements": 0,
+    "cascade_statements": 0,
+    "preserved_guard_and_campaign_checked_in_transaction": true
+  },
+  "remote_catalog_review": {
+    "external_tables_referencing_beta": 0,
+    "beta_write_rules": 0,
+    "custom_beta_triggers": 3,
+    "custom_beta_delete_triggers": 0,
+    "custom_trigger_scope": "All three triggers run only BEFORE INSERT/UPDATE and write only within dino_dev."
+  },
+  "actual_post_reset_records": {
+    "beta_participants": 0,
+    "beta_games": 0,
+    "beta_draws": 0,
+    "production_participants": 0,
+    "production_games": 0,
+    "production_draws": 0
+  },
+  "other_app_before_after_aggregate": {
+    "status": "NOT_CAPTURED",
+    "reason": "Existing private backups cover dino_dev only; a historical public/auth aggregate cannot be reconstructed from those files.",
+    "supported_conclusion": "The executed reset has no direct or cascading write path into other app schemas; this is structural exclusion evidence, not an observed before/after row-count comparison."
+  },
+  "production_and_admin_preservation": "See public-cutover-20260929.json for recorded counts, inventory and schema versions.",
+  "remote_mutations_during_audit": false,
+  "personal_rows_read": false
+}

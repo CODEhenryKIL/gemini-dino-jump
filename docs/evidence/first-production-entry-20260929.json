@@ -1,0 +1,12 @@
+{
+  "observed_at": "2026-09-29 12:03:54.798441+00",
+  "participants": 1,
+  "first_participant_at": "2026-09-29 12:00:42.82593+00",
+  "initial_grants": 1,
+  "invalid_initial_grants": 0,
+  "games": 0,
+  "draws": 0,
+  "beta_participants": 0,
+  "source": "Remote read-only aggregate after scheduled opening; no agent-created participant/game/draw",
+  "initial_grant_per_participant": 1
+}

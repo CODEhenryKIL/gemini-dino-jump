@@ -1,0 +1,20 @@
+{
+  "verified_at": "2026-09-29T21:04:40+09:00",
+  "method": "Read-only observation of the authenticated Google Analytics Realtime report",
+  "property_id": "556455967",
+  "measurement_id": "G-6GMP7FRN3B",
+  "report_url": "https://analytics.google.com/analytics/web/#/a409928949p556455967/realtime/overview",
+  "active_users_last_30_minutes": 2,
+  "active_users_last_5_minutes": 2,
+  "received_events": {"loading_ready": 1},
+  "receipt_status": "VERIFIED",
+  "page_view_receipt_claimed": false,
+  "normal_entry_evidence": "first-production-entry-20260929.json",
+  "synthetic_events_injected": false,
+  "participant_identifiers_or_contacts_read": false,
+  "limitations": [
+    "GA4 active users and server participants are different measures and need not have equal counts.",
+    "This proves receipt in the production property; it is not a test of every event, future delivery, or Google-side signup completion.",
+    "The original opt-out on the agent's test browser was restored before opening; no new opt-in or test participant was created for this observation."
+  ]
+}
