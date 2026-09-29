@@ -26,6 +26,31 @@
 .ranking-metrics span { font-size: 13px; color: #5f6368; }
 .ranking-metrics strong { font-size: clamp(17px, 5vw, 23px); color: #1967d2; overflow-wrap: anywhere; }
 .ranking-time-gap { white-space: pre-line; margin: 20px 0 0; padding: 13px; background: #e8f0fe; border-radius: 12px; font-size: 15px; line-height: 1.65; color: #174ea6; font-weight: 600; text-align: center; }
+/* Match the game control dock: keep sharing above the bottom navigation. */
+.ranking-share-dock {
+  position: fixed;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--app-max-width);
+  box-sizing: border-box;
+  padding: 8px 16px;
+  background: rgba(248, 250, 255, .96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1.5px solid rgba(25, 103, 210, .12);
+  box-shadow: 0 -4px 16px rgba(25, 103, 210, .07);
+  z-index: 60;
+}
+.ranking-share-dock .status-note { margin: 8px 0 0; text-align: center; }
+/* Clear the fixed button and any share-status message when scrolling to the footer. */
+.view-content:has(.ranking-share-dock) + .site-privacy-footer {
+  padding-bottom: calc(92px + 6rem + env(safe-area-inset-bottom, 0px));
+}
+.view-content:has(.ranking-share-dock .status-note:not([hidden])) + .site-privacy-footer {
+  padding-bottom: calc(92px + 12rem + env(safe-area-inset-bottom, 0px));
+}
 .hero-card { gap: 12px; padding: 20px 18px; box-shadow: none; border: 1px solid #e8eaed; background: linear-gradient(155deg, #f6f9ff 0%, #fff 38%, #fff 80%, #f4faf6 100%); }
 .home-event-header { display: grid; justify-items: center; gap: 7px; width: 100%; }
 .home-event-badges { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
