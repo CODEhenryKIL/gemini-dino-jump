@@ -1,0 +1,25 @@
+{
+  "source_sha": "3415b5b5b092083754484136ff7b572e66e62eb9",
+  "deployment": "dpl_D7ASjGkAxEF2ZDPdWqmP2QGefDRA",
+  "url": "https://google-korea-team-gemini.vercel.app",
+  "tests_passed": 43,
+  "checks": {
+    "/api/health": {
+      "status": 200,
+      "ok": true,
+      "database": "ready",
+      "campaign_status": "ACTIVE"
+    },
+    "/css/style.css": {
+      "status": 200,
+      "sha256": "b909f11b4bcf4506c4263232f867180a083d854538d41851e66bb8f254d274ec",
+      "matches_reviewed_source": true
+    },
+    "/js/views/result_view.js": {
+      "status": 200,
+      "sha256": "31b37c126a3642825147c191d946766feadcd451e27f03ba34c9facd8a4e885e",
+      "matches_reviewed_source": true
+    }
+  },
+  "verified_at_kst": "2026-09-29T22:11:08+09:00"
+}
