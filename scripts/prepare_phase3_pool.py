@@ -22,6 +22,11 @@ def provision(conn, manifest, campaign_id):
     result = validate(manifest)
     if result["errors"]:
         raise ValueError("Manifest inventory validation failed")
+    pool_total = manifest["draw_pool"]["total_slots"]
+    benefit_slots = manifest["draw_pool"]["benefit_slots"]
+    draw_prize_quantity = sum(row["quantity"] for row in manifest["draw_prizes"])
+    if pool_total != benefit_slots + draw_prize_quantity:
+        raise ValueError("Manifest pool totals do not reconcile")
     conn.execute("select pg_advisory_xact_lock(hashtext(%s))", ("phase3-provision:" + campaign_id,))
     guard = conn.execute("select * from dino_dev.environment_guard where singleton for update").fetchone()
     if not guard or guard["environment"] not in {"local", "test"} or not guard["synthetic_only"] or guard["project_ref"] != "local":
@@ -35,7 +40,7 @@ def provision(conn, manifest, campaign_id):
         if not current["is_test"] or current["real_prizes_enabled"] or current["settings"].get("phase3_manifest_hash") != digest:
             raise ValueError("Existing campaign differs; no records were overwritten")
         counts = conn.execute("select count(*) total,count(*) filter(where outcome_kind='PRIZE') prizes,count(*) filter(where allocated_draw_id is not null) allocated from dino_dev.draw_pool_slot where campaign_id=%s", (campaign_id,)).fetchone()
-        if (counts["total"], counts["prizes"]) != (5000, 77):
+        if (counts["total"], counts["prizes"]) != (pool_total, draw_prize_quantity):
             raise ValueError("Existing pool is incomplete; refusing automatic repair")
         rows = conn.execute("""select s.prize_id,count(*) quantity,
           bool_and(p.campaign_id=s.campaign_id and i.prize_id=s.prize_id) consistent
@@ -50,6 +55,7 @@ def provision(conn, manifest, campaign_id):
 
     settings = {"initial_tickets": 1, "invitation_balance_max": 3, "invitation_cooldown_hours": 10,
                 "draw_max_rounds": 10, "phase3_manifest_hash": digest,
+                "phase3_draw_prize_quantity": draw_prize_quantity,
                 "ranking_inventory_separate": manifest["ranking_prizes"]}
     conn.execute("""insert into dino_dev.campaign(id,title,status,game_version,benefit_url,settings,probability_version)
       values(%s,'3차 격리 합성 경품 검증','PAUSED','2.1.0','https://VQyu3J.s.gy/Game',%s::jsonb,%s)""",
@@ -59,7 +65,7 @@ def provision(conn, manifest, campaign_id):
         prize_id = campaign_id + "_" + prize["id"]
         conn.execute("""insert into dino_dev.prize(id,campaign_id,name,category,image_url,probability)
           values(%s,%s,%s,%s,'/assets/icons/Picture-Light.png',%s)""",
-                     (prize_id, campaign_id, "[합성 검증] " + prize["name"], prize["category"], prize["quantity"] / 5000))
+                     (prize_id, campaign_id, "[합성 검증] " + prize["name"], prize["category"], prize["quantity"] / pool_total))
         for number in range(1, prize["quantity"] + 1):
             slot_number += 1
             inventory_id = f"{prize_id}_{number:03d}"
@@ -69,11 +75,13 @@ def provision(conn, manifest, campaign_id):
             conn.execute("""insert into dino_dev.draw_pool_slot(campaign_id,slot_number,outcome_kind,prize_id,inventory_item_id)
               values(%s,%s,'PRIZE',%s,%s)""", (campaign_id, slot_number, prize_id, inventory_id))
     conn.execute("""insert into dino_dev.prize(id,campaign_id,name,category,image_url,probability)
-      values(%s,%s,'Gemini 혜택','NO_PRIZE','/assets/icons/Picture-Light.png',0.9846)""", (campaign_id + "_benefit", campaign_id))
+      values(%s,%s,'Gemini 혜택','NO_PRIZE','/assets/icons/Picture-Light.png',%s)""",
+                 (campaign_id + "_benefit", campaign_id, benefit_slots / pool_total))
     conn.execute("""insert into dino_dev.draw_pool_slot(campaign_id,slot_number,outcome_kind)
-      select %s,n,'BENEFIT' from generate_series(78,5000)n""", (campaign_id,))
+      select %s,n,'BENEFIT' from generate_series(%s::integer,%s::integer)n""",
+                 (campaign_id, draw_prize_quantity + 1, pool_total))
     counts = conn.execute("select count(*) total,count(*) filter(where outcome_kind='PRIZE') prizes from dino_dev.draw_pool_slot where campaign_id=%s", (campaign_id,)).fetchone()
-    if (counts["total"], counts["prizes"]) != (5000, 77):
+    if (counts["total"], counts["prizes"]) != (pool_total, draw_prize_quantity):
         raise ValueError("Pool validation failed; transaction must be rolled back")
     return {"campaign_id": campaign_id, "created": True, "allocated": 0, **counts}
 

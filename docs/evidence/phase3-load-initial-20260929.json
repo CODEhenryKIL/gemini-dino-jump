@@ -1,0 +1,184 @@
+{
+  "actual_duration_seconds": 11.52,
+  "base_url": "https://dino-nanobanana-oloyp8zkl-henry-kils-projects.vercel.app",
+  "budget": {
+    "admitted_api_calls": 462,
+    "completed_api_calls": 462,
+    "duration_reserved_seconds": 390,
+    "max_api_calls": 7000,
+    "max_duration_seconds": 390
+  },
+  "claim_mutation_calls": 0,
+  "cohort_fingerprint": "23f88cb8ae744cd881ab456c304c1ceef8647496d086cd4561abd6d8918c2005",
+  "deployment_id": "dpl_21VrdzndQZYqdHb7K8NLpSqERiyS",
+  "estimate": {
+    "absolute_api_calls_ceiling": 7000,
+    "automatic_retry_calls": 0,
+    "claim_mutation_calls": 0,
+    "cohort_participants_required_ceiling": 600,
+    "cohort_preparation_and_check_call_allowance": 398,
+    "flow_attempts_ceiling": 600,
+    "kakao_callback_calls": 0,
+    "rich_fixture_attempts": 6,
+    "runner_api_calls_ceiling": 6602,
+    "stages": [
+      {
+        "burst": false,
+        "drain_seconds": 90,
+        "flow_attempts_ceiling": 400,
+        "label": "100-stage",
+        "seconds": 180,
+        "virtual_users": 100
+      },
+      {
+        "burst": true,
+        "drain_seconds": 90,
+        "flow_attempts_ceiling": 200,
+        "label": "200-burst",
+        "seconds": 30,
+        "virtual_users": 200
+      }
+    ],
+    "tracking_events_ceiling": 1200
+  },
+  "estimated_cost": "TBD",
+  "failure": {
+    "reason": "Server 5xx safety stop",
+    "type": "SeriousFailure"
+  },
+  "game_version": "2.1.0",
+  "kakao_callback_calls": 0,
+  "metrics": {
+    "api_calls": 460,
+    "endpoints": {
+      "GET /api/config": {
+        "count": 1,
+        "p50_ms": 129.14,
+        "p95_ms": 129.14,
+        "p99_ms": 129.14,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/draws/{id}": {
+        "count": 40,
+        "p50_ms": 2763.67,
+        "p95_ms": 3191.66,
+        "p99_ms": 3416.63,
+        "statuses": {
+          "200": 32,
+          "503": 8
+        }
+      },
+      "GET /api/health": {
+        "count": 1,
+        "p50_ms": 119.28,
+        "p95_ms": 119.28,
+        "p99_ms": 119.28,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/me": {
+        "count": 100,
+        "p50_ms": 460.58,
+        "p95_ms": 1270.78,
+        "p99_ms": 1372.68,
+        "statuses": {
+          "200": 100
+        }
+      },
+      "PATCH /api/draws/{id}/scratch-complete": {
+        "count": 5,
+        "p50_ms": 3054.85,
+        "p95_ms": 3460.36,
+        "p99_ms": 3460.36,
+        "statuses": {
+          "200": 3,
+          "503": 2
+        }
+      },
+      "POST /api/draws": {
+        "count": 13,
+        "p50_ms": 3050.04,
+        "p95_ms": 4404.4,
+        "p99_ms": 4404.4,
+        "statuses": {
+          "201": 11,
+          "503": 2
+        }
+      },
+      "POST /api/game-sessions": {
+        "count": 100,
+        "p50_ms": 411.71,
+        "p95_ms": 768.12,
+        "p99_ms": 952.14,
+        "statuses": {
+          "201": 100
+        }
+      },
+      "POST /api/game-sessions/{id}/finish": {
+        "count": 100,
+        "p50_ms": 3047.28,
+        "p95_ms": 4789.59,
+        "p99_ms": 5008.16,
+        "statuses": {
+          "200": 73,
+          "503": 27
+        }
+      },
+      "POST /api/game-sessions/{id}/start": {
+        "count": 100,
+        "p50_ms": 515.99,
+        "p95_ms": 756.65,
+        "p99_ms": 845.3,
+        "statuses": {
+          "200": 100
+        }
+      }
+    },
+    "expected_negative_responses": 0,
+    "flows_completed": 0,
+    "phases": {
+      "draw": {
+        "count": 58,
+        "p50_ms": 2812.44,
+        "p95_ms": 4011.63,
+        "p99_ms": 4404.4
+      },
+      "entry": {
+        "count": 100,
+        "p50_ms": 460.58,
+        "p95_ms": 1270.78,
+        "p99_ms": 1372.68
+      },
+      "game_finish": {
+        "count": 100,
+        "p50_ms": 3047.28,
+        "p95_ms": 4789.59,
+        "p99_ms": 5008.16
+      },
+      "game_start": {
+        "count": 200,
+        "p50_ms": 487.71,
+        "p95_ms": 759.85,
+        "p99_ms": 903.47
+      },
+      "preflight": {
+        "count": 2,
+        "p50_ms": 119.28,
+        "p95_ms": 129.14,
+        "p99_ms": 129.14
+      }
+    },
+    "rate_limited_429": 0,
+    "rps": 39.95,
+    "timeouts": 0,
+    "unexpected_failures": 39
+  },
+  "phase": 3,
+  "plan_revision": "final-v21-paused-v1",
+  "profile": "full",
+  "reserved_duration_seconds": 390,
+  "stages": []
+}

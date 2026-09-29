@@ -24,6 +24,8 @@ class BackendPhase3Test(unittest.TestCase):
         fixtures.BackendPhase1Test.setUp(self)
         with psycopg.connect(fixtures.DSN) as conn:
             conn.execute("truncate dino_dev.draw_pool_slot,dino_dev.draw_credit_ledger restart identity cascade")
+            conn.execute("""update dino_dev.prize set is_active=true
+              where campaign_id='gemini_dino_phase1_test' and category='NO_PRIZE'""")
 
     def ctx(self, raw, **extra):
         return fixtures.context(participant_token_hash=fixtures.h(raw), **extra)
@@ -213,9 +215,25 @@ class BackendPhase3Test(unittest.TestCase):
         with psycopg.connect(fixtures.DSN) as conn:
             allocated = conn.execute("select count(*) from dino_dev.draw_pool_slot where allocated_draw_id is not null").fetchone()[0]
             reserved = conn.execute("select count(*) from dino_dev.inventory_item where id='test_coffee_001' and status='RESERVED'").fetchone()[0]
+            draws = conn.execute("select count(*) from dino_dev.draw where participant_id in (select id from dino_dev.participant where token_hash=any(%s))",( [fixtures.h(raw) for raw in participants],)).fetchone()[0]
+            claims = conn.execute("select count(*) from dino_dev.claim where participant_id in (select id from dino_dev.participant where token_hash=any(%s))",( [fixtures.h(raw) for raw in participants],)).fetchone()[0]
         self.assertEqual(results.count("PRIZE"), 1)
-        self.assertEqual(results.count("DRAW_POOL_EXHAUSTED"), 7)
-        self.assertEqual((allocated, reserved), (1, 1))
+        self.assertEqual(results.count("BENEFIT"), 7)
+        self.assertEqual((allocated, reserved, draws, claims), (1, 1, 8, 1))
+
+    def test_exhausted_pool_requires_active_benefit_configuration(self):
+        self.seed_benefits(1)
+        first_raw, _, _participant = self.make_participant()
+        second_raw, _, _participant = self.make_participant()
+        self.make_finished_session(first_raw, "phase3-benefit-exhaust-first")
+        self.make_finished_session(second_raw, "phase3-benefit-exhaust-second")
+        self.assertEqual(self.draw(first_raw)["outcome_kind"], "BENEFIT")
+        with psycopg.connect(fixtures.DSN) as conn:
+            conn.execute("""update dino_dev.prize set is_active=false
+              where campaign_id='gemini_dino_phase1_test' and category='NO_PRIZE'""")
+        with self.assertRaises(operations.DomainError) as invalid:
+            self.draw(second_raw)
+        self.assertEqual(invalid.exception.code, "DRAW_CONFIG_INVALID")
 
     def test_expected_round_replays_same_result_without_spending_next_credit(self):
         self.seed_benefits(2)

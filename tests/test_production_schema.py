@@ -24,7 +24,7 @@ def approved_manifest():
     manifest=json.loads((ROOT/"config/phase3-launch.json").read_text(encoding="utf-8"))
     manifest["status"]="APPROVED";manifest["event_enabled"]=False
     manifest["campaign"].update({
-      "id":"gemini_dino_2026_test","opens_at":"2026-09-29T19:00:00+09:00",
+      "id":"gemini_dino_2026_test","opens_at":"2026-09-29T21:00:00+09:00",
       "closes_at":"2026-10-03T00:00:00+09:00","claim_closes_at":"2026-10-04T00:00:00+09:00",
       "timezone":"Asia/Seoul",
     })
@@ -160,7 +160,7 @@ class ProductionSchemaIsolationTest(unittest.TestCase):
               where table_schema='dino_prod' and column_name='synthetic'
               and table_name in ('participant','observation','game_session','analytics_event')""").fetchall())
             self.assertEqual(set(defaults.values()),{"false"})
-            campaign=conn.execute("select status,real_prizes_enabled,opens_at,closes_at from dino_prod.campaign").fetchone()
+            campaign=conn.execute("select status,real_prizes_enabled,opens_at,closes_at,settings from dino_prod.campaign").fetchone()
             guard=conn.execute("""select environment,schema_name,synthetic_only,test_seed,event_enabled,launch_manifest_sha256,
               draw_pool_total,draw_prize_quantity,ranking_prize_quantity,claim_closes_at
               from dino_prod.environment_guard""").fetchone()
@@ -169,10 +169,11 @@ class ProductionSchemaIsolationTest(unittest.TestCase):
             inventory=conn.execute("select count(*) from dino_prod.inventory_item").fetchone()[0]
             awards=conn.execute("select count(*) from dino_prod.ranking_award").fetchone()[0]
         self.assertEqual(campaign[:2],("PAUSED",True));self.assertLess(campaign[2],campaign[3])
+        self.assertEqual(campaign[4]["phase3_draw_prize_quantity"],63)
         self.assertEqual(guard[:5],("production","dino_prod",False,False,False))
-        self.assertEqual(guard[5:9],(self.digest,5000,77,3));self.assertIsNotNone(guard[9])
-        self.assertEqual(slots,(5000,77,4923));self.assertEqual(inventory,80);self.assertEqual(awards,3)
-        self.assertEqual(self.provisioned,{"campaign_id":"gemini_dino_2026_test","status":"PAUSED","event_enabled":False,"draw_slots":5000,"draw_prizes":77,"ranking_prizes":3})
+        self.assertEqual(guard[5:9],(self.digest,5000,63,3));self.assertIsNotNone(guard[9])
+        self.assertEqual(slots,(5000,63,4937));self.assertEqual(inventory,66);self.assertEqual(awards,3)
+        self.assertEqual(self.provisioned,{"campaign_id":"gemini_dino_2026_test","status":"PAUSED","event_enabled":False,"draw_slots":5000,"draw_prizes":63,"ranking_prizes":3})
 
     def test_repeated_schema_and_inventory_provisioning_refuse_overwrite(self):
         with self.assertRaises(psycopg.Error):

@@ -1,0 +1,16 @@
+{
+  "deployment": "dpl_HqqDscWPt5KLMxVwEX8aNGrAdY8b",
+  "source_hashes": {
+    "server/db.py": "198f5140f40dc5007731fbe1586cbf01f643eebeba95b764eb43f9d868af4582",
+    "server/operations.py": "0e2a36254def4462b5a85c28b0700017353fcb5442add5daec0275a0daea5ba4",
+    "server/config.py": "b683fff7276180fd974db0a54c2ab2b35e272ff1b9b79c39596db7a0e0b3dd82",
+    "server/production-launch-manifest.json": "fae7d1cec7d1ffafb48fb2ba1047f83ff5d1585b1f844f55d64b30c300b000bc",
+    "vercel.json": "abe165178bdd219a9df38dfc683dfdd3fe0fd4a174a9f95dea95d9b1322682d6"
+  },
+  "runtime_changes": [
+    "DB slot timeout 5s",
+    "shared campaign lock for game finish"
+  ],
+  "ga4": false,
+  "unlimited_play": false
+}

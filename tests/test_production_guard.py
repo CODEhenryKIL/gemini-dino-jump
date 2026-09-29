@@ -23,9 +23,9 @@ PRODUCTION_BASE={
 def approved_manifest(event_enabled=False):
     manifest={
       "version":"phase3-production-test","status":"APPROVED","event_enabled":event_enabled,
-      "campaign":{"id":"gemini_dino_2026","opens_at":"2026-09-29T19:00:00+09:00","closes_at":"2026-10-03T00:00:00+09:00","claim_closes_at":"2026-10-04T00:00:00+09:00"},
-      "draw_pool":{"total_slots":5000,"benefit_slots":4923,"max_draws_per_participant":10,"mode":"WITHOUT_REPLACEMENT"},
-      "draw_prizes":[{"id":"all-draw-prizes","quantity":77}],
+      "campaign":{"id":"gemini_dino_2026","opens_at":"2026-09-29T21:00:00+09:00","closes_at":"2026-10-03T00:00:00+09:00","claim_closes_at":"2026-10-04T00:00:00+09:00"},
+      "draw_pool":{"total_slots":5000,"benefit_slots":4937,"max_draws_per_participant":10,"mode":"WITHOUT_REPLACEMENT"},
+      "draw_prizes":[{"id":"all-draw-prizes","quantity":63}],
       "ranking_prizes":[{"rank":1,"quantity":1},{"rank":2,"quantity":1},{"rank":3,"quantity":1}],
       "approvals":{"environment":"approved","inventory":"approved","privacy":"approved","benefit_and_brand":"approved","public_launch":"approved"},
       "policies":{key:"approved" for key in config.PRODUCTION_POLICY_KEYS} | {"ranking_ties":"EARLIER_ACHIEVEMENT_FIRST","finish_after_close":"RECEIVED_BEFORE_CLOSE","claim_deadline_and_no_response":"MANUAL_REVIEW_AFTER_DEADLINE"},
@@ -62,7 +62,7 @@ class ProductionConfigTest(unittest.TestCase):
         settings=self.settings()
         self.assertEqual((settings.schema_name,settings.app_role),("dino_prod","dino_prod_app"))
         self.assertFalse(settings.synthetic_only);self.assertFalse(settings.preview_unlimited_play)
-        self.assertEqual((settings.draw_pool_total,settings.draw_prize_quantity,settings.ranking_prize_quantity),(5000,77,3))
+        self.assertEqual((settings.draw_pool_total,settings.draw_prize_quantity,settings.ranking_prize_quantity),(5000,63,3))
         self.assertFalse(settings.event_enabled)
 
     def test_production_rejects_beta_role_unlimited_mode_and_unapproved_manifest(self):
@@ -130,7 +130,7 @@ class ProductionConfigTest(unittest.TestCase):
                     self.settings(manifest)
 
     def test_manifest_quantities_require_positive_json_integers(self):
-        for collection,index,value in (("draw_prizes",0,True),("draw_prizes",0,"77"),("ranking_prizes",0,1.0)):
+        for collection,index,value in (("draw_prizes",0,True),("draw_prizes",0,"63"),("ranking_prizes",0,1.0)):
             with self.subTest(collection=collection,value=value):
                 manifest=approved_manifest();manifest[collection][index]["quantity"]=value
                 with self.assertRaisesRegex(config.ConfigurationError,"PRODUCTION_MANIFEST_INVALID"):
@@ -145,9 +145,9 @@ class ProductionDatabaseGuardTest(unittest.TestCase):
           "environment":"production","project_ref":PROJECT,"synthetic_only":False,
           "schema_name":"dino_prod","app_role":"dino_prod_app",
           "launch_manifest_sha256":"a"*64,"campaign_id":"gemini_dino_2026","event_enabled":False,
-          "campaign_opens_at":"2026-09-29T19:00:00+09:00","campaign_closes_at":"2026-10-03T00:00:00+09:00",
+          "campaign_opens_at":"2026-09-29T21:00:00+09:00","campaign_closes_at":"2026-10-03T00:00:00+09:00",
           "claim_closes_at":"2026-10-04T00:00:00+09:00",
-          "draw_pool_total":5000,"draw_prize_quantity":77,"ranking_prize_quantity":3,
+          "draw_pool_total":5000,"draw_prize_quantity":63,"ranking_prize_quantity":3,
         })()
 
     def guard(self,**overrides):
@@ -155,10 +155,10 @@ class ProductionDatabaseGuardTest(unittest.TestCase):
           "environment":"production","project_ref":PROJECT,"schema_name":"dino_prod","synthetic_only":False,
           "test_seed":False,"campaign_id":"gemini_dino_2026","connection_role":"dino_prod_app",
           "launch_manifest_sha256":"a"*64,"event_enabled":False,
-          "campaign_opens_at":datetime.fromisoformat("2026-09-29T19:00:00+09:00"),
+          "campaign_opens_at":datetime.fromisoformat("2026-09-29T21:00:00+09:00"),
           "campaign_closes_at":datetime.fromisoformat("2026-10-03T00:00:00+09:00"),
           "claim_closes_at":datetime.fromisoformat("2026-10-04T00:00:00+09:00"),
-          "draw_pool_total":5000,"draw_prize_quantity":77,"ranking_prize_quantity":3,
+          "draw_pool_total":5000,"draw_prize_quantity":63,"ranking_prize_quantity":3,
           "unlimited_play":False,"synthetic_inventory":False,"shortened_clock":False,
           **overrides,
         }
@@ -183,7 +183,7 @@ class ProductionDatabaseGuardTest(unittest.TestCase):
           ({"launch_manifest_sha256":"b"*64},"PRODUCTION_GUARD_MISMATCH"),
           ({"event_enabled":True},"PRODUCTION_GUARD_MISMATCH"),
           ({"test_seed":True},"PRODUCTION_GUARD_MISMATCH"),
-          ({"draw_prize_quantity":76},"PRODUCTION_GUARD_MISMATCH"),
+          ({"draw_prize_quantity":62},"PRODUCTION_GUARD_MISMATCH"),
         ):
             with self.subTest(overrides=overrides),self.assertRaisesRegex(config.ConfigurationError,error):
                 db.check_environment(FakeConnection(self.guard(**overrides)),self.settings())

@@ -69,8 +69,8 @@ class ProductionCutoverManifestTest(unittest.TestCase):
         state = {
             "guard": {}, "campaign": {},
             "record_counts": {"participant": 0, "game_session": 0, "draw": 0, "claim": 0},
-            "draw_pool": {"total": 5000, "prize": 77, "benefit": 4923},
-            "inventory_by_prize": spec["inventory_by_prize"], "inventory_total": 80,
+            "draw_pool": {"total": 5000, "prize": 63, "benefit": 4937},
+            "inventory_by_prize": spec["inventory_by_prize"], "inventory_total": 66,
             "schema_versions": [],
         }
         plan = {

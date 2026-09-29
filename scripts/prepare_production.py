@@ -16,6 +16,24 @@ MANIFEST = ROOT / 'config/phase3-launch.json'
 ARTIFACT = ROOT / 'server/production-launch-manifest.json'
 
 
+def inventory_counts(manifest):
+    try:
+        pool_total = manifest['draw_pool']['total_slots']
+        benefit_slots = manifest['draw_pool']['benefit_slots']
+        draw_quantities = [row['quantity'] for row in manifest['draw_prizes']]
+        ranking_quantities = [row['quantity'] for row in manifest['ranking_prizes']]
+    except (KeyError, TypeError):
+        raise ValueError('Invalid manifest inventory') from None
+    if any(type(value) is not int or value <= 0 for value in [*draw_quantities, *ranking_quantities]):
+        raise ValueError('Invalid manifest inventory')
+    draw_prizes = sum(draw_quantities)
+    ranking_prizes = sum(ranking_quantities)
+    values = (pool_total, benefit_slots, draw_prizes, ranking_prizes)
+    if any(type(value) is not int or value <= 0 for value in values) or pool_total != benefit_slots + draw_prizes:
+        raise ValueError('Manifest inventory totals do not reconcile')
+    return values
+
+
 def source_migrations():
     entries = json.loads(LOCK.read_text())
     for entry in entries:
@@ -27,6 +45,8 @@ def source_migrations():
 
 
 def render_schema():
+    manifest = json.loads(MANIFEST.read_text(encoding='utf-8'))
+    pool_total, _benefit_slots, draw_prizes, ranking_prizes = inventory_counts(manifest)
     pieces = ["""begin;
 select pg_advisory_xact_lock(hashtext('dino-prod-bootstrap'));
 do $$ begin
@@ -56,16 +76,16 @@ end $$;
         if 'dino_dev' in rendered or re.search(r'check\s*\((?:synthetic|synthetic_only|is_test)\)', rendered):
             raise ValueError(f'Unconverted beta constraint in {name}')
         pieces.append(f'-- Reviewed source: {name}\n{rendered}\n')
-    pieces.append("""
+    pieces.append(f"""
 alter table dino_prod.environment_guard
-  add column launch_manifest_sha256 text not null check (launch_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  add column launch_manifest_sha256 text not null check (launch_manifest_sha256 ~ '^[0-9a-f]{{64}}$'),
   add column event_enabled boolean not null default false,
   add column campaign_opens_at timestamptz not null,
   add column campaign_closes_at timestamptz not null check (campaign_closes_at > campaign_opens_at),
   add column claim_closes_at timestamptz not null check (claim_closes_at > campaign_closes_at),
-  add column draw_pool_total integer not null check (draw_pool_total=5000),
-  add column draw_prize_quantity integer not null check (draw_prize_quantity=77),
-  add column ranking_prize_quantity integer not null check (ranking_prize_quantity=3),
+  add column draw_pool_total integer not null check (draw_pool_total={pool_total}),
+  add column draw_prize_quantity integer not null check (draw_prize_quantity={draw_prizes}),
+  add column ranking_prize_quantity integer not null check (ranking_prize_quantity={ranking_prizes}),
   add column unlimited_play boolean not null default false check(not unlimited_play),
   add column synthetic_inventory boolean not null default false check(not synthetic_inventory),
   add column shortened_clock boolean not null default false check(not shortened_clock);
@@ -110,6 +130,7 @@ def provision(conn, manifest, digest, source_bytes):
         raise ValueError('A preparation-ready manifest with event_enabled=false is required')
     if not re.fullmatch(r'[a-z][a-z0-9_]{1,63}', manifest['campaign']['id']):
         raise ValueError('Invalid production campaign ID')
+    pool_total, benefit_slots, draw_prize_quantity, ranking_prize_quantity = inventory_counts(manifest)
     conn.execute("select pg_advisory_xact_lock(hashtext('dino-prod-provision'))")
     mutable_tables = conn.execute("""select tablename from pg_tables
       where schemaname='dino_prod' and tablename<>'schema_version' order by tablename""").fetchall()
@@ -121,6 +142,7 @@ def provision(conn, manifest, digest, source_bytes):
     campaign = manifest['campaign']; cid = campaign['id']
     settings = {'initial_tickets': 1, 'invitation_balance_max': 3, 'invitation_cooldown_hours': 10,
                 'draw_max_rounds': 10, 'phase3_manifest_hash': digest,
+                'phase3_draw_prize_quantity': draw_prize_quantity,
                 'claim_submission_cutoff': campaign['claim_closes_at'], 'ranking_finish_acceptance_cutoff': campaign['closes_at'], 'finish_after_close': 'RECEIVED_BEFORE_CLOSE',
                 'ranking_finalization_approved': True, 'ranking_inventory_separate': manifest['ranking_prizes']}
     conn.execute("""insert into dino_prod.campaign(id,title,status,game_version,benefit_url,settings,probability_version,opens_at,closes_at,real_prizes_enabled)
@@ -130,14 +152,14 @@ def provision(conn, manifest, digest, source_bytes):
     for prize in manifest['draw_prizes']:
         prize_id = cid + '_' + prize['id']
         conn.execute("insert into dino_prod.prize(id,campaign_id,name,category,image_url,probability) values(%s,%s,%s,%s,'/assets/icons/Picture-Light.png',%s)",
-                     (prize_id,cid,prize['name'],prize['category'],prize['quantity']/5000))
+                     (prize_id,cid,prize['name'],prize['category'],prize['quantity']/pool_total))
         for number in range(1,prize['quantity']+1):
             slot += 1; item = f'{prize_id}_{number:03d}'
             conn.execute('insert into dino_prod.inventory_item(id,prize_id) values(%s,%s)',(item,prize_id))
             conn.execute("insert into dino_prod.inventory_history(inventory_item_id,to_status,reason,related_type,related_id) values(%s,'AVAILABLE','PRODUCTION_MANIFEST','manifest',%s)",(item,manifest['version']))
             conn.execute("insert into dino_prod.draw_pool_slot(campaign_id,slot_number,outcome_kind,prize_id,inventory_item_id) values(%s,%s,'PRIZE',%s,%s)",(cid,slot,prize_id,item))
-    conn.execute("insert into dino_prod.prize(id,campaign_id,name,category,image_url,probability) values(%s,%s,'Gemini 혜택','NO_PRIZE','/assets/icons/Picture-Light.png',0.9846)",(cid+'_benefit',cid))
-    conn.execute("insert into dino_prod.draw_pool_slot(campaign_id,slot_number,outcome_kind) select %s,n,'BENEFIT' from generate_series(78,5000)n",(cid,))
+    conn.execute("insert into dino_prod.prize(id,campaign_id,name,category,image_url,probability) values(%s,%s,'Gemini 혜택','NO_PRIZE','/assets/icons/Picture-Light.png',%s)",(cid+'_benefit',cid,benefit_slots/pool_total))
+    conn.execute("insert into dino_prod.draw_pool_slot(campaign_id,slot_number,outcome_kind) select %s,n,'BENEFIT' from generate_series(%s::integer,%s::integer)n",(cid,draw_prize_quantity+1,pool_total))
     for prize in manifest['ranking_prizes']:
         prize_id = f"{cid}_rank_{prize['rank']}"; item = prize_id+'_001'
         conn.execute("insert into dino_prod.prize(id,campaign_id,name,category,image_url,probability) values(%s,%s,%s,'COUPON','/assets/icons/Picture-Light.png',0)",(prize_id,cid,prize['name']))
@@ -146,12 +168,13 @@ def provision(conn, manifest, digest, source_bytes):
         conn.execute('insert into dino_prod.ranking_award(campaign_id,rank,prize_id,inventory_item_id) values(%s,%s,%s,%s)',(cid,prize['rank'],prize_id,item))
     counts = conn.execute("select count(*),count(*) filter(where outcome_kind='PRIZE') from dino_prod.draw_pool_slot where campaign_id=%s",(cid,)).fetchone()
     inventory = conn.execute('select count(*) from dino_prod.inventory_item').fetchone()[0]
-    if tuple(counts)!=(5000,77) or inventory!=80:
+    if tuple(counts)!=(pool_total,draw_prize_quantity) or inventory!=draw_prize_quantity+ranking_prize_quantity:
         raise ValueError('Production inventory reconciliation failed')
     conn.execute("""insert into dino_prod.environment_guard(environment,project_ref,schema_name,synthetic_only,test_seed,campaign_id,
       launch_manifest_sha256,event_enabled,campaign_opens_at,campaign_closes_at,claim_closes_at,draw_pool_total,draw_prize_quantity,ranking_prize_quantity)
-      values('production','igfrnexknwtiljdqjrbp','dino_prod',false,false,%s,%s,false,%s,%s,%s,5000,77,3)""",(cid,digest,campaign['opens_at'],campaign['closes_at'],campaign['claim_closes_at']))
-    return {'campaign_id':cid,'status':'PAUSED','event_enabled':False,'draw_slots':5000,'draw_prizes':77,'ranking_prizes':3}
+      values('production','igfrnexknwtiljdqjrbp','dino_prod',false,false,%s,%s,false,%s,%s,%s,%s,%s,%s)""",
+      (cid,digest,campaign['opens_at'],campaign['closes_at'],campaign['claim_closes_at'],pool_total,draw_prize_quantity,ranking_prize_quantity))
+    return {'campaign_id':cid,'status':'PAUSED','event_enabled':False,'draw_slots':pool_total,'draw_prizes':draw_prize_quantity,'ranking_prizes':ranking_prize_quantity}
 
 
 def main():

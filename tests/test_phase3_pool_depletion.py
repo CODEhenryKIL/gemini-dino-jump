@@ -26,7 +26,7 @@ class Phase3PoolDepletionTest(unittest.TestCase):
               count(*) filter(where outcome_kind='BENEFIT')::int benefits,
               count(*) filter(where allocated_draw_id is not null)::int allocated
               from dino_dev.draw_pool_slot where campaign_id=%s""", (CAMPAIGN_ID,)).fetchone()
-            self.assertEqual(dict(counts), {"total": 5000, "prizes": 77, "benefits": 4923, "allocated": 0})
+            self.assertEqual(dict(counts), {"total": 5000, "prizes": 63, "benefits": 4937, "allocated": 0})
             conn.execute("update dino_dev.campaign set status='ACTIVE' where id=%s", (CAMPAIGN_ID,))
             conn.execute("update dino_dev.environment_guard set campaign_id=%s where singleton", (CAMPAIGN_ID,))
             conn.execute("""insert into dino_dev.participant
@@ -59,13 +59,12 @@ class Phase3PoolDepletionTest(unittest.TestCase):
                 )
                 self.assertEqual(status, 201)
                 outcomes[result["outcome_kind"]] += 1
-            with self.assertRaises(operations.DomainError) as exhausted:
-                operations.create_draw(
-                    conn, {"pouch_index": 0, "expected_round_number": 1},
-                    {**base, "participant_token_hash": f"{5001:064x}",
-                     "idempotency_key": hashlib.sha256(b"draw:5001").hexdigest()},
-                )
-            self.assertEqual(exhausted.exception.code, "DRAW_POOL_EXHAUSTED")
+            status, after_exhaustion = operations.create_draw(
+                conn, {"pouch_index": 0, "expected_round_number": 1},
+                {**base, "participant_token_hash": f"{5001:064x}",
+                 "idempotency_key": hashlib.sha256(b"draw:5001").hexdigest()},
+            )
+            self.assertEqual((status,after_exhaustion["outcome_kind"],after_exhaustion["claim_id"]),(201,"BENEFIT",None))
             proof = conn.execute("""select
               count(*)::int allocated,
               count(distinct allocated_draw_id)::int distinct_draws,
@@ -76,8 +75,8 @@ class Phase3PoolDepletionTest(unittest.TestCase):
                 where p.campaign_id=%s and i.status='RESERVED') reserved
               from dino_dev.draw_pool_slot where campaign_id=%s and allocated_draw_id is not null""",
               (CAMPAIGN_ID, CAMPAIGN_ID, CAMPAIGN_ID)).fetchone()
-            self.assertEqual(outcomes, {"PRIZE": 77, "BENEFIT": 4923})
-            self.assertEqual(tuple(proof.values()), (5000, 5000, 77, 4923, 77, 77))
+            self.assertEqual(outcomes, {"PRIZE": 63, "BENEFIT": 4937})
+            self.assertEqual(tuple(proof.values()), (5000, 5000, 63, 4937, 63, 63))
         finally:
             conn.rollback()
             conn.close()

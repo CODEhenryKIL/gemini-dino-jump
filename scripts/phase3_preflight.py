@@ -80,16 +80,16 @@ def validate(manifest):
     ranking_budget = sum(row["quantity"] * row["unit_price_krw"] for row in ranking)
     expected_draw = dict(zip(
         ("samtanbyme", "sony_ult_wear", "orthomol_7day", "naverpay_50000", "musinsa_50000", "baemin_20000", "starbucks_10000", "convenience_5000", "ghana", "snickers", "chupa_chups"),
-        (1, 2, 2, 3, 2, 4, 9, 24, 10, 10, 10)))
+        (1, 2, 2, 3, 2, 4, 9, 10, 10, 10, 10)))
     if {row["id"]: row["quantity"] for row in prizes} != expected_draw:
         errors.append("복주머니 상품별 수량이 확정 재고와 다릅니다")
     actual_ranking = sorted((row.get("rank", 0), row["id"], row["quantity"], row["unit_price_krw"]) for row in ranking)
     if actual_ranking != [(1, "musinsa_50000", 1, 50000), (2, "baemin_20000", 1, 20000), (3, "starbucks_10000", 1, 10000)]:
         errors.append("랭킹 경품은 무신사 5만원·배민 2만원·스타벅스 1만원 각 1개여야 합니다")
-    if (draw_count, draw_budget, ranking_count, ranking_budget) != (77, 1519000, 3, 80000):
+    if (draw_count, draw_budget, ranking_count, ranking_budget) != (63, 1449000, 3, 80000):
         errors.append("확정 경품 수량 또는 예산 합계가 다릅니다")
-    if pool != {"total_slots": 5000, "benefit_slots": 4923, "max_draws_per_participant": 10, "mode": "WITHOUT_REPLACEMENT"}:
-        errors.append("추첨 설정은 총 5,000자리·혜택 4,923자리·참가자당 최대 10회 비복원 방식이어야 합니다")
+    if pool != {"total_slots": 5000, "benefit_slots": 4937, "max_draws_per_participant": 10, "mode": "WITHOUT_REPLACEMENT"}:
+        errors.append("추첨 설정은 총 5,000자리·혜택 4,937자리·참가자당 최대 10회 비복원 방식이어야 합니다")
     if not isinstance(manifest.get("version"), str) or not manifest["version"].strip():
         errors.append("설정 버전이 필요합니다")
     if manifest.get("status") not in {"DRAFT", "APPROVED"}:

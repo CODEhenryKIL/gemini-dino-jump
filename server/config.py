@@ -119,9 +119,9 @@ def _load_production_manifest():
         ranking_quantity=sum(item["quantity"] for item in ranking_prizes)
     except (TypeError,KeyError,ValueError):raise ConfigurationError("PRODUCTION_MANIFEST_INVALID") from None
     pool_values=(draw_pool.get("total_slots"),draw_pool.get("benefit_slots"),draw_pool.get("max_draws_per_participant"))
-    if any(type(value) is not int for value in pool_values) or pool_values!=(5000,4923,10):
+    if any(type(value) is not int for value in pool_values) or pool_values!=(5000,4937,10):
         raise ConfigurationError("PRODUCTION_MANIFEST_INVALID")
-    if draw_quantity!=77 or ranking_quantity!=3 or manifest.get("production_flags")!=PRODUCTION_FLAGS:
+    if draw_quantity!=63 or ranking_quantity!=3 or manifest.get("production_flags")!=PRODUCTION_FLAGS:
         raise ConfigurationError("PRODUCTION_MANIFEST_INVALID")
     return manifest,actual,draw_quantity,ranking_quantity
 

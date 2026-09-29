@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-29",
+  "status": "PASSED",
+  "environment": "preview",
+  "game_version": "2.1.0",
+  "plan_revision": "final-v21-harness-correction-v1",
+  "scope": {
+    "prepared_synthetic_participants": 5000,
+    "draw_pool_slots": 5000,
+    "synthetic_prize_slots": 77,
+    "benefit_slots": 4923,
+    "unlimited_play": false,
+    "kakao_callback_calls": 0,
+    "claim_mutation_calls": 0
+  },
+  "attempts": [
+    {
+      "name": "initial",
+      "result": "FAILED_SERVER_POOL_WAIT",
+      "actual_duration_seconds": 11.52,
+      "runner_api_calls": 460,
+      "preparation_calls": 2,
+      "flows_completed": 0,
+      "unexpected_failures": 39,
+      "http_503": 39,
+      "http_429": 0,
+      "timeouts": 0
+    },
+    {
+      "name": "remediation",
+      "result": "STOPPED_HARNESS_CONTRACT",
+      "actual_duration_seconds": 6.31,
+      "runner_api_calls": 356,
+      "cumulative_api_calls": 818,
+      "flows_completed": 0,
+      "unexpected_failures": 0,
+      "http_5xx": 0,
+      "http_429": 0,
+      "timeouts": 0
+    },
+    {
+      "name": "harness_correction",
+      "result": "PASSED",
+      "actual_duration_seconds": 171.89,
+      "runner_api_calls": 5502,
+      "cumulative_api_calls": 6320,
+      "flows_completed": 500,
+      "unexpected_failures": 0,
+      "http_5xx": 0,
+      "http_429": 0,
+      "timeouts": 0
+    }
+  ],
+  "final_stages": [
+    {
+      "label": "100-remediation",
+      "virtual_users": 100,
+      "admission_window_seconds": 150,
+      "actual_seconds_including_cleanup": 150.01,
+      "burst": false,
+      "api_calls": 3300,
+      "flows_completed": 300,
+      "unexpected_failures": 0,
+      "http_429": 0,
+      "timeouts": 0
+    },
+    {
+      "label": "200-remediation-burst",
+      "virtual_users": 200,
+      "admission_window_seconds": 30,
+      "actual_seconds_including_cleanup": 21.54,
+      "burst": true,
+      "api_calls": 2200,
+      "flows_completed": 200,
+      "unexpected_failures": 0,
+      "http_429": 0,
+      "timeouts": 0
+    }
+  ],
+  "final_metrics": {
+    "api_calls": 5502,
+    "flows_completed": 500,
+    "rps": 32.01,
+    "unexpected_failures": 0,
+    "rate_limited_429": 0,
+    "timeouts": 0,
+    "endpoints": {
+      "GET /api/claims": {
+        "count": 500,
+        "p50_ms": 263.36,
+        "p95_ms": 2780.28,
+        "p99_ms": 3858.1,
+        "statuses": {
+          "200": 500
+        }
+      },
+      "GET /api/config": {
+        "count": 1,
+        "p50_ms": 114.54,
+        "p95_ms": 114.54,
+        "p99_ms": 114.54,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/draws/{id}": {
+        "count": 500,
+        "p50_ms": 608.73,
+        "p95_ms": 3561.83,
+        "p99_ms": 4140.46,
+        "statuses": {
+          "200": 500
+        }
+      },
+      "GET /api/health": {
+        "count": 1,
+        "p50_ms": 196.12,
+        "p95_ms": 196.12,
+        "p99_ms": 196.12,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/leaderboard": {
+        "count": 500,
+        "p50_ms": 530.95,
+        "p95_ms": 3417.3,
+        "p99_ms": 4154.88,
+        "statuses": {
+          "200": 500
+        }
+      },
+      "GET /api/me": {
+        "count": 500,
+        "p50_ms": 554.36,
+        "p95_ms": 1634.02,
+        "p99_ms": 2167.25,
+        "statuses": {
+          "200": 500
+        }
+      },
+      "GET /api/referrals/me": {
+        "count": 500,
+        "p50_ms": 434.8,
+        "p95_ms": 3054.42,
+        "p99_ms": 4234.3,
+        "statuses": {
+          "200": 500
+        }
+      },
+      "PATCH /api/draws/{id}/scratch-complete": {
+        "count": 500,
+        "p50_ms": 780.11,
+        "p95_ms": 3819.68,
+        "p99_ms": 4230.59,
+        "statuses": {
+          "200": 500
+        }
+      },
+      "POST /api/draws": {
+        "count": 500,
+        "p50_ms": 1239.53,
+        "p95_ms": 4563.88,
+        "p99_ms": 4938.43,
+        "statuses": {
+          "201": 500
+        }
+      },
+      "POST /api/events/batch": {
+        "count": 500,
+        "p50_ms": 245.76,
+        "p95_ms": 1861.86,
+        "p99_ms": 3520.99,
+        "statuses": {
+          "202": 500
+        }
+      },
+      "POST /api/game-sessions": {
+        "count": 500,
+        "p50_ms": 593.7,
+        "p95_ms": 2311.7,
+        "p99_ms": 2643.81,
+        "statuses": {
+          "201": 500
+        }
+      },
+      "POST /api/game-sessions/{id}/finish": {
+        "count": 500,
+        "p50_ms": 488.43,
+        "p95_ms": 1626.44,
+        "p99_ms": 2282.51,
+        "statuses": {
+          "200": 500
+        }
+      },
+      "POST /api/game-sessions/{id}/start": {
+        "count": 500,
+        "p50_ms": 537.85,
+        "p95_ms": 2085.14,
+        "p99_ms": 2573.37,
+        "statuses": {
+          "200": 500
+        }
+      }
+    }
+  },
+  "cumulative_budget": {
+    "api_calls_used": 6320,
+    "api_calls_limit": 7000,
+    "api_calls_remaining": 680,
+    "reserved_seconds_used": 379,
+    "reserved_seconds_limit": 390,
+    "reserved_seconds_remaining": 11,
+    "measured_actual_seconds_all_attempts": 189.72
+  },
+  "limitations": [
+    "200 burst is one complete flow per worker, not sustained repetition for 30 seconds",
+    "no mobile UI FPS or touch-latency measurement",
+    "no real Kakao callback",
+    "no claim write",
+    "not a 5000-concurrent-user test"
+  ],
+  "sensitive_data_omitted": [
+    "participant cookies",
+    "participant identifier list",
+    "approval markers",
+    "platform protection credentials"
+  ]
+}

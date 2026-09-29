@@ -15,7 +15,8 @@ def _iso(value): return value.astimezone(UTC).isoformat().replace("+00:00","Z") 
 def _one(conn,sql,params=()): return conn.execute(sql,params).fetchone()
 def _all(conn,sql,params=()): return list(conn.execute(sql,params).fetchall())
 def _campaign(conn,lock=False):
-    row=_one(conn,f"select * from {database_schema()}.campaign where id=(select campaign_id from {database_schema()}.environment_guard where singleton)"+(" for update" if lock else ""))
+    lock_clause=" for update" if lock is True else " for share" if lock=="share" else ""
+    row=_one(conn,f"select * from {database_schema()}.campaign where id=(select campaign_id from {database_schema()}.environment_guard where singleton)"+lock_clause)
     if not row: raise DomainError("CAMPAIGN_NOT_CONFIGURED","행사 설정이 준비되지 않았습니다.",503,True)
     return row
 def _mutable(campaign):
@@ -510,7 +511,7 @@ def finish_session(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True);s=_owned_session(conn,sid,p["id"])
     if s["status"] in ("FINISHED","REJECTED"):
         return 200,finish_response(conn,s,ctx)
-    campaign=_campaign(conn,True);_before_campaign_close(conn,campaign,ctx)
+    campaign=_campaign(conn,"share");_before_campaign_close(conn,campaign,ctx)
     s=_owned_session(conn,sid,p["id"],True)
     if s["status"] in ("FINISHED","REJECTED"):
         return 200,finish_response(conn,s,ctx)
@@ -801,12 +802,17 @@ def _pool_prize(conn,campaign):
       count(*) filter(where outcome_kind='PRIZE')::int prizes
       from {database_schema()}.draw_pool_slot where campaign_id=%s""",(campaign["id"],))
     total=counts["total"]
-    finite_pool=bool((campaign.get("settings") or {}).get("phase3_manifest_hash"))
-    if finite_pool and (total!=5000 or counts["prizes"]!=77):
+    settings=campaign.get("settings") or {}
+    finite_pool=bool(settings.get("phase3_manifest_hash"))
+    expected_prizes=settings.get("phase3_draw_prize_quantity",77)
+    if finite_pool and (type(expected_prizes) is not int or expected_prizes<=0 or total!=5000 or counts["prizes"]!=expected_prizes):
         raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
     if not total:return _legacy_prize(conn,campaign)
     remaining=_one(conn,f"select count(*)::int n from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null",(campaign["id"],))["n"]
-    if remaining<=0:raise DomainError("DRAW_POOL_EXHAUSTED","준비된 복주머니 추첨이 모두 소진되었습니다.",409)
+    if remaining<=0:
+        prize=_one(conn,f"select * from {database_schema()}.prize where campaign_id=%s and category='NO_PRIZE' and is_active order by id limit 1",(campaign["id"],))
+        if not prize:raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
+        return prize,None,1.0,None
     offset=secrets.randbelow(remaining)
     slot=_one(conn,f"select * from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null order by slot_number offset %s limit 1 for update",(campaign["id"],offset))
     if not slot:raise DomainError("DRAW_POOL_BUSY","추첨 자리 확인이 지연되고 있습니다.",503,True)

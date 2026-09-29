@@ -140,7 +140,7 @@ class ProductionRuntimeSmokeTest(unittest.TestCase):
             campaign_closes_at=cls.closes_at.isoformat(),
             claim_closes_at=cls.claim_closes_at.isoformat(),
             draw_pool_total=5000,
-            draw_prize_quantity=77,
+            draw_prize_quantity=63,
             ranking_prize_quantity=3,
         )
 

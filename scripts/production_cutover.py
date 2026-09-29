@@ -126,6 +126,8 @@ def transition_spec(source_bytes: bytes, target_bytes: bytes, mode: str, expecte
         },
         "draw_pool_total": target["draw_pool"]["total_slots"],
         "draw_prize_quantity": sum(item["quantity"] for item in target["draw_prizes"]),
+        "source_draw_prize_quantity": sum(item["quantity"] for item in source["draw_prizes"]),
+        "draw_benefit_quantity": target["draw_pool"]["benefit_slots"],
         "ranking_prize_quantity": sum(item["quantity"] for item in target["ranking_prizes"]),
         "inventory_by_prize": {
             campaign["id"] + "_" + item["id"]: item["quantity"] for item in target["draw_prizes"]
@@ -215,7 +217,9 @@ def _assert_state(state: dict, spec: dict, *, target: bool = False) -> None:
         "environment": "production", "project_ref": PROJECT_REF, "schema_name": SCHEMA,
         "synthetic_only": False, "test_seed": False, "campaign_id": spec["campaign_id"],
         "launch_manifest_sha256": expected_hash, "event_enabled": expected_event,
-        "draw_pool_total": 5000, "draw_prize_quantity": 77, "ranking_prize_quantity": 3,
+        "draw_pool_total": spec["draw_pool_total"],
+        "draw_prize_quantity": (spec["draw_prize_quantity"] if target else spec["source_draw_prize_quantity"]),
+        "ranking_prize_quantity": spec["ranking_prize_quantity"],
         "unlimited_play": False, "synthetic_inventory": False, "shortened_clock": False,
     }
     if any(guard.get(key) != value for key, value in expected_guard.items()):
@@ -234,9 +238,14 @@ def _assert_state(state: dict, spec: dict, *, target: bool = False) -> None:
         raise CutoverError("PRODUCTION_CAMPAIGN_HASH_MISMATCH")
     if campaign["claim_submission_cutoff"] != spec["campaign"]["claim_closes_at"] or campaign["ranking_finish_acceptance_cutoff"] != spec["campaign"]["closes_at"]:
         raise CutoverError("PRODUCTION_CAMPAIGN_CUTOFF_MISMATCH")
-    if state["draw_pool"] != {"total": 5000, "prize": 77, "benefit": 4923}:
+    if state["draw_pool"] != {
+        "total": spec["draw_pool_total"],
+        "prize": spec["draw_prize_quantity"],
+        "benefit": spec["draw_benefit_quantity"],
+    }:
         raise CutoverError("PRODUCTION_DRAW_POOL_MISMATCH")
-    if state["inventory_by_prize"] != spec["inventory_by_prize"] or state["inventory_total"] != 80:
+    expected_inventory_total = spec["draw_prize_quantity"] + spec["ranking_prize_quantity"]
+    if state["inventory_by_prize"] != spec["inventory_by_prize"] or state["inventory_total"] != expected_inventory_total:
         raise CutoverError("PRODUCTION_INVENTORY_MISMATCH")
     if state["schema_versions"] != list(REQUIRED_SCHEMA_VERSIONS):
         raise CutoverError("PRODUCTION_SCHEMA_VERSION_MISMATCH")
@@ -315,12 +324,12 @@ def apply_transition(conn, plan: dict, source_bytes: bytes, target_bytes: bytes,
           (spec["target_campaign_status"], campaign["opens_at"], campaign["closes_at"], spec["target_sha256"],
            campaign["claim_closes_at"], campaign["closes_at"], spec["campaign_id"], spec["expected_campaign_version"]))
         conn.execute(f"""update {SCHEMA}.environment_guard set launch_manifest_sha256=%s,event_enabled=%s,
-          campaign_opens_at=%s,campaign_closes_at=%s,claim_closes_at=%s,draw_pool_total=5000,
-          draw_prize_quantity=77,ranking_prize_quantity=3 where singleton""",
+          campaign_opens_at=%s,campaign_closes_at=%s,claim_closes_at=%s,draw_pool_total={spec['draw_pool_total']},
+          draw_prize_quantity={spec['draw_prize_quantity']},ranking_prize_quantity={spec['ranking_prize_quantity']} where singleton""",
           (spec["target_sha256"], spec["target_event_enabled"], campaign["opens_at"], campaign["closes_at"], campaign["claim_closes_at"]))
         after = _state(conn, spec, lock=True)
         _assert_state(after, spec, target=True)
-        if after["record_counts"] != before["record_counts"] or after["inventory_by_prize"] != before["inventory_by_prize"] or after["draw_pool"] != before["draw_pool"]:
+        if any(after[key] != before[key] for key in ("record_counts", "inventory_by_prize", "inventory_total", "draw_pool")):
             raise CutoverError("CUTOVER_RECORDS_CHANGED")
     return {
         "applied": True, "mode": spec["mode"], "campaign_id": spec["campaign_id"],
@@ -440,7 +449,7 @@ begin
     and campaign_opens_at={_sql_literal(spec['campaign']['opens_at'])}::timestamptz
     and campaign_closes_at={_sql_literal(spec['campaign']['closes_at'])}::timestamptz
     and claim_closes_at={_sql_literal(spec['campaign']['claim_closes_at'])}::timestamptz
-    and draw_pool_total=5000 and draw_prize_quantity=77 and ranking_prize_quantity=3
+    and draw_pool_total={spec['draw_pool_total']} and draw_prize_quantity={spec['source_draw_prize_quantity']} and ranking_prize_quantity={spec['ranking_prize_quantity']}
     and not unlimited_play and not synthetic_inventory and not shortened_clock) then raise exception 'PRODUCTION_GUARD_MISMATCH'; end if;
   if not exists(select 1 from dino_prod.campaign where id={_sql_literal(spec['campaign_id'])}
     and status in ({statuses}) and version={spec['expected_campaign_version']} and game_version='2.1.0'
@@ -458,7 +467,7 @@ begin
     then raise exception 'CUTOVER_PLAN_STALE'; end if;
   select count(*),count(*) filter(where outcome_kind='PRIZE'),count(*) filter(where outcome_kind='BENEFIT')
     into slot_total,slot_prize,slot_benefit from dino_prod.draw_pool_slot where campaign_id={_sql_literal(spec['campaign_id'])};
-  if (slot_total,slot_prize,slot_benefit)<>(5000,77,4923) then raise exception 'PRODUCTION_DRAW_POOL_MISMATCH'; end if;
+  if (slot_total,slot_prize,slot_benefit)<>({spec['draw_pool_total']},{spec['draw_prize_quantity']},{spec['draw_benefit_quantity']}) then raise exception 'PRODUCTION_DRAW_POOL_MISMATCH'; end if;
   select jsonb_object_agg(id,quantity order by id) into inventory from (
     select p.id,count(i.id)::int quantity from dino_prod.prize p left join dino_prod.inventory_item i on i.prize_id=p.id
     where p.campaign_id={_sql_literal(spec['campaign_id'])} and p.category<>'NO_PRIZE' group by p.id) q;
@@ -475,7 +484,8 @@ update dino_prod.campaign set status={_sql_literal(spec['target_campaign_status'
   where id={_sql_literal(spec['campaign_id'])} and version={spec['expected_campaign_version']};
 update dino_prod.environment_guard set launch_manifest_sha256={_sql_literal(spec['target_sha256'])},event_enabled={target_event},
   campaign_opens_at={_sql_literal(spec['campaign']['opens_at'])}::timestamptz,campaign_closes_at={_sql_literal(spec['campaign']['closes_at'])}::timestamptz,
-  claim_closes_at={_sql_literal(spec['campaign']['claim_closes_at'])}::timestamptz where singleton;
+  claim_closes_at={_sql_literal(spec['campaign']['claim_closes_at'])}::timestamptz,
+  draw_pool_total={spec['draw_pool_total']},draw_prize_quantity={spec['draw_prize_quantity']},ranking_prize_quantity={spec['ranking_prize_quantity']} where singleton;
 do $$ begin
   if not exists(select 1 from dino_prod.environment_guard where singleton
     and launch_manifest_sha256={_sql_literal(spec['target_sha256'])} and event_enabled={target_event})

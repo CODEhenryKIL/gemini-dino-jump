@@ -18,12 +18,12 @@ class Phase3PreflightTest(unittest.TestCase):
         result = MODULE.validate(self.manifest)
         self.assertEqual(result["errors"], [])
         self.assertNotIn("campaign.opens_at", result["pending"])
-        self.assertEqual(self.manifest["campaign"]["opens_at"], "2026-09-29T19:00:00+09:00")
+        self.assertEqual(self.manifest["campaign"]["opens_at"], "2026-09-29T21:00:00+09:00")
         self.assertEqual(self.manifest["campaign"]["closes_at"], "2026-10-03T00:00:00+09:00")
         self.assertNotIn("policies.finish_after_close", result["pending"])
         self.assertEqual(self.manifest["policies"]["finish_after_close"], "RECEIVED_BEFORE_CLOSE")
-        self.assertEqual(result["totals"]["total_budget_krw"], 1599000)
-        self.assertEqual(result["totals"]["initial_actual_prize_probability"], .0154)
+        self.assertEqual(result["totals"]["total_budget_krw"], 1529000)
+        self.assertEqual(result["totals"]["initial_actual_prize_probability"], .0126)
 
     def test_launch_with_missing_decisions_is_rejected(self):
         self.manifest["event_enabled"] = True

@@ -1,0 +1,252 @@
+{
+  "actual_duration_seconds": 6.31,
+  "budget": {
+    "admitted_api_calls": 818,
+    "completed_api_calls": 818,
+    "duration_reserved_seconds": 372,
+    "max_api_calls": 7000,
+    "max_duration_seconds": 390
+  },
+  "claim_mutation_calls": 0,
+  "cohort_fingerprint": "d6fbd558a843c923bf56e14dc96df058f8a122f2956437e8396f7665ca995027",
+  "deployment_id": "dpl_HqqDscWPt5KLMxVwEX8aNGrAdY8b",
+  "estimate": {
+    "automatic_retry_calls": 0,
+    "cumulative_api_calls_ceiling": 5964,
+    "cumulative_seconds_ceiling": 372,
+    "flow_attempts_ceiling": 500,
+    "new_reserved_seconds": 360,
+    "new_runner_api_calls_ceiling": 5502,
+    "prior_actual_seconds": 11.52,
+    "prior_api_calls": 462,
+    "prior_charged_seconds": 12,
+    "remaining_api_calls": 1036,
+    "remaining_seconds": 18,
+    "stages": [
+      {
+        "burst": false,
+        "drain_seconds": 90,
+        "flow_attempts_ceiling": 300,
+        "label": "100-remediation",
+        "seconds": 150,
+        "virtual_users": 100
+      },
+      {
+        "burst": true,
+        "drain_seconds": 90,
+        "flow_attempts_ceiling": 200,
+        "label": "200-remediation-burst",
+        "seconds": 30,
+        "virtual_users": 200
+      }
+    ]
+  },
+  "failure": {
+    "reason": "Final-load tracking batch was not accepted exactly",
+    "type": "SeriousFailure"
+  },
+  "game_version": "2.1.0",
+  "kakao_callback_calls": 0,
+  "metrics": {
+    "api_calls": 356,
+    "endpoints": {
+      "GET /api/claims": {
+        "count": 4,
+        "p50_ms": 96.4,
+        "p95_ms": 149.58,
+        "p99_ms": 149.58,
+        "statuses": {
+          "200": 4
+        }
+      },
+      "GET /api/config": {
+        "count": 1,
+        "p50_ms": 325.56,
+        "p95_ms": 325.56,
+        "p99_ms": 325.56,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/draws/{id}": {
+        "count": 8,
+        "p50_ms": 133.55,
+        "p95_ms": 149.22,
+        "p99_ms": 149.22,
+        "statuses": {
+          "200": 8
+        }
+      },
+      "GET /api/health": {
+        "count": 1,
+        "p50_ms": 565.68,
+        "p95_ms": 565.68,
+        "p99_ms": 565.68,
+        "statuses": {
+          "200": 1
+        }
+      },
+      "GET /api/leaderboard": {
+        "count": 8,
+        "p50_ms": 116.76,
+        "p95_ms": 170.27,
+        "p99_ms": 170.27,
+        "statuses": {
+          "200": 8
+        }
+      },
+      "GET /api/me": {
+        "count": 100,
+        "p50_ms": 1292.84,
+        "p95_ms": 1572.64,
+        "p99_ms": 1613.61,
+        "statuses": {
+          "200": 100
+        }
+      },
+      "GET /api/referrals/me": {
+        "count": 6,
+        "p50_ms": 127.89,
+        "p95_ms": 132.42,
+        "p99_ms": 132.42,
+        "statuses": {
+          "200": 6
+        }
+      },
+      "PATCH /api/draws/{id}/scratch-complete": {
+        "count": 8,
+        "p50_ms": 114.84,
+        "p95_ms": 138.22,
+        "p99_ms": 138.22,
+        "statuses": {
+          "200": 8
+        }
+      },
+      "POST /api/draws": {
+        "count": 8,
+        "p50_ms": 324.41,
+        "p95_ms": 445.97,
+        "p99_ms": 445.97,
+        "statuses": {
+          "201": 8
+        }
+      },
+      "POST /api/events/batch": {
+        "count": 3,
+        "p50_ms": 96.65,
+        "p95_ms": 111.33,
+        "p99_ms": 111.33,
+        "statuses": {
+          "202": 3
+        }
+      },
+      "POST /api/game-sessions": {
+        "count": 100,
+        "p50_ms": 613.66,
+        "p95_ms": 1321.78,
+        "p99_ms": 1391.34,
+        "statuses": {
+          "201": 100
+        }
+      },
+      "POST /api/game-sessions/{id}/finish": {
+        "count": 9,
+        "p50_ms": 207.76,
+        "p95_ms": 244.6,
+        "p99_ms": 244.6,
+        "statuses": {
+          "200": 9
+        }
+      },
+      "POST /api/game-sessions/{id}/start": {
+        "count": 100,
+        "p50_ms": 695.44,
+        "p95_ms": 1340.31,
+        "p99_ms": 1358.66,
+        "statuses": {
+          "200": 100
+        }
+      }
+    },
+    "expected_negative_responses": 0,
+    "flows_completed": 0,
+    "phases": {
+      "claim": {
+        "count": 4,
+        "p50_ms": 96.4,
+        "p95_ms": 149.58,
+        "p99_ms": 149.58
+      },
+      "draw": {
+        "count": 24,
+        "p50_ms": 138.22,
+        "p95_ms": 439.78,
+        "p99_ms": 445.97
+      },
+      "entry": {
+        "count": 100,
+        "p50_ms": 1292.84,
+        "p95_ms": 1572.64,
+        "p99_ms": 1613.61
+      },
+      "game_finish": {
+        "count": 9,
+        "p50_ms": 207.76,
+        "p95_ms": 244.6,
+        "p99_ms": 244.6
+      },
+      "game_start": {
+        "count": 200,
+        "p50_ms": 635.97,
+        "p95_ms": 1330.7,
+        "p99_ms": 1371.2
+      },
+      "preflight": {
+        "count": 2,
+        "p50_ms": 325.56,
+        "p95_ms": 565.68,
+        "p99_ms": 565.68
+      },
+      "ranking": {
+        "count": 8,
+        "p50_ms": 116.76,
+        "p95_ms": 170.27,
+        "p99_ms": 170.27
+      },
+      "share": {
+        "count": 6,
+        "p50_ms": 127.89,
+        "p95_ms": 132.42,
+        "p99_ms": 132.42
+      },
+      "tracking": {
+        "count": 3,
+        "p50_ms": 96.65,
+        "p95_ms": 111.33,
+        "p99_ms": 111.33
+      }
+    },
+    "rate_limited_429": 0,
+    "rps": 56.38,
+    "timeouts": 0,
+    "unexpected_failures": 0
+  },
+  "phase": 3,
+  "plan_revision": "final-v21-remediation-v1",
+  "prior_evidence": {
+    "campaign_id": "gemini_dino_phase1_test",
+    "ledger_sha256": "8f64fb5d19752efc8d085c6a17f501e1607e2ca015732b2768daa0c6b9e27a3e",
+    "new_base_url": "https://dino-nanobanana-4vc4ssz6y-henry-kils-projects.vercel.app",
+    "new_cohort_fingerprint": "d6fbd558a843c923bf56e14dc96df058f8a122f2956437e8396f7665ca995027",
+    "new_cohort_sha256": "6b00e5067e6c6a33a75eb53f946e45f4422e5ff09550455c8c99f4d026b0dcfe",
+    "new_deployment_id": "dpl_HqqDscWPt5KLMxVwEX8aNGrAdY8b",
+    "old_base_url": "https://dino-nanobanana-oloyp8zkl-henry-kils-projects.vercel.app",
+    "old_cohort_fingerprint": "23f88cb8ae744cd881ab456c304c1ceef8647496d086cd4561abd6d8918c2005",
+    "old_deployment_id": "dpl_21VrdzndQZYqdHb7K8NLpSqERiyS",
+    "participant_identity_sha256": "cc9dd8c0d219fbd02f123e0933d650e07e4088801d08352563edf33644fc512e",
+    "prior_cohort_sha256": "171d9236a093b5e2084b4439ec191c33fd975942765bf4661891c1d3c9be53df",
+    "prior_cursor": 100,
+    "report_sha256": "5333a569ea2d0cf66d75cf39e535562521741c443e998ae71543ac219df9a590"
+  },
+  "stages": []
+}

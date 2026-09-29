@@ -46,7 +46,7 @@ def connection(settings):
     with _idle_lock:_borrowers+=1
     acquired=False;conn=None
     try:
-        if not _slots.acquire(timeout=3): raise DatabaseBusy()
+        if not _slots.acquire(timeout=5): raise DatabaseBusy()
         acquired=True
         key=(settings.database_url,settings.environment)
         now=monotonic()

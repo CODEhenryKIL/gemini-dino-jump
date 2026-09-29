@@ -1,17 +1,17 @@
 {
-  "version": "phase3-20260929-v6-preparation",
+  "version": "phase3-20260929-v4-preparation",
   "status": "DRAFT",
   "event_enabled": false,
   "campaign": {
     "id": "gemini_dino_campus_2026",
-    "opens_at": "2026-09-29T21:00:00+09:00",
+    "opens_at": "2026-09-29T19:00:00+09:00",
     "closes_at": "2026-10-03T00:00:00+09:00",
     "timezone": "Asia/Seoul",
     "claim_closes_at": "2026-10-04T00:00:00+09:00"
   },
   "draw_pool": {
     "total_slots": 5000,
-    "benefit_slots": 4937,
+    "benefit_slots": 4923,
     "max_draws_per_participant": 10,
     "mode": "WITHOUT_REPLACEMENT"
   },
@@ -67,9 +67,9 @@
     },
     {
       "id": "convenience_5000",
-      "name": "GS 5천원권",
+      "name": "편의점 5천원권",
       "category": "COUPON",
-      "quantity": 10,
+      "quantity": 24,
       "unit_price_krw": 5000
     },
     {
@@ -118,7 +118,7 @@
     }
   ],
   "policies": {
-    "pool_exhaustion": "BENEFIT_ONLY_AFTER_POOL_EXHAUSTION — 5,000자리 소진 후에도 뽑기를 유지하고 Gemini 혜택만 제공. 개인별 최대 10회·게임 완료·뽑기권 차감·실제 상품 당첨 후 중단·행사 마감은 유지.",
+    "pool_exhaustion": "STOP_NEW_DRAWS_AT_POOL_EXHAUSTION — 5,000자리 소진 시 새 추첨을 중단하는 현재 구현 기준",
     "unallocated_inventory_at_close": "MANUAL_REVIEW — 마감 후 남은 배정분은 자동 추첨·차순위 지급 없이 운영팀 확인",
     "beta_data_migration": "RESET_BETA_START_NEW — 같은 Supabase의 dino_prod에서 빈 본행사 시작. 베타 쓰기 차단·비공개 최종 백업·삭제 계획 대조 후 공룡 점프 베타 참여 기록만 초기화. 기존 앱·공용 인증·관리자·guard·스키마 유지.",
     "ranking_ties": "EARLIER_ACHIEVEMENT_FIRST",
@@ -132,7 +132,7 @@
   },
   "approvals": {
     "environment": "2026-09-29 사용자 최종 오픈 실행 계획 진행 요청. 기존 Supabase igfrnexknwtiljdqjrbp 안의 전용 dino_prod/dino_prod_app 사용. 추가 유료 프로젝트 생성 없음.",
-    "inventory": "2026-09-29 사용자 변경 확정: GS 5천원권 24개→10개. 복주머니 63개·랭킹 3개 배정. 아직 미구매이며 당첨자 연락처 취합 후 구매·일괄 발송.",
+    "inventory": "2026-09-29 사용자 확정: 복주머니 77개·랭킹 3개 배정. 아직 미구매이며 당첨자 연락처 취합 후 구매·일괄 발송.",
     "privacy": "2026-09-29 사용자 확정: 지급자는 개인별 지급 완료 후 30일 이내, 미지급자는 전체 경품 지급 종료 후 30일 이내 수령 개인정보 삭제. 사용자 본인이 관리하며 문의는 sea42471@naver.com.",
     "benefit_and_brand": null,
     "public_launch": null
@@ -140,10 +140,10 @@
   "evidence": {
     "target_db_and_backup": "2026-09-29 기존 Supabase igfrnexknwtiljdqjrbp에 dino_prod 32테이블·migration12개 생성. dino_prod_app TLS 읽기 연결 및 베타/기존앱 테이블 접근권한0개 확인. 베타 15:58:54 KST 비공개 백업을 로컬 임시 DB에 복원해32테이블 전체행·제약·identity시퀀스 일치 확인. 증거: docs/final-launch-execution-report.md. 공개 직전 쓰기 차단 후 최종 백업을 다시 확보하는 절차 유지.",
     "runtime_production_guard": "2026-09-29 집중 운영 준비·런타임 검사39개 통과. 원격 dino_prod_app 전용TLS연결·베타/기존앱권한0개 확인. 최종 배포의manifest/DBguard 대조는 운영 후보 단계에서 확인한다. docs/final-launch-execution-report.md",
-    "inventory_reconciliation": "2026-09-29 사용자 최종 변경: GS 14개 운영 재고와 해당 이력을 삭제하여 GS 10개, 총 5,000자리 = PRIZE 63+BENEFIT 4,937, 별도 랭킹 3, 전체 재고66. 실제 적용·검증 결과는 docs/final-launch-execution-report.md에 기록. 구매·발송 증명 아님.",
+    "inventory_reconciliation": "격리 운영 적재 검증: 총 5,000자리 = PRIZE 77+BENEFIT 4,923, 별도 랭킹 3, 총 배정80. 실제 구매·발송 증명 아님.",
     "real_kakao_game_and_draw": "2026-09-29 베타 실전송: GAME 단톡 +1, DRAW 친구 +1, 목적별 다른 권리 0, 자기전송 제외 및 claim 친구 전송 접수 확인 — docs/test-run-2026-09-29.md. 전체 수신 카드/기기 조합은 별도 대기",
     "physical_device_qa": null,
-    "final_load_test": "2026-09-29 Preview 2.1.0: DB 대기5초와 완료행 잠금 수정 후 100 VU 150초/300흐름 및 200 VU 단발 burst/200흐름 모두 성공. 최종5502HTTP 5xx/timeout/429=0. 200명 추첨 p95 4.875초로 기존1초목표 미달. 원격부하는 변경 전77개 합성풀에서 실행; 이후63개설정은 격리 회귀·정합성으로 검증. 실패한2회도 보존. 장시간200명·실기기FPS·대량카카오 검증 아님. docs/phase3-load-report-20260929.md",
+    "final_load_test": null,
     "notion_and_benefit_links": null,
     "rollback_rehearsal": null
   },
