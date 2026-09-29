@@ -121,6 +121,16 @@ test('actual preview campaign is accepted without requiring the optional stderr 
   assert.equal(sent.ddtags, 'env:preview,campaign:gemini_dino_phase1_test,version:dpl_preview');
 });
 
+test('a valid structured stdout record is accepted and rebuilt from the allowlist', async () => {
+  const body = JSON.stringify([envelope(applicationRecord(), { type: 'stdout' })]);
+  const { response, calls } = await invoke(body);
+  assert.deepEqual(JSON.parse(response.body), { accepted: 1 });
+  assert.equal(calls.length, 1);
+  const sent = JSON.parse(calls[0][1].body)[0];
+  assert.equal(sent.message, 'api_request');
+  assert.equal(sent.version, 'dpl_private');
+});
+
 test('Datadog status is severity while HTTP status remains queryable as http.status_code', () => {
   const warning = handler._test.scrubLog(envelope(applicationRecord({
     status: 409, outcome: 'client_error', operation_outcome: 'failed', error_class: 'domain',
@@ -167,7 +177,9 @@ test('unrelated projects, environment mismatches, campaigns and unknown routes a
     envelope(applicationRecord({ deployment: 'dpl_other' })),
     envelope(applicationRecord({ route: '/api/unknown' })),
     envelope(applicationRecord(), { source: 'build' }),
-    envelope(applicationRecord(), { type: 'stdout' }),
+    envelope(applicationRecord(), { type: 'command' }),
+    envelope(null, { type: 'stdout', message: 'PRIVATE NAME 01012345678' }),
+    envelope(null, { type: 'stdout', message: JSON.stringify({ name: 'PRIVATE NAME', phone: '01012345678' }) }),
   ];
   const { response, calls } = await invoke(JSON.stringify(batch));
   assert.equal(response.statusCode, 200);

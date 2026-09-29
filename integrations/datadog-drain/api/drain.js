@@ -38,6 +38,7 @@ const ERROR_CLASSES = new Set([
   'configuration', 'internal',
 ]);
 const DATABASE_FAILURES = new Set(['pool_wait', 'connection', 'health_check', 'configuration']);
+const LOG_TYPES = new Set(['stdout', 'stderr']);
 const REQUEST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEPLOYMENT = /^[A-Za-z0-9_.:-]{1,128}$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
@@ -90,7 +91,7 @@ function severity(outcome) {
 
 function scrubLog(log) {
   if (!log || typeof log !== 'object' || Array.isArray(log)) return null;
-  if (log.source !== 'lambda' || (log.type != null && log.type !== 'stderr')) return null;
+  if (log.source !== 'lambda') return null;
   if (log.projectId !== sourceConfig.projectId) return null;
   if (!Object.hasOwn(sourceConfig.campaignsByEnvironment, log.environment)) return null;
   if (typeof log.message !== 'string' || Buffer.byteLength(log.message, 'utf8') > MAX_MESSAGE_BYTES) return null;
@@ -99,6 +100,7 @@ function scrubLog(log) {
   try { record = JSON.parse(log.message); } catch (_) { return null; }
   if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
   if (record.event !== 'api_request' || record.service !== 'gemini-dino-jump') return null;
+  if (log.type != null && !LOG_TYPES.has(log.type)) return null;
   if (record.env !== log.environment || !allowedCampaign(record.env, record.campaign)) return null;
   if (!DEPLOYMENT.test(record.deployment || '') || record.deployment !== log.deploymentId) return null;
   if (!ROUTES.has(record.route) || record.route === '/api/unknown') return null;
