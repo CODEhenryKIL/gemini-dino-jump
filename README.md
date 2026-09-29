@@ -9,7 +9,7 @@ JavaScript 게임과 Python API를 Vercel Preview·Supabase PostgreSQL에 연결
 - [현재 공개 베타](https://google-korea-team-gemini.vercel.app/)는 기존 Preview·`dino_dev` 연결·베타 무제한·기존 점수·추첨·수령 기록을 그대로 유지합니다. Production 후보는 친근 공개 별칭으로 전환하지 않았습니다.
 - 같은 Supabase 프로젝트의 격리 `dino_prod`에 복주머니 실제 상품 77개·혜택 4,923자리, 별도 랭킹 경품 3개를 준비했습니다. 운영 캠페인은 `PAUSED`, `event_enabled=false`이며 참가 기록은 아직 없습니다.
 - 행사 기간은 2026-09-29 19:00부터 2026-10-02 23:59까지, 수령 정보 접수는 2026-10-03 23:59까지입니다. 시간대는 모두 KST입니다.
-- 관리자 실제 로그인·모바일 QA·최종 승인·롤백 대조가 남아 있습니다. 베타 삭제와 친근 공개 별칭 전환은 실행하지 않았고, 원격 부하·cohort 준비는 사용자 지시대로 계속 보류합니다.
+- 운영 관리자 비밀번호 설정·실제 로그인과 운영 통계/수령 관리 화면을 확인했습니다. 모바일 QA·최종 승인·전환 시 롤백 대조가 남아 있습니다. 베타 삭제와 공개 별칭 전환은 실행하지 않았고, 원격 부하·cohort 준비는 사용자 지시대로 계속 보류합니다.
 - 직접 검증할 때: [전체 수동 테스트](docs/manual-test-cases.md), [서버 검증](docs/manual-test-server.md), [실행 기록 양식](docs/manual-test-results-template.md), [기존 테스트 전체 대응표](docs/manual-test-coverage.md), [2026-09-29 실행 결과](docs/test-run-2026-09-29.md).
 
 ## 이전 검토 배포 기록 — 2026-09-26
