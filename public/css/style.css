@@ -260,6 +260,13 @@ body {
   color: var(--primary);
 }
 
+.btn-prize-draw {
+  background: linear-gradient(135deg, #137333, #188038);
+  color: #fff;
+  border: 1px solid #137333;
+  box-shadow: 0 6px 16px #18803833;
+}
+
 .btn-outline {
   background: transparent;
   border: 1.5px solid var(--primary);

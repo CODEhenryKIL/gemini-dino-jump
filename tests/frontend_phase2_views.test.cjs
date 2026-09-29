@@ -128,7 +128,7 @@ test('home restores a draw route without requiring another ticket or another gam
   assert.equal(nodes.get('#btn-start-jump').disabled, false);
   assert.match(nodes.get('#btn-start-jump').textContent, /친구에게 공유하고 게임권 받기/);
   assert.equal(draw.hidden, false);
-  assert.equal(draw.textContent, '복주머니 열기');
+  assert.equal(draw.textContent, '🧧 경품 뽑기');
   draw.onclick();
   router.campaignStatus = () => 'ENDED';
   view.updateState(container, router);
@@ -139,7 +139,7 @@ test('home restores a draw route without requiring another ticket or another gam
   router.state.draw.status = 'DRAWN';
   view.updateState(container, router);
   assert.equal(draw.disabled, false);
-  assert.equal(draw.textContent, '내 복주머니 결과 보기');
+  assert.equal(draw.textContent, '내 경품 결과 보기');
   draw.onclick();
   assert.deepEqual(routes, ['draw', 'draw']);
   assert.deepEqual(events, [
@@ -149,7 +149,7 @@ test('home restores a draw route without requiring another ticket or another gam
   router.state.draw = { status: 'AVAILABLE', draw: { scratch_completed: false } };
   view.updateState(container, router);
   assert.equal(draw.disabled, false);
-  assert.equal(draw.textContent, '내 복주머니 결과 보기');
+  assert.equal(draw.textContent, '내 경품 결과 보기');
 });
 
 test('result keeps async share and a new draw disabled after campaign closure while saved draw results stay reachable', async () => {
@@ -338,7 +338,7 @@ test('record sharing uses the prepared public share and preserves authoritative 
   referral = { ...referral, invitation_balance: 3, valid_visits: 8, confirmed_shares: 8, cooldown_until: '2000-01-01T00:00:00Z', ticket_totals: { granted: 6, used: 2, refunded: 1 } };
   router.state.draw.status = 'DRAWN';
   await view.updateState(container, router, 1);
-  assert.equal(draw.textContent, '내 복주머니 결과 보기');
+  assert.equal(draw.textContent, '내 경품 결과 보기');
   assert.equal(nodes.get('#invite-balance').textContent, '3장');
   assert.equal(nodes.get('#valid-visits').textContent, '8회');
   assert.equal(nodes.get('#ticket-granted').textContent, '6장');

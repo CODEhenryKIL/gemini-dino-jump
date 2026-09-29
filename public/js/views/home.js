@@ -22,7 +22,7 @@ export const HomeView = {
           <div><small>최고 점수</small><strong id="home-best-score">0점</strong></div>
         </div>
         <p id="home-ticket-note" class="status-note" role="status" hidden></p>
-        <button id="btn-home-draw" class="btn btn-secondary" hidden>복주머니 열기</button>
+        <button id="btn-home-draw" class="btn btn-prize-draw" hidden>🧧 경품 뽑기</button>
         <p class="home-eligibility">게임은 누구나 참여할 수 있고, 경품 수령은 대학생을 대상으로 해요.</p>
       </section>`;
     this.updateState(container, router);
@@ -57,11 +57,11 @@ export const HomeView = {
     const drawButton = container.querySelector('#btn-home-draw');
     const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus) || Boolean(router.state.draw?.draw && router.state.draw.draw.scratch_completed !== true);
     drawButton.hidden = !['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus);
-    drawButton.textContent = hasDrawResult ? '내 복주머니 결과 보기' : '복주머니 열기';
+    drawButton.textContent = hasDrawResult ? '내 경품 결과 보기' : '🧧 경품 뽑기';
     const campaignStatus = router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
     drawButton.disabled = !hasDrawResult && drawStatus === 'AVAILABLE' && campaignStatus !== 'ACTIVE';
     if (drawButton.disabled) {
-      drawButton.textContent = campaignStatus === 'NOT_OPEN' ? '행사 시작 후 복주머니 열기' : campaignStatus === 'ENDED' ? '복주머니 행사가 종료됐어요' : '복주머니가 잠시 중단됐어요';
+      drawButton.textContent = campaignStatus === 'NOT_OPEN' ? '행사 시작 후 경품 뽑기' : campaignStatus === 'ENDED' ? '경품 뽑기가 종료됐어요' : '경품 뽑기가 잠시 중단됐어요';
     }
     const note = container.querySelector('#home-ticket-note');
     note.hidden = true;

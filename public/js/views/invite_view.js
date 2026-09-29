@@ -21,7 +21,7 @@ export const InviteView = {
       router.shareContext = null;
       container.innerHTML = `
         <section class="ranking-prizes"><h1>랭킹 TOP3 선물</h1><div class="ranking-rewards"><div class="ranking-reward ranking-reward-1"><span class="ranking-reward-medal" role="img" aria-label="1위">🥇</span><strong>5만원</strong></div><div class="ranking-reward ranking-reward-2"><span class="ranking-reward-medal" role="img" aria-label="2위">🥈</span><strong>2만원</strong></div><div class="ranking-reward ranking-reward-3"><span class="ranking-reward-medal" role="img" aria-label="3위">🥉</span><strong>1만원</strong></div></div></section>
-        <section class="card compact-card invite-hero"><h1>친구 초대하고 재도전하기</h1><p id="invite-gap" class="result-gap" role="status">3위 기록을 확인하고 있어요.</p><button id="btn-share-native" class="btn invite-kakao-share" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.58 2 11c0 2.79 1.79 5.25 4.5 6.68L5.36 21l4.22-2.25c.78.16 1.59.25 2.42.25 5.52 0 10-3.58 10-8S17.52 3 12 3Z"/></svg><span>카카오톡으로 친구 초대하기</span></button><p id="share-fallback" class="status-note" hidden></p><button id="btn-invite-draw" class="btn btn-secondary" hidden>친구를 기다리지 않고 복주머니 열기</button></section>
+        <section class="card compact-card invite-hero"><h1>친구 초대하고 재도전하기</h1><p id="invite-gap" class="result-gap" role="status">3위 기록을 확인하고 있어요.</p><button id="btn-share-native" class="btn invite-kakao-share" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.58 2 11c0 2.79 1.79 5.25 4.5 6.68L5.36 21l4.22-2.25c.78.16 1.59.25 2.42.25 5.52 0 10-3.58 10-8S17.52 3 12 3Z"/></svg><span>카카오톡으로 친구 초대하기</span></button><p id="share-fallback" class="status-note" hidden></p><button id="btn-invite-draw" class="btn btn-prize-draw" hidden>🧧 경품 뽑기</button></section>
         <section class="card invite-stats"><div class="stat-grid"><div><small>현재 초대권</small><strong id="invite-balance"></strong></div><div><small>누적 지급</small><strong id="ticket-granted"></strong></div><div><small>카카오 전송</small><strong id="valid-visits"></strong></div></div><div class="ticket-ledger"><span id="ticket-used"></span><span id="ticket-refunded"></span></div><p id="invite-cooldown" class="status-note" role="status"></p></section>`;
       void this.loadGap(container, isActiveRender);
       this.updateSummary(container, data);
@@ -52,7 +52,7 @@ export const InviteView = {
       const card = document.createElement('section'); card.className = 'card empty-state';
       const text = document.createElement('p'); text.textContent = error.message || '초대 현황을 불러오지 못했습니다.';
       const retry = document.createElement('button'); retry.className = 'btn btn-primary'; retry.textContent = '다시 불러오기'; retry.onclick = () => router.navigate('invite');
-      const drawButton = document.createElement('button'); drawButton.id = 'btn-invite-draw'; drawButton.className = 'btn btn-secondary'; drawButton.hidden = true;
+      const drawButton = document.createElement('button'); drawButton.id = 'btn-invite-draw'; drawButton.className = 'btn btn-prize-draw'; drawButton.hidden = true;
       card.append(text, retry, drawButton); container.appendChild(card);
       this.updateDrawAction(container, router);
     }
@@ -117,10 +117,10 @@ export const InviteView = {
     const status = router.state?.draw?.status;
     const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(status) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
     button.hidden = !['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(status);
-    button.textContent = hasDrawResult ? '내 복주머니 결과 보기' : '친구를 기다리지 않고 복주머니 열기';
+    button.textContent = hasDrawResult ? '내 경품 결과 보기' : '🧧 경품 뽑기';
     button.disabled = !hasDrawResult && status === 'AVAILABLE' && campaignStatus(router) !== 'ACTIVE';
-    if (button.disabled) button.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 복주머니 열기'
-      : campaignStatus(router) === 'ENDED' ? '복주머니 행사가 종료됐어요' : '복주머니 행사가 잠시 중단됐어요';
+    if (button.disabled) button.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 경품 뽑기'
+      : campaignStatus(router) === 'ENDED' ? '경품 뽑기가 종료됐어요' : '경품 뽑기가 잠시 중단됐어요';
     button.onclick = () => {
       const latest = router.state?.draw?.status;
       if (!['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(latest)) return;

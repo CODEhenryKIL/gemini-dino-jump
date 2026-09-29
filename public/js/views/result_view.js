@@ -20,7 +20,7 @@ export const ResultView = {
         <h1>게임 종료</h1>
         <div class="score-panel result-score-panel"><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
         <p id="result-top3-gap" class="result-gap" role="status"></p>
-        <button id="btn-go-pouch" class="btn btn-secondary">🧧 복주머니 확인하기</button>
+        <button id="btn-go-pouch" class="btn btn-prize-draw">🧧 경품 뽑기</button>
         <button id="btn-play-again" class="btn btn-primary" hidden>한 판 더 하기</button>
         <div class="result-retry">
           <button id="btn-share-record" class="btn btn-share-retry" aria-label="카카오톡으로 친구한테 공유하고 한 판 더 하기" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.45 2 10.7c0 2.76 1.89 5.18 4.72 6.54l-.93 3.38c-.08.29.25.52.5.36l3.97-2.61c.57.08 1.15.12 1.74.12 5.52 0 10-3.46 10-7.79C22 6.45 17.52 3 12 3Z"/></svg><span>친구한테 공유하고 한 판 더 하기</span></button>
@@ -147,8 +147,8 @@ export const ResultView = {
       const drawStatus = router.state.draw?.status || 'LOCKED';
       const hasSavedResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus) || Boolean(router.state.draw?.draw && router.state.draw.draw.scratch_completed !== true);
       pouch.disabled = !hasSavedResult && drawStatus === 'AVAILABLE' && status !== 'ACTIVE';
-      if (pouch.disabled) pouch.textContent = status === 'NOT_OPEN' ? '행사 시작 후 복주머니 열기' : status === 'ENDED' ? '복주머니 행사가 종료됐어요' : '복주머니가 잠시 중단됐어요';
-      else pouch.textContent = hasSavedResult ? '🧧 내 복주머니 결과 보기' : '🧧 복주머니 확인하기';
+      if (pouch.disabled) pouch.textContent = status === 'NOT_OPEN' ? '행사 시작 후 경품 뽑기' : status === 'ENDED' ? '경품 뽑기가 종료됐어요' : '경품 뽑기가 잠시 중단됐어요';
+      else pouch.textContent = hasSavedResult ? '🧧 내 경품 결과 보기' : '🧧 경품 뽑기';
     }
     this.celebrateTop3(container, router.state.lastResult);
     const target = container.querySelector('#top3-request');
