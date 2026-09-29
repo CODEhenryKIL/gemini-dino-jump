@@ -15,10 +15,8 @@ export const ResultView = {
     if (!result) { router.navigate('home'); return; }
     container.innerHTML = `
       <section class="card result-card">
-        <div class="home-event-badges"><span class="home-event-badge home-event-badge-team">#TeamGemini</span><span class="home-event-badge home-event-badge-campus">2026 캠퍼스 챌린지</span></div>
         <h1>게임 종료</h1>
-        <div class="score-panel"><small>이번 판</small><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
-        <div class="profile-row"><div><small>랭킹 닉네임</small><strong id="result-nickname"></strong></div><button id="btn-edit-nick" class="btn btn-secondary btn-sm">수정</button></div>
+        <div class="score-panel result-score-panel"><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
         <p id="result-top3-gap" class="result-gap" role="status"></p>
         <button id="btn-play-again" class="btn btn-primary" hidden>한 판 더 하기</button>
         <div class="result-retry">
@@ -34,7 +32,6 @@ export const ResultView = {
     ui.text(container.querySelector('#result-rank'), result.rank ? `현재 ${result.rank}위` : '순위 집계 중');
     const gapNode = container.querySelector('#result-top3-gap');
     if (gapNode) this.renderGap(gapNode, result);
-    ui.text(container.querySelector('#result-nickname'), router.state.participant?.nickname || '익명 러너');
     container.querySelector('#btn-go-pouch').onclick = () => {
       analytics.track('draw_cta_clicked', { source: 'result', draw_status: router.state.draw?.status || 'LOCKED' });
       router.navigate('draw');
@@ -47,7 +44,6 @@ export const ResultView = {
       else showGameGuide(router, true);
     };
     this.prepareShare(container, router, renderToken);
-    container.querySelector('#btn-edit-nick').onclick = () => this.nicknameModal(router, renderToken);
     this.updateState(container, router, renderToken);
     if (result.top3_gap == null && typeof api !== 'undefined' && typeof api.getLeaderboard === 'function') {
       this.loadTop3Gap(container, router, renderToken, result);
@@ -152,19 +148,17 @@ export const ResultView = {
       if (status === 'NO_SCORE') return '검증된 점수가 생기면 TOP3와의 차이를 보여드려요.';
       if (status === 'TOO_FEW') return `현재 참가자는 ${Number(gap.participant_count) || 0}명이에요. 3위 점수가 생기면 차이를 보여드려요.`;
       if (status === 'IN_TOP3') {
-        return `현재 ${Number(gap.rank) || Number(result.rank) || 3}위로 TOP3예요.\n최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.`;
+        return `현재 ${Number(gap.rank) || Number(result.rank) || 3}위로 TOP3예요.\n최종 순위는 행사 종료 시 확정돼요.`;
       }
       if (status === 'CHASING') {
         const points = Number(gap.score_needed);
-        if (gap.tied && points === 0) return '현재 3위 점수와 동점이에요. 최종 동점 수상 기준은 이벤트 종료 시점에 확정돼요.';
         return Number.isFinite(points) && points > 0 ? this.retryGapCopy(points) : 'TOP3 기준을 계산하는 중이에요.';
       }
       return 'TOP3 기준을 계산하는 중이에요.';
     }
-    if (result.rank && result.rank <= 3) return `현재 ${result.rank}위로 TOP3예요.\n최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.`;
+    if (result.rank && result.rank <= 3) return `현재 ${result.rank}위로 TOP3예요.\n최종 순위는 행사 종료 시 확정돼요.`;
     const points = Number(gap);
     if (Number.isFinite(points) && points > 0) return this.retryGapCopy(points);
-    if (points === 0) return '현재 3위 점수와 동점이에요. 최종 동점 수상 기준은 이벤트 종료 시점에 확정돼요.';
     return 'TOP3 기준을 계산하는 중이에요.';
   },
 
@@ -241,6 +235,9 @@ export const ResultView = {
     const accuracyNote = document.createElement('p'); accuracyNote.className = 'result-contact-accuracy';
     accuracyNote.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';
     form.appendChild(accuracyNote);
+    const eligibilityNote = document.createElement('p'); eligibilityNote.className = 'result-contact-accuracy';
+    eligibilityNote.textContent = '재학생·휴학생이 참여할 수 있어요. 개인정보는 지급 완료 후 30일 이내 삭제하며, 문의는 sea42471@naver.com으로 보내 주세요.';
+    form.appendChild(eligibilityNote);
     const feedback = document.createElement('p'); feedback.className = 'result-form-status'; feedback.setAttribute('role', 'status');
     const button = document.createElement('button'); button.type = 'submit'; button.className = 'btn btn-secondary'; button.textContent = '수령 정보 등록';
     form.append(feedback, button);

@@ -201,6 +201,11 @@ body {
 .score-panel { background: #f8faff; padding: 20px; border-radius: 18px; display: flex; flex-direction: column; gap: 8px; }
 .score-panel > strong { font-size: 42px; color: var(--primary); }
 .score-panel > div { display: flex; justify-content: space-around; font-weight: 700; }
+.result-card { gap: 11px; padding-top: 22px; padding-bottom: 22px; }
+.result-card > h1 { margin-bottom: 2px; }
+.result-score-panel { padding: 14px 16px 12px; gap: 5px; border-radius: 16px; }
+.result-score-panel > strong { font-size: clamp(36px, 11vw, 48px); line-height: 1.05; }
+.result-score-panel > div { gap: 16px; justify-content: center; font-size: 14px; }
 .inline-notice { padding: 14px; background: #fff8df; border-radius: 14px; text-align: left; }
 .inline-notice p { font-size: 12px; margin: 6px 0 10px; }
 .ranking-list, .admin-claims { display: flex; flex-direction: column; gap: 8px; }
@@ -228,6 +233,11 @@ body {
 .admin-table th { color: var(--text-sub); background: #f8faff; }
 .admin-claim-row { display: grid; grid-template-columns: minmax(180px,1fr) repeat(4,minmax(120px,auto)); gap: 8px; align-items: center; border-top: 1px solid #eee; padding: 12px 0; }
 .admin-claim-row .btn { width: auto; }
+.admin-payment-editor { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.admin-payment-editor > div, .admin-payment-editor > .status-note { grid-column: 1 / -1; }
+.admin-payment-editor input:not([type="checkbox"]), .admin-payment-editor select { min-width: 0; width: 100%; }
+.admin-payment-editor > label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.admin-payment-editor > label > span { flex-shrink: 0; }
 .inline-controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .inline-controls input { flex: 1; min-width: 180px; }
 .inline-controls .btn { width: auto; }

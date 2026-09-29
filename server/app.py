@@ -6,13 +6,16 @@ import datetime as dt
 import hashlib,hmac,json,os,re,secrets,sys,time,uuid
 sys.path.insert(0,os.path.dirname(__file__))
 import auth,db,game_verifier,share_page
-from config import CONSTANTS,ROOT,ConfigurationError,Settings
+from config import CONSTANTS,ROOT,ConfigurationError,Settings,database_schema
 from operations import DomainError,dispatch
 import psycopg
 
 PUBLIC_DIR=str(ROOT/"public"); MAX_BODY=65536
 LEGACY_PATHS={"/gate-runner","/gate-runner/","/gate_runner.html"}
 KAKAO_WEBHOOK_PATH="/api/webhooks/kakao-share"
+def parse_query(query):
+    try:return parse_qs(query,max_num_fields=20)
+    except ValueError:raise DomainError("INVALID_QUERY","주소의 요청 항목이 너무 많습니다.") from None
 def verify_kakao_webhook_headers(headers,settings):
     if not settings.kakao_admin_key:raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
     expected="KakaoAK "+settings.kakao_admin_key;actual=headers.get("Authorization","")
@@ -67,7 +70,8 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         jar=SimpleCookie()
         try:jar.load(raw)
         except Exception:raise DomainError("SESSION_INVALID","참가자 인증이 올바르지 않습니다.",401) from None
-        return jar["dj_session"].value if "dj_session" in jar else ""
+        name=getattr(self,"participant_cookie_name","dj_session")
+        return jar[name].value if name in jar else ""
     def _bearer(self):
         value=self.headers.get("Authorization","")
         if not value:return ""
@@ -82,9 +86,11 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         subject=participant or ip
         if not db.rate_limits(conn,[("ip:"+ip,12000),("route:"+path+":"+subject,limit)]):raise DomainError("RATE_LIMITED","요청이 많습니다. 잠시 뒤 다시 시도해 주세요.",429,True)
     def _set_participant_cookie(self,token,settings):
-        secure="; Secure" if settings.environment=="preview" else ""
-        self.pending_cookie=f"dj_session={token}; Path=/; Max-Age={settings.participant_cookie_max_age}; HttpOnly; SameSite=Lax{secure}"
+        secure="; Secure" if settings.environment in {"preview","production"} else ""
+        name="dj_production_session" if settings.environment=="production" else "dj_session"
+        self.pending_cookie=f"{name}={token}; Path=/; Max-Age={settings.participant_cookie_max_age}; HttpOnly; SameSite=Lax{secure}"
     def _context(self,settings,body,path):
+        self.participant_cookie_name="dj_production_session" if settings.environment=="production" else "dj_session"
         raw_cookie=self._cookie();participant_hash=auth.token_hash(raw_cookie,settings.token_pepper) if raw_cookie else ""
         ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"participant_token_hash":participant_hash,"request_id":self.request_id,"invite_active_ms":settings.invite_active_ms,"participant_cookie_max_age":settings.participant_cookie_max_age,"ip_subject":self._ip_subject(settings),"preview_unlimited_play":settings.preview_unlimited_play,"share_webhook_enabled":bool(settings.kakao_javascript_key and settings.kakao_admin_key),"kakao_app_id":settings.kakao_app_id}
         idem=self.headers.get("Idempotency-Key","")
@@ -110,7 +116,9 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         try:
             settings=Settings.from_env();deployment=settings.deployment;parsed=urlparse(self.path)
             if len(self.path)>2048:raise DomainError("URL_TOO_LONG","요청 주소가 너무 깁니다.",414)
-            path=parsed.path;route_template=re.sub(r"(/api/(?:game-sessions|draws|claims|admin/claims|admin/game-faults|admin/participants))/(?!me(?:/|$))[^/]+",r"\1/{id}",path);method="GET" if self.command=="HEAD" else self.command;query={k:v[-1] for k,v in parse_qs(parsed.query,max_num_fields=20).items()};body=self.parse_body() if method in {"POST","PATCH"} else {}
+            path=parsed.path;route_template=re.sub(r"(/api/(?:game-sessions|draws|claims|admin/claims|admin/game-faults|admin/participants))/(?!me(?:/|$))[^/]+",r"\1/{id}",path);method="GET" if self.command=="HEAD" else self.command;query={k:v[-1] for k,v in parse_query(parsed.query).items()};body=self.parse_body() if method in {"POST","PATCH"} else {}
+            # Accept a completion only after the full request body has arrived.
+            received_at=dt.datetime.now(dt.timezone.utc)
             is_kakao_webhook=path==KAKAO_WEBHOOK_PATH
             if not is_kakao_webhook:self._origin(settings)
             elif method not in {"GET","POST"}:raise DomainError("NOT_FOUND","요청한 API를 찾을 수 없습니다.",404)
@@ -125,6 +133,8 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                 ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"request_id":self.request_id,"preview_unlimited_play":settings.preview_unlimited_play,"kakao_webhook_verified":True,"kakao_resource_id":resource_id,"share_callback_token_hash":auth.token_hash(callback_token,settings.token_pepper),"kakao_app_id":settings.kakao_app_id}
                 token=""
             else:token=self._bearer();ctx=self._context(settings,body,path)
+            ctx["request_received_at"]=received_at
+            ctx["event_enabled"]=settings.event_enabled
             is_admin=path.startswith("/api/admin/")
             if is_admin:
                 if not token:raise DomainError("ADMIN_AUTH_REQUIRED","관리자 로그인이 필요합니다.",401)
@@ -135,14 +145,14 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                 with db.transaction(conn):guard=db.check_environment(conn,settings)
                 ctx["campaign_id"]=guard["campaign_id"]
                 if method=="GET" and path=="/api/health":
-                    campaign=conn.execute("select status,game_version from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();remaining=conn.execute("select count(*)::int n from dino_dev.inventory_item where status='AVAILABLE'").fetchone()["n"]
-                    self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":False,"gameplay_synthetic_only":True,"top3_contact_collection_enabled":True,"test_seed":guard["test_seed"],"test_inventory_remaining":remaining,"campaign_status":campaign["status"] if campaign else None});return
+                    campaign=conn.execute(f"select status,game_version from {database_schema()}.campaign where id=%s",(guard["campaign_id"],)).fetchone();remaining=conn.execute(f"select count(*)::int n from {database_schema()}.inventory_item where status='AVAILABLE'").fetchone()["n"]
+                    self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":False,"gameplay_synthetic_only":settings.synthetic_only,"top3_contact_collection_enabled":True,"test_seed":guard["test_seed"],"inventory_remaining":remaining,"test_inventory_remaining":remaining if settings.synthetic_only else None,"campaign_status":campaign["status"] if campaign else None});return
                 if method=="GET" and path=="/api/config":
-                    campaign=conn.execute("select id,title,status,game_version,opens_at,closes_at from dino_dev.campaign where id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();data["campaign"].update(dict(campaign) if campaign else {});data["campaign"]["game_version"]=settings.game_version;self.send_json(200,data);return
+                    campaign=conn.execute(f"select id,title,status,game_version,opens_at,closes_at from {database_schema()}.campaign where id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();data["campaign"].update(dict(campaign) if campaign else {});data["campaign"]["game_version"]=settings.game_version;self.send_json(200,data);return
                 if not is_admin and not is_kakao_webhook:
                     with db.transaction(conn):self._rate(conn,settings,path,ctx.get("participant_token_hash",""))
                 if method=="POST" and re.fullmatch(r"/api/game-sessions/[^/]+/finish",path):
-                    sid=path.split("/")[-2];session=conn.execute("select seed,version from dino_dev.game_session where id=%s and participant_id=(select id from dino_dev.participant where token_hash=%s)",(sid,ctx.get("participant_token_hash"))).fetchone()
+                    sid=path.split("/")[-2];session=conn.execute(f"select seed,version from {database_schema()}.game_session where id=%s and participant_id=(select id from {database_schema()}.participant where token_hash=%s)",(sid,ctx.get("participant_token_hash"))).fetchone()
                     if not session:raise DomainError("SESSION_NOT_FOUND","게임 기록을 찾을 수 없습니다.",404)
                     if body.get("version",session["version"])!=session["version"]:raise DomainError("GAME_VERSION_MISMATCH","게임 버전이 일치하지 않습니다.",409)
                     try:ctx["verification"]=game_verifier.verify_game(session["version"],session["seed"],body.get("jump_ticks",[]),body.get("score"),body.get("ticks",body.get("valid_ticks")))
@@ -168,12 +178,12 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         try:
             parsed=urlparse(self.path)
             if len(self.path)>2048:raise ValueError()
-            incoming=parse_qs(parsed.query,max_num_fields=20)
+            incoming=parse_query(parsed.query)
             code=parsed.path.rsplit("/",1)[-1] if parsed.path.startswith("/invite/") else (incoming.get("code") or [""])[-1]
             target=share_page.share_target(code,incoming)
             settings=Settings.from_env()
             card=share_page.DEFAULT_CARD
-            if target["link"] in {"record_share","prize_share"}:
+            if target["link"] in share_page.KINDS:
                 with db.connection(settings) as conn:
                     with db.transaction(conn):
                         guard=db.check_environment(conn,settings)
@@ -182,6 +192,7 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             self.send_response(200);self.send_header("Content-Type","text/html; charset=utf-8");self.send_header("Content-Length",str(len(encoded)))
             self.send_header("Cache-Control","no-store");self.end_headers()
             if self.command!="HEAD":self.wfile.write(encoded)
+        except DomainError as error:self.fail(error)
         except ValueError:self.send_error(404)
         except (ConfigurationError,db.DatabaseBusy,psycopg.Error):self.send_error(503,"Preview unavailable")
     def _static(self):
@@ -192,7 +203,11 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
         return super().do_HEAD() if self.command=="HEAD" else super().do_GET()
     def do_GET(self):
         path=urlparse(self.path).path
-        if path=="/api/share" or (path=="/api/index.py" and parse_qs(urlparse(self.path).query).get("share_preview")==["1"]):return self._share()
+        if path=="/api/index.py":
+            try:share_preview=parse_query(urlparse(self.path).query).get("share_preview")==["1"]
+            except DomainError as error:return self.fail(error)
+            if share_preview:return self._share()
+        if path=="/api/share":return self._share()
         return self._api() if path.startswith("/api/") else self._static()
     def do_HEAD(self):return self.do_GET()
     def do_POST(self):return self._api()

@@ -189,7 +189,7 @@ test('ranking shows prizes without old TOP3 information request cards', async ()
   await RankingView.render(container, router, 4);
   const holder = container.querySelector('#top3-request');
   assert.equal(holder, null);
-  assert.match(container.textContent, /5만원.*3만원.*1만원/);
+  assert.match(container.textContent, /🥇5만원.*🥈2만원.*🥉1만원/);
   assert.doesNotMatch(container.textContent, /이전 게임 규칙|합성 테스트 정보|검증된 최고 점수 랭킹/);
 });
 
@@ -438,7 +438,7 @@ test('result sharing opens the prepared share action in place above the pouch', 
   assert.ok(container.innerHTML.indexOf('id="btn-share-record"') < container.innerHTML.indexOf('id="btn-go-pouch"'));
   assert.ok(container.innerHTML.indexOf('id="top3-request"') > container.innerHTML.indexOf('id="btn-go-pouch"'));
   assert.doesNotMatch(container.innerHTML, /기록 검증 완료/);
-  assert.match(container.innerHTML, /#TeamGemini/);
+  assert.doesNotMatch(container.innerHTML, /#TeamGemini|2026 캠퍼스 챌린지|랭킹 닉네임|이번 판/);
   assert.match(nodes.get('#result-top3-gap').textContent, /TOP3까지 약 5초만 더!/);
 });
 
@@ -468,7 +468,7 @@ test('draw claims retain prize-result copy and prize sharing', () => {
     status: 'INFORMATION_RECEIVED', contact_submitted: true,
   }, router, 1);
   assert.match(draw.textContent, /테스트 커피/);
-  assert.match(draw.textContent, /복주머니 경품/);
+  assert.doesNotMatch(draw.textContent, /복주머니 기록|복주머니.*회차/);
   const drawShare = descendants(draw).find((node) => node.tag === 'a' && /공유/.test(node.textContent));
   assert.match(drawShare.textContent, /경품 결과 공유/);
   drawShare.onclick({ preventDefault() {} });
@@ -523,18 +523,20 @@ test('claim draft resumes, cancelled share stays pending, and only a confirmed K
   });
   const router = { state: { tickets: { invitation: 0, available_total: 0 } }, isCurrent: () => true, announceStateChange() {}, navigate: (route) => routes.push(route) };
   await view.claimModal({ id: 'claim-1', claim_type: 'DRAW', category: 'SHIPPING' }, router, 1);
-  assert.equal(modal.confirmText, '저장 후\n친구에게 자랑하기');
+  assert.equal(modal.confirmText, '다음');
   assert.equal(descendants(modal.content).find((node) => node.name === 'name').value, '테스트');
-  await new Promise(setImmediate);
   await modal.onConfirm();
-  assert.equal(shared, 1);
+  assert.equal(shared, 0, 'step 1 saves the draft without opening Kakao');
   assert.equal(drafts.length, 1);
   assert.equal(drafts[0].consent, true);
   assert.equal(drafts[0].notice_version, 'claim-contact-v1');
   assert.equal(submitted, 0);
-  assert.equal(modal.title, '2 / 3 · 친구에게 공유');
+  assert.equal(modal.title, '2 / 3 · 카카오톡 공유');
   await new Promise(setImmediate);
   const button = descendants(modal.content).find((node) => node.tag === 'button');
+  assert.match(modal.content.textContent, /나에게 보내기/);
+  await button.onclick();
+  assert.equal(shared, 1);
   assert.equal(submitted, 0);
   assert.match(modal.content.textContent, /공유를 취소/);
   outcome = { method: 'kakao', status: 'pending', shareId: 'share-1' };
@@ -551,14 +553,14 @@ test('claim draft resumes, cancelled share stays pending, and only a confirmed K
   assert.deepEqual(routes, ['claims']);
 });
 
-test('claim save click launches Kakao immediately but waits for saved data and webhook confirmation', async () => {
+test('claim step 1 saves first and step 2 accepts a confirmed Kakao self-send webhook', async () => {
   let modal; let opened = 0; let finalized = 0;
   const saving = deferred();
   const view = loadPrize({
     api: {
       getClaimDraft: async () => ({ draft: { name: 'TEST_사용자', contact: '01000000000', school: 'TEST_학교', consent: true } }),
       saveClaimDraft: () => saving.promise,
-      getReferralShareIntent: async (shareId) => { assert.equal(shareId, 'share-direct'); return { status: 'confirmed' }; },
+      getReferralShareIntent: async (shareId) => { assert.equal(shareId, 'share-direct'); return { status: 'confirmed', chat_type: 'MemoChat' }; },
       submitClaim: async (_id, payload) => { assert.equal(payload.share_intent_id, 'share-direct'); finalized++; },
     },
     prepareResultReferralShare: async (_router, options) => {
@@ -568,13 +570,16 @@ test('claim save click launches Kakao immediately but waits for saved data and w
     ui: { showModal: (value) => { modal = value; }, showToast() {}, formField(_label, _type, name, opts) { const label = new Element('label'); const input = new Element('input'); input.name = name; input.required = opts.required; label.append(input); return { label, input }; } },
   });
   await view.claimModal({ id: 'claim-direct', category: 'COUPON' }, { isCurrent: () => true, navigate() {}, announceStateChange() {} }, 1);
-  await new Promise(setImmediate);
   const clicked = modal.onConfirm();
-  assert.equal(opened, 1);
+  assert.equal(opened, 0);
   assert.equal(finalized, 0);
   saving.resolve({ draft_saved: true });
   await clicked;
   await new Promise(setImmediate);
+  assert.equal(modal.title, '2 / 3 · 카카오톡 공유');
+  assert.equal(opened, 0);
+  const button = descendants(modal.content).find((node) => node.tag === 'button');
+  await button.onclick();
   assert.equal(finalized, 1);
   assert.equal(opened, 1);
   assert.equal(modal.title, '3 / 3 · 접수 완료');

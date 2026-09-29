@@ -31,7 +31,10 @@ PHASE2 = ROOT / "supabase/migrations/20260925140902_phase2_game_versions_and_tra
 GAME_V21 = ROOT / "supabase/migrations/20260926093414_game_rules_v21.sql"
 REAL_TOP3_CONTACT = ROOT / "supabase/migrations/20260926103809_allow_real_top3_contact.sql"
 CLAIM_DRAFT = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
+LOW_SCORE_REFUND = ROOT / "supabase/migrations/20260927090000_low_score_ticket_refund.sql"
 KAKAO_SHARE_WEBHOOK = ROOT / "supabase/migrations/20260927091037_kakao_share_webhook.sql"
+INTERRUPTED_AND_SHARE = ROOT / "supabase/migrations/20260927140000_incomplete_refund_and_share_grant.sql"
+PHASE3 = ROOT / "supabase/migrations/20260928151903_phase3_draw_rounds_and_reward_purposes.sql"
 CAMPAIGN_ID = "gemini_dino_phase1_test"
 PEPPER = "claim-followup-pepper-0123456789"
 
@@ -140,7 +143,7 @@ def _context(**extra):
 
 
 class ClaimMigrationFollowupTest(unittest.TestCase):
-    DATABASE_NAME = "dino_phase1_v2_claim_fixes_migration"
+    DATABASE_NAME = f"dino_phase1_v2_claim_fixes_migration_{os.getpid()}_{uuid.uuid4().hex}"
 
     @classmethod
     def setUpClass(cls):
@@ -239,13 +242,13 @@ class ClaimMigrationFollowupTest(unittest.TestCase):
 
 
 class ClaimOperationsFollowupTest(unittest.TestCase):
-    DATABASE_NAME = "dino_phase1_v2_claim_fixes_operations"
+    DATABASE_NAME = f"dino_phase1_v2_claim_fixes_operations_{os.getpid()}_{uuid.uuid4().hex}"
 
     @classmethod
     def setUpClass(cls):
         cls.dsn = _database_dsn(cls.DATABASE_NAME)
         _recreate_database(cls.DATABASE_NAME)
-        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT, KAKAO_SHARE_WEBHOOK):
+        for migration in (FOUNDATION, ADDITIONS, CLAIM_FIX, PHASE2, GAME_V21, REAL_TOP3_CONTACT, CLAIM_DRAFT, LOW_SCORE_REFUND, KAKAO_SHARE_WEBHOOK, INTERRUPTED_AND_SHARE, PHASE3):
             _apply(cls.dsn, migration)
         with psycopg.connect(cls.dsn) as conn:
             _seed_campaign(conn)
@@ -666,14 +669,22 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
             self.assertEqual(submitted["status"], initial_status)
 
             with self.app_tx() as conn:
+                body = {
+                    "status": next_status,
+                    "expected_version": 1,
+                    "event_id": f"evt_continue_{initial_status.lower()}",
+                }
+                if next_status == "PAID":
+                    body.update(
+                        verification_status="VERIFIED",
+                        verification_reference="TEST_REF_repaired_claim",
+                        external_delivery=True,
+                        reason="실제 전달 확인",
+                    )
                 continued = operations.admin_claim_patch(
                     conn,
                     claim_id,
-                    {
-                        "status": next_status,
-                        "expected_version": 1,
-                        "event_id": f"evt_continue_{initial_status.lower()}",
-                    },
+                    body,
                     _context(admin_user_id=self.admin_id),
                 )[1]
             self.assertEqual(continued["status"], next_status)

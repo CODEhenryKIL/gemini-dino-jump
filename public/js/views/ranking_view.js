@@ -16,13 +16,13 @@ export const RankingView = {
     rankingRequests.set(container, request);
     container.innerHTML = '<section class="card empty-state"><p>랭킹을 불러오는 중...</p></section>';
     try {
-      const data = await api.getLeaderboard();
+      const data = await api.getLeaderboard({ view: 'milestones' });
       if (!router.isCurrent(renderToken) || rankingRequests.get(container) !== request) return;
       container.replaceChildren();
       const prizes = document.createElement('section'); prizes.className = 'ranking-prizes';
       const title = document.createElement('h1'); title.textContent = '랭킹 TOP3 선물';
       const rewards = document.createElement('div'); rewards.className = 'ranking-rewards';
-      for (const [index, amount] of ['5만원', '3만원', '1만원'].entries()) {
+      for (const [index, amount] of ['5만원', '2만원', '1만원'].entries()) {
         const reward = document.createElement('div'); reward.className = `ranking-reward ranking-reward-${index + 1}`;
         const place = document.createElement('span'); place.textContent = rankLabel(index + 1); place.className = 'ranking-reward-medal'; place.setAttribute('role', 'img'); place.setAttribute('aria-label', `${index + 1}위`);
         const value = document.createElement('strong'); value.textContent = amount;
@@ -42,10 +42,11 @@ export const RankingView = {
       const comparison = document.createElement('p'); comparison.className = 'ranking-time-gap'; comparison.textContent = this.timeGapMessage(data);
       stats.append(metrics, comparison); container.appendChild(stats);
       const list = document.createElement('section'); list.className = 'card ranking-list';
-      if (!data.leaderboard?.length) { const empty = document.createElement('p'); empty.textContent = '등록된 기록이 없습니다.'; list.appendChild(empty); }
-      for (const entry of data.leaderboard || []) {
+      const entries = this.visibleRanks(data);
+      if (!entries.length) { const empty = document.createElement('p'); empty.textContent = '등록된 기록이 없습니다.'; list.appendChild(empty); }
+      for (const entry of entries) {
         const row = document.createElement('div'); row.className = `ranking-row${entry.is_me ? ' is-me' : ''}`;
-        const rank = document.createElement('strong'); rank.textContent = `${rankLabel(entry.rank)}${entry.tied ? ' (동점)' : ''}`; rank.setAttribute('aria-label', `${entry.rank}위${entry.tied ? ' 동점' : ''}`);
+        const rank = document.createElement('strong'); rank.textContent = rankLabel(entry.rank); rank.setAttribute('aria-label', `${entry.rank}위`);
         const nickname = document.createElement('span'); nickname.textContent = entry.nickname;
         const score = document.createElement('span'); score.textContent = `${entry.score}점`;
         row.append(rank, nickname, score); list.appendChild(row);
@@ -97,14 +98,25 @@ export const RankingView = {
     if (router.isCurrent(renderToken)) return this.load(container, router, renderToken);
   },
 
+  visibleRanks(data) {
+    const seen = new Set();
+    return (data.rank_highlights ?? data.leaderboard ?? []).filter((entry) => {
+      const rank = Number(entry.rank);
+      const visible = Number.isInteger(rank) && rank >= 1 && (rank <= 10 || [20, 30, 40, 50].includes(rank));
+      if (!visible || seen.has(rank)) return false;
+      seen.add(rank);
+      return true;
+    });
+  },
+
   timeGapMessage(data) {
     if (!data.me?.rank) return '첫 게임을 마치면\n내 순위와 3위와의 시간 차이를 볼 수 있어요.';
     const gap = data.top3_gap ?? data.me.top3_gap ?? {};
     if (gap.status === 'IN_TOP3' || data.me.rank <= 3) return `현재 ${data.me.rank}위로 TOP3예요!`;
     if (gap.third_score == null) return '아직 3위 기록이 없어요. 먼저 TOP3에 도전해 보세요!';
     const points = gap.score_needed;
-    if (!Number.isFinite(points)) return '3위까지 남은 점수를 확인하고 있어요.';
+    if (!Number.isFinite(points) || points <= 0) return '3위까지 남은 점수를 확인하고 있어요.';
     // Match the invite/result screens: 10 time points per second, rounded up.
-    return `3위까지 약 ${Math.ceil(Math.max(0, points) / 10)}초 더!`;
+    return `3위까지 약 ${Math.ceil(points / 10)}초 더!`;
   },
 };

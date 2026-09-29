@@ -90,11 +90,18 @@ export const api = {
     });
   },
   getSession(sessionId) { return request(`/api/game-sessions/${encodeURIComponent(sessionId)}`); },
-  getLeaderboard() { return request('/api/leaderboard'); },
+  getLeaderboard({ view } = {}) { return request(`/api/leaderboard${view === 'milestones' ? '?view=milestones' : ''}`); },
   getDraw() { return request('/api/draws/me'); },
-  drawPouch(pouchIndex) {
-    const eventId = createRequestId('evt');
-    return request('/api/draws', { method: 'POST', idempotent: true, idempotencyKey: eventId, body: JSON.stringify({ pouch_index: pouchIndex, event_id: eventId }) });
+  drawPouch(pouchIndex, idempotencyKey = null, expectedRoundNumber = null) {
+    const eventId = idempotencyKey || createRequestId('evt');
+    return request('/api/draws', {
+      method: 'POST', idempotent: true, idempotencyKey: eventId,
+      body: JSON.stringify({
+        pouch_index: pouchIndex,
+        event_id: eventId,
+        ...(Number.isInteger(expectedRoundNumber) ? { expected_round_number: expectedRoundNumber } : {}),
+      }),
+    });
   },
   completeScratch(drawId, idempotencyKey = null) {
     const eventId = idempotencyKey || createRequestId('evt');

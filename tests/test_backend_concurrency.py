@@ -167,7 +167,7 @@ class BackendConcurrencyTest(unittest.TestCase):
             )
             return result
 
-    def test_one_hundred_concurrent_valid_invites_cap_at_three_and_start_one_cooldown(self):
+    def test_one_hundred_concurrent_valid_invites_are_tracking_only(self):
         inviter = self.participant("inviter_100")
         pairs = []
         for index in range(100):
@@ -202,15 +202,14 @@ class BackendConcurrencyTest(unittest.TestCase):
                 (inviter["id"],),
             ).fetchone()["n"]
 
-        self.assertEqual(sum(result["status"] == "REWARDED" for result in results), 3)
-        self.assertTrue(all(result["status"] in {"REWARDED", "COOLDOWN"} for result in results))
-        self.assertEqual((participant["invitation_balance"], participant["invitation_refund_pending"]), (3, 0))
-        self.assertIsNotNone(participant["cooldown_until"])
-        self.assertEqual(rewards, 3)
-        self.assertEqual((ledger["n"], ledger["cooldown_rows"], ledger["max_balance"]), (3, 1, 3))
+        self.assertTrue(all(result["status"] == "QUALIFIED" for result in results))
+        self.assertEqual((participant["invitation_balance"], participant["invitation_refund_pending"]), (0, 0))
+        self.assertIsNone(participant["cooldown_until"])
+        self.assertEqual(rewards, 0)
+        self.assertEqual((ledger["n"], ledger["cooldown_rows"], ledger["max_balance"]), (0, 0, None))
         self.assertEqual(pending_visits, 0)
 
-    def test_same_visitor_can_reward_two_different_inviters_concurrently(self):
+    def test_same_visitor_can_qualify_two_different_inviters_concurrently(self):
         inviter_a = self.participant("inviter_a")
         inviter_b = self.participant("inviter_b")
         visitor = self.participant("shared_visitor")
@@ -232,11 +231,11 @@ class BackendConcurrencyTest(unittest.TestCase):
                 "select count(*) n from dino_dev.invitation_reward where visitor_id=%s",
                 (visitor["id"],),
             ).fetchone()["n"]
-        self.assertEqual([result["status"] for result in results], ["REWARDED", "REWARDED"])
-        self.assertEqual({row["invitation_balance"] for row in balances}, {1})
-        self.assertEqual(rewards, 2)
+        self.assertEqual([result["status"] for result in results], ["QUALIFIED", "QUALIFIED"])
+        self.assertEqual({row["invitation_balance"] for row in balances}, {0})
+        self.assertEqual(rewards, 0)
 
-    def test_visits_started_while_full_do_not_credit_after_cooldown(self):
+    def test_visits_started_while_full_remain_tracking_only(self):
         with psycopg.connect(DSN) as conn:
             future = conn.execute("select clock_timestamp()+interval '10 hours'").fetchone()[0]
         inviter = self.participant("full_inviter", invitation=3, cooldown=future)
@@ -259,9 +258,7 @@ class BackendConcurrencyTest(unittest.TestCase):
         started = self.parallel(
             [lambda visitor=visitor: start_visit(visitor) for visitor in visitors]
         )
-        self.assertTrue(
-            all(visit["status"] == "COOLDOWN" and visit["visit_nonce"] is None for visit in started)
-        )
+        self.assertTrue(all(visit["status"] == "PENDING" and visit["visit_nonce"] for visit in started))
 
         with psycopg.connect(DSN) as conn:
             conn.execute(
@@ -282,15 +279,15 @@ class BackendConcurrencyTest(unittest.TestCase):
                 "select count(*) n from dino_dev.invitation_reward where inviter_id=%s",
                 (inviter["id"],),
             ).fetchone()["n"]
-            rejected = conn.execute(
+            pending = conn.execute(
                 "select count(*) n from dino_dev.invitation_visit "
-                "where inviter_id=%s and status='COOLDOWN'",
+                "where inviter_id=%s and status='PENDING'",
                 (inviter["id"],),
             ).fetchone()["n"]
         self.assertEqual(restored["invitation_balance"], 2)
         self.assertEqual(state["invitation_balance"], 2)
         self.assertEqual(rewards, 0)
-        self.assertEqual(rejected, 10)
+        self.assertEqual(pending, 10)
 
     def eligible_participant(self, label):
         participant = self.participant(label, initial=0)
@@ -466,7 +463,7 @@ class BackendConcurrencyTest(unittest.TestCase):
                    from dino_dev.ticket_ledger where participant_id=%s""",
                 (inviter["id"],),
             ).fetchone()
-        self.assertIn(grant_result["status"], {"BALANCE_FULL", "COOLDOWN"})
+        self.assertEqual(grant_result["status"], "QUALIFIED")
         self.assertEqual(refund_result["refund"]["status"], "REFUNDED")
         self.assertEqual(refund_result["fault_review"]["status"], "AUTO_APPROVED")
         self.assertEqual((state["invitation_balance"], state["invitation_refund_pending"]), (3, 0))

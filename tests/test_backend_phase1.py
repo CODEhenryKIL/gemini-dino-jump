@@ -213,6 +213,26 @@ class BackendPhase1Test(unittest.TestCase):
             intent,token=self.create_share_intent(conn,raw);result=self.confirm_share(conn,intent,token,chat_type="MemoChat")
             grants=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where participant_id=%s and source_type='SHARE_GRANT'",(pid,)).fetchone()["n"]
         self.assertEqual(legacy.exception.code,"SHARE_WEBHOOK_REQUIRED");self.assertEqual((result["status"],result["reward_status"],grants),("rejected","not_eligible",0))
+    def test_claim_bound_none_memo_chat_confirms_without_reward_and_restores_draft(self):
+        raw,_,created=self.make_participant();pid=created["participant"]["id"]
+        ctx=context(participant_token_hash=h(raw))
+        with app_tx() as conn:
+            conn.execute("insert into dino_dev.claim(id,campaign_id,participant_id,claim_type) values('claim_memo','gemini_dino_phase1_test',%s,'DRAW')",(pid,))
+            operations.claim_draft_post(conn,"claim_memo",{"name":"TEST_user","contact":"01000000000","school":"TEST_school","consent":True,"notice_version":"claim-contact-v1"},ctx)
+            intent,token=self.create_share_intent(conn,raw,"prize_share","claim_memo")
+            confirmed=self.confirm_share(conn,intent,token,chat_type="MemoChat",IS_SINGLE_CHATROOM=True)
+            _,restored=operations.claim_draft_get(conn,"claim_memo",ctx)
+            _,submitted=operations.submit_claim(conn,"claim_memo",{"share_intent_id":intent["share_id"]},ctx)
+            ledger=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where source_id=%s",(intent["share_id"],)).fetchone()["n"]
+            draw_ledger=conn.execute("select count(*)::int n from dino_dev.draw_credit_ledger where source_id=%s",(intent["share_id"],)).fetchone()["n"]
+        self.assertEqual((confirmed["status"],confirmed["reward_status"],confirmed["reward_type"]),("confirmed","no_reward","NONE"))
+        self.assertEqual((restored["share_intent_id"],submitted["status"],ledger,draw_ledger),(intent["share_id"],"INFORMATION_RECEIVED",0,0))
+    def test_unbound_none_memo_chat_remains_rejected(self):
+        raw,_,_=self.make_participant()
+        with app_tx() as conn:
+            intent,token=self.create_share_intent(conn,raw,"general_share")
+            result=self.confirm_share(conn,intent,token,chat_type="MemoChat",IS_SINGLE_CHATROOM=True)
+        self.assertEqual((result["status"],result["reward_status"],result["reward_type"]),("rejected","not_eligible","NONE"))
     def test_share_intent_proof_is_owned_unforgeable_and_resource_id_is_single_use(self):
         raw,_,created=self.make_participant();other,_,_=self.make_participant();pid=created["participant"]["id"]
         with app_tx() as conn:
@@ -459,8 +479,12 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             _,created=operations.create_session(conn,{},ctx);sid=created["session_id"]
             conn.execute("update dino_dev.game_session set status='FINISHED',score=10,valid_ticks=60,verification_result='VERIFIED',finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s",(sid,))
-            _,first=operations.create_draw(conn,{"pouch_index":0},ctx);_,second=operations.create_draw(conn,{"pouch_index":2},ctx)
+            _,first=operations.create_draw(conn,{"pouch_index":0,"expected_round_number":1},ctx)
+            _,second=operations.create_draw(conn,{"pouch_index":0,"expected_round_number":1},ctx)
+            with self.assertRaises(operations.DomainError) as conflicting_pouch:
+                operations.create_draw(conn,{"pouch_index":2,"expected_round_number":1},ctx)
         self.assertEqual(first["draw_id"],second["draw_id"]);self.assertEqual(first["pouch_index"],second["pouch_index"])
+        self.assertEqual(conflicting_pouch.exception.code,"DRAW_ROUND_CONFLICT")
         with app_tx() as conn:
             intent,token=self.create_share_intent(conn,raw);self.confirm_share(conn,intent,token);ctx["idempotency_key"]="retry-after-draw"
             _,retry=operations.create_session(conn,{},ctx)
@@ -471,8 +495,36 @@ class BackendPhase1Test(unittest.TestCase):
         with app_tx() as conn:
             with self.assertRaises(operations.DomainError) as caught:operations.get_session(conn,session["session_id"],context(participant_token_hash=h(other)))
         self.assertEqual((caught.exception.code,caught.exception.status),("SESSION_NOT_FOUND",404))
+    def test_leaderboard_includes_bounded_public_rank_highlights_and_keeps_distant_me(self):
+        with psycopg.connect(DSN) as conn:
+            conn.execute("""insert into dino_dev.participant
+              (id,campaign_id,token_hash,token_expires_at,nickname,referral_code,environment)
+              select 'rank_highlight_'||lpad(n::text,2,'0'),'gemini_dino_phase1_test',
+                lpad(to_hex(100000+n),64,'0'),clock_timestamp()+interval '1 day',
+                '공룡'||n,'rankhighlight'||lpad(n::text,2,'0'),'test'
+              from generate_series(1,55)n""")
+            conn.execute("""insert into dino_dev.game_session
+              (id,participant_id,campaign_id,idempotency_key,seed,version,status,ticket_kind,ticket_refund_status,
+               expires_at,score,valid_ticks,verification_result,finished_at,environment)
+              select 'rank_highlight_game_'||lpad(n::text,2,'0'),'rank_highlight_'||lpad(n::text,2,'0'),
+                'gemini_dino_phase1_test','rank-highlight-'||n,n,'1.2.0','FINISHED','INITIAL','NOT_DUE',
+                clock_timestamp()+interval '1 hour',1000-n,60,'VERIFIED',
+                clock_timestamp()+make_interval(secs=>n),'test'
+              from generate_series(1,55)n""")
+            conn.execute("""insert into dino_dev.best_score(participant_id,session_id,score,achieved_at)
+              select 'rank_highlight_'||lpad(n::text,2,'0'),'rank_highlight_game_'||lpad(n::text,2,'0'),
+                1000-n,clock_timestamp()+make_interval(secs=>n)
+              from generate_series(1,55)n""")
+        me_hash=f"{100055:064x}"
+        with app_tx() as conn:
+            regular=operations.leaderboard(conn,{"limit":"3"},context(participant_token_hash=me_hash))[1]
+            data=operations.leaderboard(conn,{"limit":"3","view":"milestones"},context(participant_token_hash=me_hash))[1]
+        self.assertNotIn("rank_highlights",regular)
+        self.assertEqual(len(data["leaderboard"]),3)
+        self.assertEqual([row["rank"] for row in data["rank_highlights"]],list(range(1,11))+[20,30,40,50])
+        self.assertEqual((data["me"]["rank"],data["me"]["best_score"]),(55,945))
     def test_top3_contact_persists_after_rank_drop_and_snapshot_never_finalizes_winner(self):
-        players=[self.make_participant()[0] for _ in range(4)];scores=[100,400,400,300]
+        players=[self.make_participant()[0] for _ in range(4)];scores=[350,400,400,300]
         with psycopg.connect(DSN) as conn:
             for index,(raw,score) in enumerate(zip(players,scores)):
                 pid=conn.execute("select id from dino_dev.participant where token_hash=%s",(h(raw),)).fetchone()[0];sid=f"snapshot_session_{index}"
@@ -493,7 +545,7 @@ class BackendPhase1Test(unittest.TestCase):
             snapshot=operations.create_admin_ranking_snapshot(conn,{"event_id":"evt_snapshot"},admin)[1]
             tied=conn.execute("select count(*)::int n from dino_dev.ranking_snapshot_entry where snapshot_id=%s and tied",(snapshot["id"],)).fetchone()["n"]
         mine=next(row for row in contacts if row["participant_id"]==first_pid)
-        self.assertEqual((mine["ranking_status"],mine["contact"],verified["verification_status"]),("SUBMITTED","01000000000","PENDING"));self.assertEqual((blocked_payment.exception.code,blocked_payment.exception.status),("FINAL_RANKING_UNDECIDED",409));self.assertEqual(tied,2);self.assertEqual((snapshot["status"],snapshot["tie_policy"],snapshot["final_awards_created"]),("DRAFT","UNDECIDED",False))
+        self.assertEqual((mine["ranking_status"],mine["contact"],verified["verification_status"]),("SUBMITTED","01000000000","PENDING"));self.assertEqual((blocked_payment.exception.code,blocked_payment.exception.status),("FINAL_RANKING_UNDECIDED",409));self.assertEqual(tied,2);self.assertEqual((snapshot["status"],snapshot["tie_policy"],snapshot["final_awards_created"]),("DRAFT","EARLIEST_ACHIEVED_AT",False))
     def test_admin_can_block_participant_and_revoke_cookie_session(self):
         raw,_,data=self.make_participant();admin=self.make_admin(["participants:write"]);admin["idempotency_key"]="participant-block"
         with app_tx() as conn:_,result=operations.admin_participant_patch(conn,data["participant"]["id"],{"status":"BLOCKED","expected_status":"ACTIVE","revoke_session":True,"reason":"TEST abuse review","event_id":"evt_block"},admin)
@@ -505,7 +557,7 @@ class BackendPhase1Test(unittest.TestCase):
         participants=[self.make_participant()[0] for _ in range(12)]
         contexts=[self.make_finished_session(raw,index) for index,raw in enumerate(participants)]
         with psycopg.connect(DSN) as conn:
-            prize=conn.execute("select id from dino_dev.prize where category<>'NO_PRIZE' order by id limit 1").fetchone()[0]
+            prize=conn.execute("select id from dino_dev.prize where campaign_id='gemini_dino_phase1_test' and category<>'NO_PRIZE' order by id limit 1").fetchone()[0]
             conn.execute("update dino_dev.prize set probability=case when id=%s then 1 else 0 end",(prize,));conn.execute("update dino_dev.inventory_item set status='VOID',reserved_by_draw_id=null,reserved_at=null where prize_id=%s",(prize,));conn.execute("update dino_dev.inventory_item set status='AVAILABLE' where id=(select id from dino_dev.inventory_item where prize_id=%s order by id limit 1)",(prize,))
         def draw(args):
             raw,ctx=args

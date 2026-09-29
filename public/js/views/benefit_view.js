@@ -1,7 +1,7 @@
 import { analytics } from '../analytics.js';
 import { api } from '../api.js';
 import { ui } from '../ui.js';
-import { loadKakaoSdk, prepareKakaoPrizeImage } from '../referral_share.js';
+import { prepareResultReferralShare } from '../referral_share.js';
 
 function safeExternalUrl(value) {
   if (typeof value !== 'string' || !/^https:\/\/[^\s]+$/i.test(value)) return null;
@@ -55,28 +55,22 @@ export const BenefitView = {
         <h2><span class="benefit-notes-eyebrow">이미 1년 무료 혜택을 이용 중이라면?</span><span class="benefit-notes-title">비밀 노트를 받으세요!</span></h2>
         <div id="content-guide-list" class="content-guide-list"></div>
       </section>
-      <button id="btn-kakao-benefit" class="btn benefit-kakao-share" type="button" aria-label="카카오톡으로 혜택 친구한테 알리기">
+      <button id="btn-kakao-benefit" class="btn benefit-kakao-share" type="button" aria-label="카카오톡으로 게임과 경품 친구한테 알리기">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.45 2 10.7c0 2.76 1.89 5.18 4.72 6.54l-.93 3.38c-.08.29.25.52.5.36l3.97-2.61c.57.08 1.15.12 1.74.12 5.52 0 10-3.46 10-7.79C22 6.45 17.52 3 12 3Z"/></svg>
-        <span>혜택 친구한테 알리기</span>
+        <span>게임과 경품 친구한테 알리기</span>
       </button>`;
     const configuredUrl = router.config?.official_url || router.config?.benefit_url;
     const safeUrl = safeExternalUrl(configuredUrl);
     const kakaoButton = container.querySelector('#btn-kakao-benefit');
-    let kakao = null;
-    let prizeImageUrl = null;
-    let prizeShareText = '나 게임 한 판 하고\n복주머니 열어봄!\n\n삼텐바이미 받을 수도 있다던데,\n너도 한번 해봐';
     kakaoButton.disabled = true;
-    Promise.all([
-      loadKakaoSdk(router.config?.share?.kakao_javascript_key || ''),
-      api.getReferralInfo().catch(() => null),
-    ]).then(async ([sdk, referral]) => {
-      if (referral?.won_prize_name) prizeShareText = `나 ${referral.won_prize_name} 이거 받음\n아직 삼텐바이미 남았다는데\n\n너도 게임 한 판 하고\n상품 뽑아봐!`;
-      return { sdk, imageUrl: await prepareKakaoPrizeImage(sdk) };
-    }).catch(() => ({ sdk: null, imageUrl: null })).then(({ sdk, imageUrl }) => {
+    let preparedGameShare = null;
+    prepareResultReferralShare(router, { kind: 'general_share' }).then((prepared) => {
       if (!isActiveRender()) return;
-      kakao = sdk;
-      prizeImageUrl = imageUrl;
-      kakaoButton.disabled = !safeUrl;
+      preparedGameShare = prepared;
+      kakaoButton.disabled = false;
+    }).catch(() => {
+      if (!isActiveRender()) return;
+      kakaoButton.disabled = false;
     });
     ui.text(container.querySelector('#benefit-official-url'), safeUrl || '공식 링크 준비 중');
     const link = container.querySelector('#btn-go-benefit');
@@ -114,7 +108,7 @@ export const BenefitView = {
           guidePending = true;
           const trackingContext = captureAnalyticsContext();
           const shareMethod = method === 'share' && typeof navigator.share === 'function' ? 'native' : 'copy';
-          const track = (status) => analytics.track('share_attempted', { source: 'content', content, position: 'benefit_guides', share_method: shareMethod, status }, trackingContext);
+          const track = (status) => analytics.track('share_attempted', { source: 'gemini', content, position: 'benefit_guides', share_method: shareMethod, status }, trackingContext);
           track('attempted');
           try {
             if (shareMethod === 'native') {
@@ -209,29 +203,12 @@ export const BenefitView = {
         sharePending = false;
       }
     };
-    const shareBenefit = async (preferKakao = false) => {
+    const shareBenefit = async () => {
       if (sharePending) return;
       sharePending = true;
       const trackingContext = captureAnalyticsContext();
       try {
         if (!safeUrl) { trackShare('native', 'failed', trackingContext); if (isActiveRender()) showManualFallback(); return; }
-        if (preferKakao && kakao) {
-          trackShare('kakao', 'attempted', trackingContext);
-          try {
-            kakao.Share.sendDefault({
-              objectType: 'feed',
-              content: {
-                title: prizeShareText.split('\n')[0],
-                description: prizeShareText.split('\n').slice(1).join('\n').trim(),
-                imageUrl: prizeImageUrl,
-                imageWidth: 1254, imageHeight: 1254,
-                link: { mobileWebUrl: safeUrl, webUrl: safeUrl },
-              },
-              buttons: [{ title: '혜택 확인하기', link: { mobileWebUrl: safeUrl, webUrl: safeUrl } }],
-            });
-            return;
-          } catch (_) { trackShare('kakao', 'failed', trackingContext); }
-        }
         if (typeof navigator.share !== 'function') {
           trackShare('copy', 'attempted', trackingContext);
           try {
@@ -246,9 +223,7 @@ export const BenefitView = {
         }
         trackShare('native', 'attempted', trackingContext);
         try {
-          await navigator.share(preferKakao
-            ? { title: prizeShareText.split('\n')[0], text: prizeShareText, url: safeUrl }
-            : { title: 'Gemini 학생 혜택', url: safeUrl });
+          await navigator.share({ title: 'Gemini 학생 혜택', url: safeUrl });
           trackShare('native', 'share_sheet_closed', trackingContext);
         } catch (error) {
           trackShare('native', error?.name === 'AbortError' ? 'cancelled' : 'failed', trackingContext);
@@ -258,7 +233,13 @@ export const BenefitView = {
       }
     };
     container.querySelector('#btn-share-benefit').onclick = () => shareBenefit();
-    kakaoButton.onclick = () => shareBenefit(true);
+    kakaoButton.onclick = async () => {
+      if (!preparedGameShare) {
+        try { preparedGameShare = await prepareResultReferralShare(router, { kind: 'general_share' }); }
+        catch (_) { if (isActiveRender()) ui.showToast('공유를 준비하지 못했어요. 다시 시도해 주세요.'); return; }
+      }
+      return preparedGameShare.share();
+    };
   },
   cleanup() { this.observer?.disconnect(); this.observer = null;
     this.observationGeneration += 1;

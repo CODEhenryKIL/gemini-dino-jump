@@ -212,7 +212,7 @@ class BackendPhase2Test(unittest.TestCase):
                     operations._ranking_contact_values(body)
                 self.assertEqual(caught.exception.code,code)
 
-    def test_dense_rank_ties_private_name_and_gap_use_same_rules(self):
+    def test_earliest_achievement_breaks_score_ties_consistently(self):
         participants=[]
         scores=(500,500,400,300,300,200)
         elapsed_ticks=(600,540,480,720,180,360)
@@ -225,24 +225,23 @@ class BackendPhase2Test(unittest.TestCase):
         with fixtures.app_tx() as conn:
             conn.execute('update dino_dev.participant set is_public=false where id=%s',(participants[0][1],))
             ctx=self.ctx(participants[-1][0]);data=operations.leaderboard(conn,{},ctx)[1]
-            self.assertEqual(data['me']['rank'],4)
+            self.assertEqual(data['me']['rank'],6)
             self.assertEqual(data['me']['best_elapsed_seconds'],6.0)
-            self.assertEqual(data['top3_gap']['third_score'],300)
-            self.assertEqual(data['top3_gap']['third_elapsed_seconds'],12.0)
-            self.assertEqual(data['top3_gap']['score_needed'],100)
+            self.assertEqual(data['top3_gap']['third_score'],400)
+            self.assertEqual(data['top3_gap']['third_elapsed_seconds'],8.0)
+            self.assertEqual(data['top3_gap']['score_needed'],201)
             self.assertEqual(data['top3_gap']['status'],'CHASING')
             conn.execute("update dino_dev.versioned_best_score set achieved_at=timestamptz '2026-01-01 00:00:03+00' where score=300")
             tied_third=operations.leaderboard(conn,{},ctx)[1]['top3_gap']
-            expected_tied_seconds=12.0 if participants[3][1]<participants[4][1] else 3.0
-            self.assertEqual(tied_third['third_elapsed_seconds'],expected_tied_seconds)
+            self.assertEqual(tied_third['third_elapsed_seconds'],8.0)
             top=operations.get_me(conn,self.ctx(participants[1][0]))[1]
-            self.assertEqual(top['rank'],1);self.assertTrue(top['top3_gap']['tied'])
+            self.assertEqual(top['rank'],2);self.assertTrue(top['top3_gap']['tied'])
             self.assertEqual(len(data['leaderboard']),5)
             self.assertEqual(sum(x['score']==500 for x in data['leaderboard']),1)
             self.assertEqual(data['rank_targets'],[
                 {'rank':1,'score':500},
-                {'rank':2,'score':400},
-                {'rank':3,'score':300},
+                {'rank':2,'score':500},
+                {'rank':3,'score':400},
             ])
         admin=self.make_admin(['ranking:write']);admin['game_version']='2.0.0'
         with fixtures.app_tx() as conn:
@@ -297,12 +296,13 @@ class BackendPhase2Test(unittest.TestCase):
             card=share_page.public_card(conn,code,'record_share','2.0.0',ctx['campaign_id'])
             target=share_page.share_target(code,{'link':['record_share'],'share':['share_safe_123'],'contact':['01000000000'],'channel':['x</script>']})
             html=share_page.render_share_page(card,'https://example.test',code,target).decode()
-            self.assertIn(str(self.play['score']),html);self.assertIn('&lt;b&gt;public&lt;/b&gt;',html)
+            self.assertIn('현재 1명, 1등 노려볼 만해!',html)
+            self.assertNotIn(str(self.play['score']),html);self.assertNotIn('&lt;b&gt;public&lt;/b&gt;',html)
             self.assertNotIn('<script>alert',html);self.assertNotIn('01000000000',html)
             self.assertNotIn('channel',target)
             conn.execute('update dino_dev.participant set is_public=false where id=%s',(p['participant']['id'],))
             private=share_page.public_card(conn,code,'record_share','2.0.0',ctx['campaign_id'])
-            self.assertEqual(private['title'],'공룡 점프 챌린지')
+            self.assertEqual(private['title'],'현재 1명, 1등 노려볼 만해! 👀')
             after=conn.execute('select (select count(*) from dino_dev.invitation_visit) visits,(select count(*) from dino_dev.ticket_ledger) ledger').fetchone()
             self.assertEqual(before,after)
 
@@ -403,29 +403,29 @@ class BackendPhase2Test(unittest.TestCase):
             self.assertNotIn(observation,serialized)
             self.assertNotIn(owner,serialized)
 
-    def test_share_kinds_do_not_bypass_pair_deduplication(self):
+    def test_share_kinds_do_not_bypass_tracking_pair_deduplication(self):
         inviter,_,p=self.make_participant();code=p['participant']['referral_code'];visitor,_,_=self.make_participant()
         first=self.qualify(visitor,code,self.attributed_visit(visitor,code,'retry_invite'))
-        self.assertEqual((first['status'],first['granted']),('REWARDED',1))
+        self.assertEqual((first['status'],first['granted']),('QUALIFIED',0))
         for kind in ('record_share','prize_share','retry_invite'):
             again=self.qualify(visitor,code,self.attributed_visit(visitor,code,kind))
             self.assertEqual((again['status'],again['reason'],again['granted']),
-                             ('ALREADY_REWARDED','PAIR_ALREADY_REWARDED',0))
+                             ('ALREADY_QUALIFIED','PAIR_ALREADY_QUALIFIED',0))
         with fixtures.app_tx() as conn:
             info=operations.referral_me(conn,self.ctx(inviter))[1]
-            self.assertEqual(info['ticket_totals'],{'granted':1,'used':0,'refunded':0})
+            self.assertEqual(info['ticket_totals'],{'granted':0,'used':0,'refunded':0})
             self.assertEqual(info['valid_visits'],1)
 
-    def test_each_share_kind_rewards_a_distinct_visitor_and_third_starts_cooldown(self):
+    def test_each_share_kind_tracks_a_distinct_visitor_without_reward(self):
         inviter,_,p=self.make_participant();code=p['participant']['referral_code']
-        for expected_balance,kind in enumerate(('retry_invite','record_share','prize_share'),start=1):
+        for kind in ('retry_invite','record_share','prize_share'):
             visitor,_,_=self.make_participant()
             result=self.qualify(visitor,code,self.attributed_visit(visitor,code,kind))
             self.assertEqual((result['status'],result['granted'],result['inviter_balance']),
-                             ('REWARDED',1,expected_balance))
-            self.assertEqual(result['cooldown_until'] is not None,expected_balance==3)
+                             ('QUALIFIED',0,0))
+            self.assertIsNone(result['cooldown_until'])
         with fixtures.app_tx() as conn:
             info=operations.referral_me(conn,self.ctx(inviter))[1]
-            self.assertEqual(info['ticket_totals'],{'granted':3,'used':0,'refunded':0})
-            self.assertEqual((info['valid_visits'],info['rewarded_pairs'],info['invitation_balance']),(3,3,3))
-            self.assertIsNotNone(info['cooldown_until'])
+            self.assertEqual(info['ticket_totals'],{'granted':0,'used':0,'refunded':0})
+            self.assertEqual((info['valid_visits'],info['rewarded_pairs'],info['invitation_balance']),(3,0,0))
+            self.assertIsNone(info['cooldown_until'])

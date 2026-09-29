@@ -15,13 +15,13 @@ export const HomeView = {
         <h1><span class="home-built-with"><img class="home-antigravity-logo" src="/assets/logos/antigravity-icon-full-color.png" alt="Antigravity" width="32" height="32"><span><span class="home-ai-word"><span class="google-blue">G</span><span class="google-red">o</span><span class="google-yellow">o</span><span class="google-blue">g</span><span class="google-green">l</span><span class="google-red">e</span> <span class="google-blue">AI</span></span>로 만든</span></span><span class="home-game-title">공룡 게임</span></h1>
         <p class="home-campaign-line">추억의 공룡 게임 한 판 하고 삼텐바이미 받자!</p>
         <img class="hero-dino" src="/assets/icons/Dino-Dark.png" alt="달리는 공룡">
+        <button id="btn-start-jump" class="btn btn-primary">게임 시작</button>
         <div class="stat-grid">
           <div><small id="home-basic-label">기본권</small><strong id="home-basic-ticket">0장</strong></div>
           <div><small>초대권</small><strong id="home-invite-ticket">0장</strong></div>
           <div><small>최고 점수</small><strong id="home-best-score">0점</strong></div>
         </div>
         <p id="home-ticket-note" class="status-note" role="status" hidden></p>
-        <button id="btn-start-jump" class="btn btn-primary">게임 시작</button>
         <button id="btn-home-draw" class="btn btn-secondary" hidden>복주머니 열기</button>
         <p class="home-eligibility">게임은 누구나 참여할 수 있고, 경품 수령은 대학생을 대상으로 해요.</p>
       </section>`;
@@ -36,7 +36,7 @@ export const HomeView = {
     };
     container.querySelector('#btn-home-draw').onclick = () => {
       const status = router.state.draw?.status;
-      if (!['AVAILABLE', 'DRAWN'].includes(status)) return;
+      if (!['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(status)) return;
       analytics.track('draw_cta_clicked', { source: 'home', draw_status: status });
       router.navigate('draw');
     };
@@ -54,22 +54,20 @@ export const HomeView = {
     const pendingSession = router.state.pendingGameSession;
     const drawStatus = router.state.draw?.status || 'LOCKED';
     const drawButton = container.querySelector('#btn-home-draw');
-    drawButton.hidden = !['AVAILABLE', 'DRAWN'].includes(drawStatus);
-    drawButton.textContent = drawStatus === 'DRAWN' ? '내 복주머니 결과 보기' : '복주머니 열기';
+    const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus) || Boolean(router.state.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+    drawButton.hidden = !['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus);
+    drawButton.textContent = hasDrawResult ? '내 복주머니 결과 보기' : '복주머니 열기';
     const campaignStatus = router.config?.campaign?.status || 'ACTIVE';
     const note = container.querySelector('#home-ticket-note');
     note.hidden = true;
     note.textContent = '';
-    if (unlimited) {
-      note.hidden = false;
-      note.textContent = '테스트 기간에는 누구나 게임권 차감 없이 플레이할 수 있어요.';
-    } else if (tickets.invitation_reserved) {
+    if (!unlimited && tickets.invitation_reserved) {
       note.hidden = false;
       note.textContent = `장애 복구 중인 초대권 ${tickets.invitation_reserved}장이 별도로 보호되고 있어요.`;
-    } else if (new Date(tickets.cooldown_until).getTime() > Date.now()) {
+    } else if (!unlimited && new Date(tickets.cooldown_until).getTime() > Date.now()) {
       note.hidden = false;
       note.textContent = `초대권 추가 적립 대기: ${new Date(tickets.cooldown_until).toLocaleString('ko-KR')}까지 · 가진 게임권은 사용할 수 있어요.`;
-    } else if (!pendingSession && available < 1) {
+    } else if (!unlimited && !pendingSession && available < 1) {
       note.hidden = false;
       note.textContent = '게임권이 필요해요. 친구에게 공유하고 게임권을 받아 보세요.';
     }

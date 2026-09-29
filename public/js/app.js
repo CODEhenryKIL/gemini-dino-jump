@@ -78,9 +78,9 @@ class AppRouter {
     const requestedViewValue = url.searchParams.get('view');
     const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requestedViewValue) ? requestedViewValue : null;
     const requestedLinkKind = url.searchParams.get('link');
-    const legacyLinkKind = requestedLinkKind === 'prize_share' ? 'prize_share' : 'retry_invite';
+    const attributedKinds = new Set(['retry_invite', 'record_share', 'draw_retry', 'prize_share', 'general_share']);
     const linkKind = inviteCode
-      ? (requestedLinkKind === 'record_share' ? 'record_share' : legacyLinkKind)
+      ? (attributedKinds.has(requestedLinkKind) ? requestedLinkKind : 'retry_invite')
       : (requestedLinkKind === 'initial' ? 'initial' : 'direct');
     const shareId = (url.searchParams.get('share') || '').match(/^[A-Za-z0-9:_-]{8,128}$/)?.[0] || null;
     const channelCode = (url.searchParams.get('channel') || '').match(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/)?.[0] || null;
@@ -232,7 +232,7 @@ class AppRouter {
     const tickets = this.state.tickets;
     const available = Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0)));
     this.ticketPill.textContent = tickets.unlimited_play === true ? '🎟️ 무제한' : `🎟️ ${available}장`;
-    this.ticketPill.title = tickets.unlimited_play === true ? '테스트 기간에는 누구나 게임권 차감 없이 플레이할 수 있어요.' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
+    this.ticketPill.title = tickets.unlimited_play === true ? '게임권 무제한' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
   }
 
   navigate(viewName, { history: writeHistory = true, replace = false } = {}) {
@@ -303,11 +303,22 @@ class AppRouter {
   renderInitError(error) {
     this.setSplashState('error');
     const status = document.getElementById('splash-status-text');
-    if (status) status.textContent = error.status === 401
+    const code = error.data?.error;
+    const eventMessages = {
+      EVENT_NOT_ENABLED: '행사 오픈을 준비하고 있어요. 시작 후 다시 방문해 주세요.',
+      CAMPAIGN_NOT_OPEN: '아직 행사 시작 전이에요. 시작 시각에 다시 방문해 주세요.',
+      CAMPAIGN_CLOSED: '행사가 종료됐어요. 참여해 주셔서 감사합니다.',
+      CAMPAIGN_UNAVAILABLE: '행사가 잠시 중단됐어요. 잠시 후 다시 확인해 주세요.',
+    };
+    if (status) status.textContent = eventMessages[code] || (error.status === 401
       ? '이 브라우저의 참여 기록을 확인할 수 없어요. 운영팀에 문의해 주세요.'
-      : '연결이 잠시 끊겼어요. 잠시 후 다시 연결해 주세요.';
+      : '연결이 잠시 끊겼어요. 잠시 후 다시 연결해 주세요.');
     const retry = document.getElementById('splash-retry');
-    if (retry) retry.onclick = () => this.init({ fromRetry: true });
+    if (retry) {
+      retry.hidden = code === 'CAMPAIGN_CLOSED';
+      retry.textContent = eventMessages[code] ? '다시 확인' : '다시 연결';
+      retry.onclick = () => this.init({ fromRetry: true });
+    }
   }
 
   showCooldownNotice() {

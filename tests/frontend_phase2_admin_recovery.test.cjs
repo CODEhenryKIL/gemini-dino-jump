@@ -35,12 +35,12 @@ function response(status, data) {
   };
 }
 
-const privateSelectors = ['#admin-claims', '#admin-ranking-contacts', '#admin-faults'];
+const privateSelectors = ['#admin-claims', '#admin-ranking-contacts', '#admin-ranking-snapshots', '#admin-faults'];
 const selectors = [
   '#admin-login', '#admin-app', '#admin-name', '#admin-permissions', '#admin-login-message',
   '#admin-email', '#admin-password', '#btn-admin-login', '#btn-admin-logout', '#analytics-filter',
-  '#claim-operations-section', '#ranking-contact-section', '#fault-review-section',
-  '#btn-refresh-claims', '#btn-refresh-ranking-contacts', '#btn-refresh-faults',
+  '#claim-operations-section', '#ranking-contact-section', '#ranking-finalization-section', '#fault-review-section',
+  '#btn-refresh-claims', '#btn-refresh-ranking-contacts', '#btn-refresh-ranking-snapshots', '#btn-create-ranking-snapshot', '#btn-refresh-faults',
   '#btn-campaign-update', '#campaign-status', '#campaign-reason',
   '#admin-load-status', '#admin-load-message', '#btn-admin-retry',
   '#metrics-refreshed', '#metrics-window', '#metrics-grid', '#metrics-scope', '#metrics-definitions',
@@ -108,6 +108,7 @@ function makeRuntime(fetchImpl) {
         showAdmin,
         adminRequest,
         loadMetrics,
+        loadRankingSnapshots,
         setAccessToken(value) { accessToken = value; sessionSet(value); },
         getAccessToken() { return accessToken; },
       };
@@ -294,4 +295,40 @@ test('an older metrics response cannot overwrite the latest filter result or res
     assert.equal(runtime.nodes.get('#campaign-status').value, 'PAUSED');
     assert.equal(runtime.nodes.get('#admin-load-status').hidden, true);
   }
+});
+
+test('ranking writers can finalize a settled snapshot and then process its claims manually', async () => {
+  const requests = [];
+  let finalized = false;
+  const runtime = makeRuntime(async (input, options = {}) => {
+    const requestPath = pathOf(input); requests.push({ path: requestPath, options });
+    if (requestPath === '/api/admin/session') return response(200, { admin: { display_name: '랭킹 운영자', permissions: ['ranking:read', 'ranking:write', 'claims:read'] } });
+    if (requestPath === '/api/admin/claims') return response(200, { claims: [] });
+    if (requestPath === '/api/admin/ranking-contacts') return response(200, { ranking_contacts: [] });
+    if (requestPath === '/api/admin/ranking-snapshots' && (!options.method || options.method === 'GET')) return response(200, { snapshots: [{
+      id: 'snapshot-1', status: finalized ? 'FINAL' : 'DRAFT', tie_policy: 'EARLIEST_ACHIEVED_AT', entry_count: 12,
+      captured_at: '2026-10-02T15:00:31Z', finalized_at: finalized ? '2026-10-02T15:01:00Z' : null,
+    }] });
+    if (requestPath === '/api/admin/ranking-snapshots' && options.method === 'POST') return response(201, { id: 'snapshot-1', status: 'DRAFT' });
+    if (requestPath === '/api/admin/ranking-snapshots/snapshot-1/finalize') { finalized = true; return response(200, { id: 'snapshot-1', status: 'FINAL', final_awards_created: true }); }
+    throw new Error(`unexpected request: ${requestPath}`);
+  });
+  runtime.api.setAccessToken('ranking-token');
+  await runtime.api.showAdmin();
+  assert.equal(runtime.nodes.get('#ranking-finalization-section').hidden, false);
+  assert.equal(runtime.nodes.get('#btn-create-ranking-snapshot').disabled, false);
+  await runtime.nodes.get('#btn-create-ranking-snapshot').onclick();
+  const creation = requests.find(({ path, options }) => path === '/api/admin/ranking-snapshots' && options.method === 'POST');
+  assert.deepEqual(JSON.parse(creation.options.body), { event_id: 'admin-request-id' });
+  const editor = runtime.nodes.get('#admin-ranking-snapshots').children[0];
+  assert.match(visibleText(editor), /확정 전 스냅샷/);
+  assert.match(visibleText(editor), /먼저 달성 우선/);
+  const controls = editor.children.at(-1);
+  const [reason, finalize] = controls.children;
+  reason.value = '행사 종료 후 최종 순위 확정';
+  await finalize.onclick();
+  const mutation = requests.find(({ path, options }) => path.endsWith('/finalize') && options.method === 'POST');
+  assert.deepEqual(JSON.parse(mutation.options.body), { reason: '행사 종료 후 최종 순위 확정', event_id: 'admin-request-id' });
+  assert.match(visibleText(runtime.nodes.get('#admin-ranking-snapshots')), /최종 확정 완료/);
+  assert.match(visibleText(runtime.nodes.get('#admin-ranking-snapshots')), /수령 요청과 경품 예약 생성 완료/);
 });

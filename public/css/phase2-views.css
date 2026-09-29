@@ -26,8 +26,8 @@
 .ranking-metrics span { font-size: 13px; color: #5f6368; }
 .ranking-metrics strong { font-size: clamp(17px, 5vw, 23px); color: #1967d2; overflow-wrap: anywhere; }
 .ranking-time-gap { white-space: pre-line; margin: 20px 0 0; padding: 13px; background: #e8f0fe; border-radius: 12px; font-size: 15px; line-height: 1.65; color: #174ea6; font-weight: 600; text-align: center; }
-.hero-card { gap: 20px; padding: 30px 22px 24px; box-shadow: none; border: 1px solid #e8eaed; background: linear-gradient(155deg, #f6f9ff 0%, #fff 38%, #fff 80%, #f4faf6 100%); }
-.home-event-header { display: grid; justify-items: center; gap: 12px; width: 100%; }
+.hero-card { gap: 12px; padding: 20px 18px; box-shadow: none; border: 1px solid #e8eaed; background: linear-gradient(155deg, #f6f9ff 0%, #fff 38%, #fff 80%, #f4faf6 100%); }
+.home-event-header { display: grid; justify-items: center; gap: 7px; width: 100%; }
 .home-event-badges { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .home-event-badge { display: inline-flex; align-items: center; padding: 5px 10px; border: 1px solid; border-radius: 999px; background: #fff; font-size: 12px; font-weight: 700; line-height: 1.4; white-space: nowrap; box-shadow: 0 2px 6px rgba(60, 64, 67, .08); }
 .home-event-badge-team { color: #4285f4; border-color: #c6d7ff; }
@@ -42,24 +42,25 @@
 .home-built-with { display: inline-flex; align-items: center; justify-content: center; gap: 10px; font-size: clamp(21px, 6.2vw, 27px); font-weight: 400; color: #3c4043; letter-spacing: -.015em; white-space: nowrap; }
 .home-antigravity-logo { width: 32px; height: 32px; flex: 0 0 32px; object-fit: contain; }
 .home-game-title { display: block; margin-top: 3px; }
-.hero-card h1::after { content: ''; display: block; width: 76px; height: 4px; margin: 16px auto 0; border-radius: 4px; background: linear-gradient(90deg, #4285f4 0 25%, #ea4335 25% 50%, #fbbc04 50% 75%, #34a853 75% 100%); }
+.hero-card h1::after { content: ''; display: block; width: 76px; height: 4px; margin: 10px auto 0; border-radius: 4px; background: linear-gradient(90deg, #4285f4 0 25%, #ea4335 25% 50%, #fbbc04 50% 75%, #34a853 75% 100%); }
 .hero-card .stat-grid > div:nth-child(1) strong { color: #1967d2; }
 .hero-card .stat-grid > div:nth-child(2) strong { color: #188038; }
 .hero-card .stat-grid > div:nth-child(3) strong { color: #b06000; }
 .home-campaign-line { max-width: 275px; margin: -6px auto 0; font-size: 15px; line-height: 1.7; letter-spacing: -.015em; color: #3c4043; text-wrap: balance; }
 .home-eligibility { font-size: 10px; line-height: 1.6; color: #747b85; }
-.hero-card .hero-dino { width: 118px; height: 118px; margin: 3px auto 6px; }
-.hero-card .stat-grid { gap: 0; padding: 12px 0; border-top: 1px solid #edf0f4; border-bottom: 1px solid #edf0f4; }
+.hero-card .hero-dino { width: 88px; height: 88px; margin: 0 auto; }
+.hero-card .stat-grid { gap: 0; padding: 9px 0; border-top: 1px solid #edf0f4; border-bottom: 1px solid #edf0f4; }
 .hero-card .stat-grid > div { padding: 0 4px; background: transparent; border-radius: 0; gap: 4px; }
 .hero-card .stat-grid > div + div { border-left: 1px solid #edf0f4; }
 .hero-card .stat-grid small { font-size: 11px; }
-.hero-card .stat-grid strong { font-size: 17px; }
+.hero-card .stat-grid strong { font-size: 16px; }
 .hero-card .status-note { margin: 0; }
 
 /* Short, swipeable game onboarding. Each scene animates only while mounted. */
-.game-guide-dialog .modal-card { width: 100%; max-width: 400px; padding: 24px; position: relative; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+.game-guide-dialog .modal-card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; width: 100%; max-width: 400px; padding: 24px; position: relative; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
 .game-guide-dialog .modal-title { margin-bottom: 16px; padding-right: 40px; min-height: 24px; font-size: 15px; font-weight: 600; color: #5f6368; }
-.game-guide-dialog .modal-body { margin-bottom: 12px; }
+.game-guide-dialog .modal-body { min-height: 0; margin-bottom: 12px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.game-guide-dialog .modal-actions { flex: 0 0 auto; padding-top: 2px; background: #fff; }
 .game-guide-dialog .modal-actions .btn { flex: 1; min-height: 48px; }
 .guide-close { position: absolute; top: 12px; right: 12px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #5f6368; font: 30px/1 sans-serif; cursor: pointer; }
 .guide-close:hover { background: #f1f3f4; }
@@ -102,7 +103,7 @@
 .guide-rank-rewards > div { display: grid; gap: 5px; }
 .guide-rank-rewards > div + div { border-left: 1px solid #e8eaed; }
 .guide-rank-rewards span { color: #5f6368; font-size: 15px; }
-.guide-rank-rewards strong { color: #1967d2; font-size: 28px; font-weight: 600; letter-spacing: -.04em; }
+.guide-rank-rewards strong { color: #1967d2; font-size: clamp(22px, 7vw, 28px); font-weight: 600; letter-spacing: -.04em; white-space: nowrap; }
 .guide-rank-rewards > div:nth-child(2) strong { color: #188038; }
 .guide-rank-rewards > div:nth-child(3) strong { color: #b06000; }
 .guide-live-ranking { text-align: left; }
@@ -153,6 +154,10 @@
   color: var(--text-sub);
   font-size: 13px;
 }
+
+.claim-benefit-card { gap: 14px; }
+.claim-benefit-actions { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: 8px; }
+.claim-benefit-actions .btn { min-width: 0; min-height: 48px; padding-inline: 10px; }
 
 .ticket-ledger {
   display: flex;
@@ -230,9 +235,20 @@ a[aria-disabled="true"] {
 @media (max-width: 350px) {
   .stat-grid { grid-template-columns: 1fr; }
   .hero-card .stat-grid { grid-template-columns: repeat(3, 1fr); }
-  .hero-card { padding: 24px 16px 18px; }
+  .hero-card { padding: 16px 12px; }
   .brand-logo-area img { width: 110px; max-width: 110px; }
   .ticket-ledger { flex-direction: column; gap: 4px; }
+}
+
+@media (max-height: 700px) {
+  .hero-card { gap: 9px; padding-top: 14px; padding-bottom: 16px; }
+  .hero-card h1 { font-size: 27px; }
+  .home-built-with { font-size: 21px; gap: 7px; }
+  .home-antigravity-logo { width: 26px; height: 26px; flex-basis: 26px; }
+  .hero-card .hero-dino { width: 68px; height: 68px; }
+  .home-campaign-line { font-size: 14px; line-height: 1.5; margin-top: 0; }
+  .home-event-header { gap: 5px; }
+  .hero-card .btn-primary { min-height: 48px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -266,13 +282,13 @@ a[aria-disabled="true"] {
 .claim-share-step { display: grid; gap: 14px; text-align: center; }
 .claim-share-step h2 { margin: 0; font-size: 23px; line-height: 1.4; letter-spacing: -.04em; }
 .claim-share-step p { margin: 0; line-height: 1.65; }
+.claim-share-step .invite-kakao-share { line-height: 1.5; word-break: keep-all; }
 .claim-share-step .status-note:empty { display: none; }
+.claim-self-share-note { color: #5f6368; font-size: 13px; }
 
-.claim-save-share { white-space: pre-line; line-height: 1.45; }
-
-.modal-actions.claim-save-actions { display: flex; gap: 8px; }
-.claim-save-actions > .btn-secondary { flex: 0 0 62px; min-width: 0; padding: 12px 6px; font-size: 14px; }
-.claim-save-actions > .claim-save-share { flex: 1 1 0; min-width: 0; padding: 12px 8px; font-size: 15px; white-space: pre; line-height: 1.5; }
+@media (max-width: 360px) {
+  .claim-benefit-actions { grid-template-columns: 1fr; }
+}
 
 /* Short TOP3 celebration, contained within the result card and non-interactive. */
 .result-card { position: relative; overflow: hidden; }

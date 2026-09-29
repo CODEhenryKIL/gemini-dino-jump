@@ -28,7 +28,7 @@ function node(tag = 'div', textContent = '') {
 }
 
 function loadView(file, exportName, globals) {
-  const context = { console, URL, api: { getReferralInfo: async () => ({}) }, loadKakaoSdk: async () => null, ...globals };
+  const context = { console, URL, api: {}, prepareResultReferralShare: async () => ({ share: async () => ({ status: 'cancelled' }) }), ...globals };
   context.globalThis = context;
   const source = fs.readFileSync(path.join(root, file), 'utf8')
     .replace(/^import .*;$/gm, '')
@@ -130,8 +130,11 @@ function createBenefitHarness(navigatorMock, sdk = null, wonPrizeName = null) {
   };
   const document = { hidden: false, createElement: (tag) => node(tag), addEventListener() {}, removeEventListener() {} };
   const view = loadView('public/js/views/benefit_view.js', 'BenefitView', {
-    api: { getReferralInfo: async () => ({ won_prize_name: wonPrizeName }) },
-    analytics, document, navigator: navigatorMock, IntersectionObserver: undefined, loadKakaoSdk: async () => sdk, prepareKakaoPrizeImage: async () => "https://k.kakaocdn.net/prize.png",
+    api: {}, analytics, document, navigator: navigatorMock, IntersectionObserver: undefined,
+    prepareResultReferralShare: async (_router, { kind }) => ({ mode: sdk ? 'kakao' : 'native', share: async () => {
+      if (sdk) sdk.Share.sendDefault({ objectType: 'feed', content: { title: '삼탠바이미 그냥 뿌립니다. 🎁', description: '게임 한 판 하고 꽝 없는 상품 받아가자!', imageUrl: 'https://k.kakaocdn.net/prize.png', link: { webUrl: 'https://example.test/invite/code' } }, buttons: [{ link: { webUrl: 'https://example.test/invite/code' } }] });
+      return { method: sdk ? 'kakao' : 'native', status: 'pending', kind, wonPrizeName };
+    } }),
     ui: { text(target, value) { target.textContent = String(value); }, showToast(message) { toasts.push(message); } },
   });
   const router = { config: { official_url: 'https://gemini.google.com/students' } };
@@ -246,7 +249,7 @@ test('benefit deferred native success invokes once and keeps share_sheet_closed 
 });
 
 
-test('benefit Kakao share includes prize image and keeps the official benefit destination', async () => {
+test('benefit bottom Kakao share promotes the game with the prize image and game destination', async () => {
   const sent = [];
   const harness = createBenefitHarness({}, { Share: { sendDefault(payload) { sent.push(payload); } } }, '소니 ULT WEAR 헤드셋');
   harness.view.render(harness.container, harness.router);
@@ -255,8 +258,8 @@ test('benefit Kakao share includes prize image and keeps the official benefit de
   assert.equal(sent.length, 1);
   assert.equal(sent[0].objectType, 'feed');
   assert.equal(sent[0].content.imageUrl, 'https://k.kakaocdn.net/prize.png');
-  assert.equal(sent[0].content.title, '나 소니 ULT WEAR 헤드셋 이거 받음');
-  assert.equal(sent[0].content.description, '아직 삼텐바이미 남았다는데\n\n너도 게임 한 판 하고\n상품 뽑아봐!');
-  assert.equal(sent[0].content.link.webUrl, 'https://gemini.google.com/students');
+  assert.equal(sent[0].content.title, '삼탠바이미 그냥 뿌립니다. 🎁');
+  assert.equal(sent[0].content.description, '게임 한 판 하고 꽝 없는 상품 받아가자!');
+  assert.equal(sent[0].content.link.webUrl, 'https://example.test/invite/code');
   assert.equal(sent[0].buttons[0].link.webUrl, sent[0].content.link.webUrl);
 });
