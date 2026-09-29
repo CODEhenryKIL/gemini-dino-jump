@@ -12,7 +12,16 @@ SPEC.loader.exec_module(MODULE)
 
 class Phase3PreflightTest(unittest.TestCase):
     def setUp(self):
-        self.manifest = json.loads((ROOT / "config/phase3-launch.json").read_text())
+        self.manifest = json.loads((ROOT / "docs/evidence/production-off-v6-20260929.json").read_text())
+        self.active_manifest = json.loads((ROOT / "config/phase3-launch.json").read_text())
+
+    def test_current_normative_manifest_is_launch_ready(self):
+        result = MODULE.validate(self.active_manifest)
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["pending"], [])
+        self.assertTrue(result["launch_ready"])
+        self.assertEqual(self.active_manifest["status"], "APPROVED")
+        self.assertTrue(self.active_manifest["event_enabled"])
 
     def test_confirmed_inventory_and_pending_policies_are_distinct(self):
         result = MODULE.validate(self.manifest)

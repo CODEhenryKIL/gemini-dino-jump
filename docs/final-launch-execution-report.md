@@ -3,7 +3,7 @@
 - 작성일: 2026-09-29
 - 실행 계획: [최종 오픈 실행 계획](final-launch-execution-plan.md)
 - 실행 브랜치: `codex/final-launch-preflight`
-- 현재 상태: **최종 원격 부하 완료. 21시 시작·GS 10개·추첨 소진 후 Gemini 제공 반영. 운영 이벤트는 OFF이며 공개 전환·베타 삭제는 아직 실행하지 않음. 아래 최신 기록을 기준으로 확인한다.**
+- 현재 상태: **20:24 KST 정식 주소 Production 전환 완료. 베타 최종 백업·복원 검증·초기화 및 무제한 해제 완료. 21시 자동 시작 대기. Datadog 운영 수신 확인. GA4 운영 SDK·기존 거부 유지 확인, 21시 이후 첫 정상 참여·보고서 수신은 마지막 확인으로 남음. 아래 최신 기록을 기준으로 확인한다.**
 
 ## 확인한 운영 준비 상태
 
@@ -150,3 +150,16 @@
 - 운영 후보 `dpl_7av2c4RnYvfsPWfh8fZNTq7MAqh7` / `https://dino-nanobanana-rmq0as5wz-henry-kils-projects.vercel.app`: Production READY, 홈·health·config HTTP 200, DB ready, manifest hash 일치, 21시·PAUSED/OFF 확인.
 - 공개 베타 `dpl_F4VNVLSmTmcKJWHZ7NNd4zygzHt4` / `https://dino-nanobanana-ic1hh37xi-henry-kils-projects.vercel.app`: 기존 공개 주소 `https://google-korea-team-gemini.vercel.app`에 연결. Preview/DB ready 및 GA4 테스트 속성 확인. 베타 무제한 설정은 유지한다.
 - 기존 `dino-nanobanana.vercel.app` 및 보조 프로젝트 별칭은 기존 배포로 보존한다. 운영 ON·베타 초기화는 이번 변경에 포함하지 않는다.
+
+## 2026-09-29 20:24 KST — 본행사 공개 전환
+
+- 사용자가 현재 부하 범위와 200명 추첨 p95 약 4.9초를 받아들이고 오늘 21시 오픈을 승인했다. 마지막 휴대폰 큰 글씨·키보드 확인도 문제 없다고 답했다. [승인 기록](evidence/launch-user-decisions-20260929.json).
+- Production 배포 `dpl_AwgKgnPi3yrhF31DAGU7c3tbvCJ6`, 코드 SHA `2f29df7ab32467dc12eb014efb51841b3c46af26`. v7 APPROVED/ON 설정 SHA `9de34dafb14aaa0e45e78887293df6196e6710a5b3213ea67f5fd5ddd5dcfbea`. DB guard와 배포 설정 일치, 캠페인 version 4/ACTIVE, 무제한 false, 합성재고 false.
+- 정식 주소의 홈·config·health·관리자·개인정보·leaderboard GET 200, DB ready, 빈 랭킹 확인. 브라우저는 행사 시작 전 안내를 표시한다. 시작 9/29 21시, 행사 10/2 23:59까지, 수령 입력 10/3 23:59까지.
+- 고유 ON 후보의 GET /api/me는 403 PUBLIC_HOST_REQUIRED. DB 활성화 전 후보 config 503은 guard 해시 전환 전의 예상 거절이며 활성화 후 200이다. 추가 참가자 생성 요청은 자동 승인 검사에서 잠재적 기록 생성을 이유로 차단되어 이후 읽기 전용 검증으로 전환했다. 실제 상품 추첨은 하지 않았다.
+- 기존 두 dino-nanobanana 별칭은 원래 배포 `dpl_2rTHbCNUGMLeA1nUMycDzLvBUFW8`로 보존했다. Vercel 프로젝트의 Git 연결 없음 확인. 향후 Production 배포용 PRODUCTION_MANIFEST_SHA256도 현재 해시로 저장했다.
+- 20:21:51 KST 베타 쓰기 권한 회수와 진행 중 트랜잭션 종료 후 32테이블 비공개 백업. 격리 로컬 DB에서 전체 행·제약·identity 시퀀스 복원 일치. 정식 주소 읽기 검사 후 계획 토큰을 대조하여 베타 초기화. 참가자 5,053→0, 게임 771→0, 추첨 531→0, 수령 9→0. 베타 쓰기 권한 0개, 관리자 2명과 schema version 12개 보존. 운영 관리자 1명과 재고 66/풀 5,000/미배정 5,000 보존. 삭제 SQL은 dino_dev에 한정되며 공용 인증·다른 앱 스키마·dino_prod 삭제 구문이 없다. [전환 증거](evidence/public-cutover-20260929.json).
+- 정확한 v6 OFF manifest와 검증된 OFF 후보를 보존했다. DB 활성화 직후 version 4 기준 복귀 계획과 SQL을 준비했다. 운영 기록이 생기거나 1시간이 지나면 새 snapshot으로 재생성해야 하며, 복귀 시 운영 기록을 삭제하지 않는다.
+- Datadog Production health 로그 수신, Production error/gap 모니터 OK. 기존 2개 Synthetic은 canonical 주소·10분·Seoul을 유지하며 Production 이름·태그로 전환했다. Preview 모니터 mute, Preview drain 중지, Production drain 유지. [관측 증거](evidence/monitoring-cutover-20260929.json).
+- GA4는 기존 거부 브라우저에서 SDK 없음 확인. 시험 중 일시 재사용 선택 후 운영 SDK G-6GMP7FRN3B 로딩 확인. 시작 전 참가 초기화가 차단되므로 정상 홈 이벤트의 운영 실시간 수신은 21시 이후 첫 정상 진입에서 확인한다. 검증 후 시험 브라우저 거부 상태 복원 예정.
+- 승인 설정 전환에 따라 Draft 검사 fixture를 보존한 OFF 파일로 분리하고 현재 ON 설정 검증을 추가했다. 관련 34개 검사 통과. 런타임·상품·게임 규칙 추가 변경 없음.

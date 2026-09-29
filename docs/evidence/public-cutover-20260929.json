@@ -1,0 +1,81 @@
+{
+  "verified_at": "2026-09-29T20:34:00+09:00",
+  "state": "PRODUCTION_SCHEDULED_OPEN",
+  "public_url": "https://google-korea-team-gemini.vercel.app/",
+  "deployment_id": "dpl_AwgKgnPi3yrhF31DAGU7c3tbvCJ6",
+  "deployment_sha": "2f29df7ab32467dc12eb014efb51841b3c46af26",
+  "manifest_sha256": "9de34dafb14aaa0e45e78887293df6196e6710a5b3213ea67f5fd5ddd5dcfbea",
+  "opens_at": "2026-09-29T21:00:00+09:00",
+  "closes_at_exclusive": "2026-10-03T00:00:00+09:00",
+  "claim_closes_at_exclusive": "2026-10-04T00:00:00+09:00",
+  "campaign_version": 4,
+  "database_after_reset": {
+    "beta_draws": 0,
+    "beta_games": 0,
+    "prod_draws": 0,
+    "prod_games": 0,
+    "beta_admins": 2,
+    "beta_claims": 0,
+    "beta_status": "PAUSED",
+    "prod_claims": 0,
+    "prod_enabled": true,
+    "prod_inventory": 66,
+    "prod_unlimited": false,
+    "beta_participants": 0,
+    "prod_participants": 0
+  },
+  "privilege_and_pool_verification": {
+    "prod_pool": 5000,
+    "prod_admins": 1,
+    "prod_allocation": 0,
+    "beta_schema_versions": 12,
+    "beta_writable_tables": 0,
+    "prod_schema_versions": 12
+  },
+  "beta_before": {
+    "participants": 5053,
+    "games": 771,
+    "draws": 531,
+    "claims": 9
+  },
+  "backup": {
+    "captured_at": "20260929T112151Z",
+    "sha256": "24c1c357103c804f75e106429672a747fb75c7abc6a8bf7b0aae10021a1a7ea6",
+    "private_only": true,
+    "tables": 32,
+    "exact_rows_match": true,
+    "constraints_checked": true,
+    "identity_sequences_restored": true
+  },
+  "http": {
+    "home": 200,
+    "config": 200,
+    "health": 200,
+    "admin": 200,
+    "privacy": 200,
+    "leaderboard": 200,
+    "leaderboard_rows": 0,
+    "on_candidate_me": 403,
+    "on_candidate_error": "PUBLIC_HOST_REQUIRED"
+  },
+  "rollback": {
+    "off_candidate": "dpl_7av2c4RnYvfsPWfh8fZNTq7MAqh7",
+    "off_hash": "5326e40f39189b9a91e4fe0fdfbc77a788c1526c71af4f26e4eaf9517b2886f9",
+    "prepared": true,
+    "refresh_after_new_records_or_one_hour": true
+  },
+  "monitoring": "docs/evidence/monitoring-cutover-20260929.json",
+  "drains": {
+    "production": "enabled",
+    "preview": "disabled"
+  },
+  "ga4": {
+    "measurement_id": "G-6GMP7FRN3B",
+    "sdk_loaded": true,
+    "previous_optout_respected": true,
+    "report_receipt": "PENDING_FIRST_NORMAL_ENTRY_AFTER_21_00"
+  },
+  "first_normal_entry": "PENDING_SCHEDULED_OPEN",
+  "synthetic_production_draws": 0,
+  "git_auto_deploy": false
+}
