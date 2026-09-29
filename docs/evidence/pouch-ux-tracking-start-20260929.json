@@ -1,0 +1,72 @@
+{
+  "cutoff_kst": "2026-09-29T22:11:08+09:00",
+  "cutoff_basis": "production deployment verification time; not per-visitor version exposure",
+  "unit": "unique participant_id",
+  "snapshots": [
+    {
+      "observed_until_kst": "2026-09-29 22:14:59",
+      "queried_at_kst": "2026-09-29 22:14:59",
+      "period": "all_current",
+      "participants": 158,
+      "drawn": 61,
+      "undrawn": 97,
+      "drawn_percent": "38.61",
+      "undrawn_percent": "61.39",
+      "completed_game": 114,
+      "completed_and_drawn": 61,
+      "completed_game_drawn_percent": "53.51"
+    },
+    {
+      "observed_until_kst": "2026-09-29 22:14:59",
+      "queried_at_kst": "2026-09-29 22:14:59",
+      "period": "before_deployment",
+      "participants": 150,
+      "drawn": 60,
+      "undrawn": 90,
+      "drawn_percent": "40.00",
+      "undrawn_percent": "60.00",
+      "completed_game": 109,
+      "completed_and_drawn": 60,
+      "completed_game_drawn_percent": "55.05"
+    },
+    {
+      "observed_until_kst": "2026-09-29 22:14:59",
+      "queried_at_kst": "2026-09-29 22:14:59",
+      "period": "before_deployment_30m",
+      "participants": 89,
+      "drawn": 36,
+      "undrawn": 53,
+      "drawn_percent": "40.45",
+      "undrawn_percent": "59.55",
+      "completed_game": 59,
+      "completed_and_drawn": 36,
+      "completed_game_drawn_percent": "61.02"
+    },
+    {
+      "observed_until_kst": "2026-09-29 22:14:59",
+      "queried_at_kst": "2026-09-29 22:14:59",
+      "period": "new_after_deployment",
+      "participants": 8,
+      "drawn": 1,
+      "undrawn": 7,
+      "drawn_percent": "12.50",
+      "undrawn_percent": "87.50",
+      "completed_game": 5,
+      "completed_and_drawn": 1,
+      "completed_game_drawn_percent": "20.00"
+    },
+    {
+      "observed_until_kst": "2026-09-29 22:14:59",
+      "queried_at_kst": "2026-09-29 22:14:59",
+      "period": "new_after_deployment_30m",
+      "participants": 0,
+      "drawn": 0,
+      "undrawn": 0,
+      "drawn_percent": null,
+      "undrawn_percent": null,
+      "completed_game": 0,
+      "completed_and_drawn": 0,
+      "completed_game_drawn_percent": null
+    }
+  ]
+}
