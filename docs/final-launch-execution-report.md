@@ -19,7 +19,7 @@
 
 ## Production 후보 검증
 
-- 최신 후보 배포 `dpl_2QNuiZQHwoBqsYDvmFwti9Yo4zeH`은 커밋 `ba5826d`의 운영 전환 보호 코드를 포함해 READY다. 고유 주소는 `https://dino-nanobanana-jwpczflr5-henry-kils-projects.vercel.app`이며, 이벤트는 OFF로 유지했다. 관리자 비밀번호 설정·실제 로그인 확인은 이전 후보 `dpl_94Yqtt6yTqrELm6Rp9JGdwdeNVv7`에서 완료했다. 두 고유 URL 모두 외부에서 접근 가능하며 친근 공개 별칭으로는 승격하지 않았다.
+- 최신 후보 배포 `dpl_GsFxKdjVJ35aw6ierpKvbpBZA9ku`은 커밋 `ac25e67`의 모바일 입력 확대 대응·안내 문구 수정을 포함해 Production READY다. 고유 주소는 `https://dino-nanobanana-3rfft9nhq-henry-kils-projects.vercel.app`이며, 이벤트는 OFF로 유지했다. 이전 전환 보호 후보는 `ba5826d`/`dpl_2QNuiZQHwoBqsYDvmFwti9Yo4zeH`였다. 관리자 비밀번호 설정·실제 로그인 확인은 이전 후보 `dpl_94Yqtt6yTqrELm6Rp9JGdwdeNVv7`에서 완료했다. 두 고유 URL 모두 외부에서 접근 가능하며 친근 공개 별칭으로는 승격하지 않았다.
 - `/api/health`는 HTTP 200, `environment=production`, `database=ready`, `schema=dino_prod`, `synthetic_only=false`, `test_seed=false`, `campaign_status=PAUSED`, 남은 재고 80을 반환했다.
 - `/api/config`는 운영 캠페인·게임 버전·GA4 운영 속성·정확한 허용 origin과 `event_enabled=false`를 반환했다. 비밀값은 응답에 없었다.
 - 최신 후보에서 새 참가자, 게임, 추첨 POST는 모두 HTTP 409 `EVENT_NOT_ENABLED`로 거절됐고 미인증 관리자 API는 HTTP 401 `ADMIN_AUTH_REQUIRED`로 거절됐다. `/api/health`·`/api/config`는 HTTP 200이다. 증거는 `.local/final-launch/cutover-candidate-verification.json`에 보관했다. 추가한 공유 트랜잭션 잠금도 실제 운영 전용 역할에서 실행됐으며 참여·추첨 기록은 생성하지 않았다.
@@ -109,3 +109,10 @@
 - 분석 동의 자동 허용은 적용하지 않았다.
 
 - 후속 사용자 요청에 따라 수령함·게임 결과의 입력 폼에서 재학생/휴학생·개인정보 보관 안내 세 문장을 제거하고 `문의: sea42471@naver.com`만 남겼다. 동의 체크박스·오기재 안내는 유지하며, 확정한 운영 자격·삭제 기한 자체는 변경하지 않는다.
+
+## 최신 수정본 배포 대조 (ac25e67)
+
+- 공개 베타: `dpl_2wHRvqVxqUEn4goDVJgDqTAfM8HX`, `https://google-korea-team-gemini.vercel.app`, `preview / dino_dev / ACTIVE`. 입력 최소 16px와 수령함·결과 폼의 문의 이메일만 표시하는 수정이 반영됐다. 관련 화면 검사 15/15, 두 JS 구문 및 diff 검사가 통과했다.
+- 운영 OFF 후보: `dpl_GsFxKdjVJ35aw6ierpKvbpBZA9ku`, `production / dino_prod / PAUSED`. 운영 guard·기존 manifest 해시 일치, 이벤트 OFF와 GA4 운영 ID를 준비 스크립트의 읽기 전용 검사로 확인했다. 홈·health·config·CSS·두 입력 화면 JS가 모두 HTTP 200이고 최신 수정과 일치했다.
+- Production `--skip-domain` 배포 때 Vercel이 보조 프로젝트 별칭을 바꾸는 기존 동작에 대응해 원래 배포로 복원했다. 세 별칭의 전후 deployment ID가 모두 동일함을 대조했다. 공개 친근 별칭은 베타 그대로다. `candidate-ac25e67-verification.json`, `aliases-before-ac25e67.json`, `aliases-after-ac25e67.json`은 비공개 `.local/final-launch/`에 보관한다.
+- 이번 배포에서 운영 ON, 베타 쓰기 중단·삭제, 무제한 해제, 원격 부하는 실행하지 않았다. 이미 묶인 OFF manifest는 수정하지 않았으며, Notion/혜택 링크·복귀 리허설 등 후속 확인 근거는 공개 전 최종 manifest를 만들 때 이 기록에서 가져온다.
