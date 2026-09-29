@@ -2,7 +2,7 @@
 
 - 작성일: 2026-09-29
 - 범위: GA4 보조 분석과 Datadog 장애 감시
-- 현재 상태: Preview GA4 테스트 연결과 Datadog Log Management·Preview 전용 Vercel 드레인 활성화, 실제 안전 로그 수신 검증 완료
+- 현재 상태: Preview GA4·Datadog 연결 유지. Production 후보의 환경 변수·별도 로그 드레인·오류 모니터·대시보드 준비 및 실제 운영 상태 로그 수신 확인. 공개 주소는 아직 베타이며 최종 상태는 [오픈 실행 기록](final-launch-execution-report.md) 참조.
 - 현재 공개 베타 환경: `APP_ENV=preview`
 - 운영 원칙: GA4와 Datadog은 관측 도구이며 게임권, 추첨, 순위, 당첨 및 수령 권리의 판정 근거가 아니다.
 
@@ -161,7 +161,7 @@
 9. Datadog 수신 JSON에 `message=api_request`, `service`, `env`, `campaign`, `version`, `ddtags`, 정규화된 `route`만 남고 proxy 경로·쿼리·IP·header·body가 없는지 확인한다.
 10. Preview 표본 승인 후 Production 드레인을 별도로 검증한다.
 
-수신기는 Vercel 서명을 검증하고 정확한 프로젝트·환경·캠페인·배포·Lambda source만 허용한다. `type`은 없거나 `stderr`일 때만 허용하며 명시적인 다른 값은 버린다. Datadog 전송 실패 시 502를 반환해 Vercel 재시도 대상으로 남기며 원본 payload나 키를 응답하지 않는다.
+수신기는 Vercel 서명을 검증하고 정확한 프로젝트·환경·캠페인·배포·Lambda source만 허용한다. `type`은 없거나 `stdout`·`stderr`일 때 허용하며 명시적인 다른 값은 버린다. 허용된 유형이라도 정해진 구조의 `api_request`만 필드별 검사를 통과할 수 있고 일반 출력·임의 개인정보 JSON은 버린다. Datadog 전송 실패 시 502를 반환해 Vercel 재시도 대상으로 남기며 원본 payload나 키를 응답하지 않는다.
 
 ### 3.4 5일 비용 가정
 
