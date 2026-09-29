@@ -59,9 +59,9 @@ def _claim_submission_allowed(conn,campaign,ctx):
     if _request_time(conn,ctx)>=cutoff:raise DomainError("CLAIM_SUBMISSION_CLOSED","수령 정보 접수 기간이 종료되었습니다.",409)
 def _participant(conn,ctx,lock=False,active=False):
     token_hash=ctx.get("participant_token_hash")
-    if not token_hash: raise DomainError("UNAUTHORIZED","참가자 인증이 필요합니다.",401)
+    if not token_hash: raise DomainError("UNAUTHORIZED","참가자 인증이 필요합니다. 페이지를 새로고침해 주세요.",401)
     row=_one(conn,f"select * from {database_schema()}.participant where token_hash=%s and token_expires_at>clock_timestamp()"+(" for update" if lock else ""),(token_hash,))
-    if not row: raise DomainError("SESSION_INVALID","참가자 인증이 만료되었거나 유효하지 않습니다.",401)
+    if not row: raise DomainError("SESSION_INVALID","참가자 인증이 만료되었거나 유효하지 않습니다. 페이지를 새로고침해 주세요.",401)
     if active and row["status"]!="ACTIVE": raise DomainError("PARTICIPANT_BLOCKED","현재 참여할 수 없습니다.",403)
     return row
 def _public(row): return {"id":row["id"],"nickname":row["nickname"],"is_public":row["is_public"],"referral_code":row["referral_code"]}
