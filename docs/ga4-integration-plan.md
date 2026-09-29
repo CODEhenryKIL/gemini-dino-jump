@@ -14,7 +14,7 @@
 - 광고·Google Signals·사용자 ID 연결·수령 입력값 전송을 제외하고, 운영/베타 속성 분리와 사용자·이벤트 보관 2개월을 유지한다.
 - EEA·영국·스위스는 Google 태그의 지역별 분석 저장 기본값을 `denied`로 둔다. 이 경우에도 Google로 쿠키 없는 측정 요청이 갈 수 있으며, 전송이 없거나 법적 검토가 면제된다는 뜻은 아니다.
 - GA4 기본 쿠키 수집을 국내에서 동의 없이 운영할 수 있는 법적 근거·국외 이전 요건 충족은 이번 기술 수정만으로 확정하지 않는다. Google 약관은 개인정보 안내와 해당 법에서 요구하는 동의를 구분한다.
-- 재활성화는 자동 승인 검사가 과거 미사용 선택과 충돌한다고 보아 한 차례 거절했다. 이후 사용자가 전송 정보·기존 거부 유지·개인정보 안내를 확인하고 **‘이전 미사용 취소, GA4 자동 분석 켜기’**로 명시 재승인했다. 설정 반영·검사·배포 결과는 아래와 실행 기록에 이어 기록한다.
+- 재활성화는 자동 승인 검사가 과거 미사용 선택과 충돌한다고 보아 한 차례 거절했다. 이후 사용자가 전송 정보·기존 거부 유지·개인정보 안내를 확인하고 **‘이전 미사용 취소, GA4 자동 분석 켜기’**로 명시 재승인했다. Preview/Production 설정을 다시 활성화했고, 공개 베타에 `2cea712`를 배포했다. 관련 검사 83개와 실제 브라우저 태그 로드·거부 유지 확인은 [실행 기록](final-launch-execution-report.md)에 기록했다.
 - 아래 동의 팝업 검사 기록은 이전 버전 검증 내역이다. 새 정책의 검사와 배포 증거는 별도로 기록한다.
 
 근거: [Google Analytics 약관 7절](https://marketingplatform.google.com/about/analytics/terms/us/), [Consent Mode](https://developers.google.com/tag-platform/security/concepts/consent-mode), [지역별 기본 설정](https://developers.google.com/tag-platform/security/guides/consent).

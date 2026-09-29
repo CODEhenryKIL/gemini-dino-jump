@@ -116,3 +116,18 @@
 - 운영 OFF 후보: `dpl_GsFxKdjVJ35aw6ierpKvbpBZA9ku`, `production / dino_prod / PAUSED`. 운영 guard·기존 manifest 해시 일치, 이벤트 OFF와 GA4 운영 ID를 준비 스크립트의 읽기 전용 검사로 확인했다. 홈·health·config·CSS·두 입력 화면 JS가 모두 HTTP 200이고 최신 수정과 일치했다.
 - Production `--skip-domain` 배포 때 Vercel이 보조 프로젝트 별칭을 바꾸는 기존 동작에 대응해 원래 배포로 복원했다. 세 별칭의 전후 deployment ID가 모두 동일함을 대조했다. 공개 친근 별칭은 베타 그대로다. `candidate-ac25e67-verification.json`, `aliases-before-ac25e67.json`, `aliases-after-ac25e67.json`은 비공개 `.local/final-launch/`에 보관한다.
 - 이번 배포에서 운영 ON, 베타 쓰기 중단·삭제, 무제한 해제, 원격 부하는 실행하지 않았다. 이미 묶인 OFF manifest는 수정하지 않았으며, Notion/혜택 링크·복귀 리허설 등 후속 확인 근거는 공개 전 최종 manifest를 만들 때 이 기록에서 가져온다.
+
+
+## 2026-09-29 — 팝업 없는 GA4와 공유 버튼 줄바꿈
+
+- 사용자 최종 결정: **‘이전 미사용 취소, GA4 자동 분석 켜기’**. 이전 선택과 충돌한다는 자동 승인 거절 후 사용자가 재승인했다.
+- 코드: `2cea712`. 공개 베타: `dpl_5dTEToghQwWkXCtYU2UjPbA574EJ`, `https://dino-nanobanana-7ulm7kkkm-henry-kils-projects.vercel.app`. 기존 `google-korea-team-gemini.vercel.app`에 연결했다.
+- 팝업·상단 분석 설정 제거. `/privacy.html`에 안내·수집 중지 경로 제공. 방문 자체를 명시 동의로 저장하지 않으며, 과거 거부·브라우저 거부·저장소 확인 실패는 우선 차단한다.
+- 운영/Preview 환경의 `GA4_ENABLED=true` 적용. 공개 베타 `/api/config`에서 `preview`, 테스트 속성 `G-VG9FXGTRDE`, `enabled=true` 확인. 운영 속성으로 베타 이벤트를 보내지 않는다.
+- 관련 검사 **83/83 통과**, 변경 JavaScript 구문·diff 검사 통과. 신규 배포의 홈·설정·상태·개인정보 안내·변경 JS는 GET 200 및 소스 일치를 확인했다.
+- 실제 Chrome 확인: 팝업·상단 설정 없음. 기존 거부 브라우저에서 GA4 SDK 없음 → 안내의 다시 사용 선택 후 팝업 없이 테스트 GA4 SDK 로드 → 사용 중지 후 SDK 없음. 시험 브라우저는 원래 거부 상태로 복원했다. 콘솔 오류 없음. 이번 전환 후 새 이벤트의 Google 보고서/DebugView 수신까지 확인한 것은 아니다.
+- 복주머니 결과와 수령함의 공유 버튼은 `공유하고` 다음 줄에 `한 번 더 뽑기`를 표시한다. 공유·보상 판정은 그대로다.
+- 사용자가 실제 iPhone 입력 확대 해결을 확인했다. 큰 글씨·키보드 전체 기기 조합 확인과는 구분한다.
+- 본행사 전환·베타 초기화·무제한 해제·원격 부하 테스트는 수행하지 않았다. 기존 Production OFF 후보 `dpl_GsFxKdjVJ35aw6ierpKvbpBZA9ku`에는 이번 프런트 변경이 없으므로, 최종 공개 전에 현재 코드로 후보를 다시 만들어 확인해야 한다.
+- 개인정보/국외 이전에 관한 국내 법적 적합성 전체를 인증한 결과가 아니다. Google 지역 기본값 `denied`도 쿠키 없는 전송을 포함할 수 있다는 점을 공개 안내에 명시했다.
+- 미완성 `scripts/phase3_load.py`는 이번 커밋·배포 대상에 넣지 않았다. 별도 로컬 초안으로 남아 있고 실행 승인도 없다.
