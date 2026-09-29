@@ -204,9 +204,9 @@ body {
 .score-panel > strong { font-size: 42px; color: var(--primary); }
 .score-panel > div { display: flex; justify-content: space-around; font-weight: 700; }
 .result-card { gap: 11px; padding-top: 22px; padding-bottom: 22px; }
-.result-card > h1 { margin-bottom: 2px; }
-.result-score-panel { padding: 14px 16px 12px; gap: 5px; border-radius: 16px; }
-.result-score-panel > strong { font-size: clamp(36px, 11vw, 48px); line-height: 1.05; }
+.result-card > h1 { margin-bottom: 0; font-size: 20px; }
+.result-score-panel { padding: 10px 16px; gap: 5px; border-radius: 16px; }
+.result-score-panel > strong { font-size: clamp(28px, 8vw, 36px); line-height: 1.05; }
 .result-score-panel > div { gap: 16px; justify-content: center; font-size: 14px; }
 .inline-notice { padding: 14px; background: #fff8df; border-radius: 14px; text-align: left; }
 .inline-notice p { font-size: 12px; margin: 6px 0 10px; }

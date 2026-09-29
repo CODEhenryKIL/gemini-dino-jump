@@ -424,7 +424,7 @@ test('passive TOP3 refresh preserves in-progress contact values', () => {
   assert.equal(field.value, '작성 중');
 });
 
-test('result sharing opens the prepared share action in place above the pouch', async () => {
+test('result prioritizes the pouch before replay and sharing while sharing opens in place', async () => {
   let shares = 0;
   const { view } = loadResult({ prepareResultReferralShare: async () => ({ share() { shares++; } }) });
   const { container, nodes } = resultContainer();
@@ -435,7 +435,7 @@ test('result sharing opens the prepared share action in place above the pouch', 
   assert.equal(shares, 1);
   assert.deepEqual(routes, []);
   assert.ok(container.innerHTML.indexOf('id="btn-play-again"') < container.innerHTML.indexOf('id="btn-share-record"'));
-  assert.ok(container.innerHTML.indexOf('id="btn-share-record"') < container.innerHTML.indexOf('id="btn-go-pouch"'));
+  assert.ok(container.innerHTML.indexOf('id="btn-go-pouch"') < container.innerHTML.indexOf('id="btn-play-again"'));
   assert.ok(container.innerHTML.indexOf('id="top3-request"') > container.innerHTML.indexOf('id="btn-go-pouch"'));
   assert.doesNotMatch(container.innerHTML, /기록 검증 완료/);
   assert.doesNotMatch(container.innerHTML, /#TeamGemini|2026 캠퍼스 챌린지|랭킹 닉네임|이번 판/);
