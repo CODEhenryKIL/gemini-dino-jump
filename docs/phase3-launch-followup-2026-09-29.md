@@ -39,7 +39,16 @@
 
 ## 원격 반영
 
-아래 반영 결과는 실제 배포·DB 검증이 끝난 뒤 추가한다. 현재 이 문서의 로컬 테스트 통과를 본행사 오픈 완료로 해석하지 않는다.
+- 배포 코드: `99d3865`.
+- Preview: `dpl_HdiPF3yq9mtBLpFvdjKGJ9tF6A9r`, READY.
+- 베타 주소: https://google-korea-team-gemini.vercel.app/
+- 신규 DB migration: `20260929021923_finalize_ranking_awards.sql`, 기존 `dino_dev`에 적용.
+- 반영 직전 비공개 백업 저장 후 31개 테이블의 기존 행·컬럼 해시 대조 통과. 참가자29·추첨9·수령2 보존.
+- 익명 HTTP로 health/config 200, DB ready, Kakao webhook 설정 활성, app/prize/admin JS의 로컬 파일 해시 일치 확인.
+- 기존 베타 무제한·테스트 재고 유지. 원래 `dino-nanobanana.vercel.app` 주소에 대한 연결 변경은 하지 않음.
+- 원격 `dino_prod`는 아직 생성하지 않았다. 실제 본행사 오픈·실제 상품 배정은 미실행.
+- 로컬 3109와 격리 QA 3119에도 migration 적용 및 서버 재시작. 참가자·추첨·수령 건수를 보존하고 health ready 확인.
+- 조건부 생략 2개는 별도 데이터셋이 필요한 코호트 PostgreSQL 검사와 5,000자리 전량 소진 검사다. 이번에는 기존 회귀와 분리 운영 스키마 적재 검증을 실행했다.
 
 ## 남은 확인
 
