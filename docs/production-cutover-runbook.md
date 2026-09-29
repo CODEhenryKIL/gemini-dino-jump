@@ -15,15 +15,15 @@
 
 다음 항목이 모두 준비돼야 활성화를 진행한다.
 
-1. 정확한 원본 바이트의 `OFF` manifest와 최종 승인된 `ON` manifest가 있다.
+1. 정확한 원본 바이트의 `OFF` manifest와 최종 승인된 `ON` manifest가 있다. 현재 `OFF` 원본은 `phase3-20260929-v6-preparation`, SHA-256 `5326e40f39189b9a91e4fe0fdfbc77a788c1526c71af4f26e4eaf9517b2886f9`이다.
 2. 두 manifest에서 전환 메타데이터(`version`, `status`, `event_enabled`, `approvals`, `evidence`) 외의 행사 일정·상품·정책·캠페인 ID가 같다.
 3. `ON` manifest의 모든 승인과 증빙이 실제 근거를 가리키며 preflight가 launch ready다.
-4. 현재 DB campaign version을 읽어 기록했다.
+4. 현재 DB campaign은 version `3`, `PAUSED`, `event_enabled=false`이며 guard의 manifest SHA-256이 1번 `OFF` 원본과 일치한다.
 5. OFF 후보와 ON 후보 배포의 코드 SHA 및 deployment ID를 기록했다.
 6. ON 후보의 고유 Vercel URL에서는 운영 guard가 ON이어도 공개 mutation이 canonical host 검사로 거부됨을 확인했다.
 7. 베타 사이트는 별칭 전환 전에 격리한다.
 8. 초기 활성화 시 `participant`, `game_session`, `draw`, `claim`이 모두 비어 있어야 한다.
-9. draw pool은 5,000칸(실물 상품 77, 혜택 4,923), 재고는 복주머니 77개와 랭킹 3개로 일치해야 한다.
+9. draw pool은 5,000칸(실물 상품 63, 혜택 4,937), 재고는 복주머니 63개와 랭킹 3개를 합친 총 66개로 일치해야 한다.
 
 현재 원격 상태가 `OFF`라는 확인만으로 활성화 승인이 되지는 않는다.
 
@@ -36,7 +36,7 @@
   --source-manifest /private/tmp/dino-off.json \
   --target-manifest /private/tmp/dino-on.json \
   --mode activate \
-  --expected-campaign-version 1 \
+  --expected-campaign-version 3 \
   --validate-only
 ```
 
@@ -53,7 +53,7 @@
   --source-manifest /private/tmp/dino-off.json \
   --target-manifest /private/tmp/dino-on.json \
   --mode activate \
-  --expected-campaign-version 1 \
+  --expected-campaign-version 3 \
   --print-state-sql > /private/tmp/dino-cutover-state.sql
 ```
 
@@ -72,7 +72,7 @@
   --source-manifest /private/tmp/dino-off.json \
   --target-manifest /private/tmp/dino-on.json \
   --mode activate \
-  --expected-campaign-version 1 \
+  --expected-campaign-version 3 \
   --snapshot-input /private/tmp/dino-cutover-snapshot.json \
   --plan-output /private/tmp/dino-cutover-plan.json
 ```
@@ -86,7 +86,7 @@
   --source-manifest /private/tmp/dino-off.json \
   --target-manifest /private/tmp/dino-on.json \
   --mode activate \
-  --expected-campaign-version 1 \
+  --expected-campaign-version 3 \
   --render-apply-sql /private/tmp/dino-cutover-plan.json \
   --confirm ACTIVATE_DINO_PRODUCTION \
   > /private/tmp/dino-cutover-apply.sql

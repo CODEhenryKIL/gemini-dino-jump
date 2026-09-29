@@ -11,9 +11,9 @@
 | 항목 | 현재 상태 | 외부 활성화 전 게이트 |
 | --- | --- | --- |
 | GA4 클라이언트 코드 | Preview 테스트 ID 적용·수신 확인 | Production 운영 ID·정확한 origin 별도 검증 |
-| GA4 동의 UI | 동의 전·거절·허용·철회 재로드·SDK 부재·기능 유지 검증 | Production 배포 시 동일 흐름 재검증 |
-| GA4 운영 속성 | 생성·보존·신호 설정 확인, 사이트 미연결 | Production 환경 변수 적용 후 동의·전송 검증 |
-| GA4 테스트 속성 | Preview 연결·동의 UI·DebugView 수신·철회 후 SDK 부재 확인 | 실제 트래픽의 중복·개인정보 지속 점검 |
+| GA4 자동 수집 정책 | 팝업·상단 분석 설정 제거, 기존 거부·브라우저 거부 신호 우선, 개인정보 안내의 중지·재사용 경로 검증 | Production 공개 주소에서 자동 전송·기존 거부 유지 재검증 |
+| GA4 운영 속성 | 생성·보존·신호 설정 확인, 사이트 미연결 | Production 환경 변수 적용 후 자동 전송 검증 |
+| GA4 테스트 속성 | Preview 자동 수집·DebugView 수신, 중지 후 SDK 부재·재사용 확인 | 실제 트래픽의 중복·개인정보 지속 점검 |
 | GA4 보고서 | 운영 속성에 게임·Gemini·TOP3·뽑기·수령·추천 발신·추천 유입·로딩 탐색 저장 | 본행사 수집 시작 후 실제 분모·전환 수 점검 |
 | Datadog 구조화 서버 로그 | Vercel→수신기→Datadog 파싱·필드·개인정보 부재 검증 | 신규 경로·오류 유형 추가 시 허용 목록 재검증 |
 | `/api/health` | Preview 외부 200·DB ready 확인 | DB 장애·복구 통제 테스트 확인 |
@@ -33,10 +33,11 @@
 - GA4 테스트: 속성 `556468075`, 웹 스트림 `15863631869`, 측정 ID `G-VG9FXGTRDE`.
 - GA4 테스트 설정: Enhanced Measurement OFF, 이벤트 데이터 2개월, 사용자 데이터 2개월, 새 활동 시 보관기간 재설정 OFF, Google Signals·사용자 데이터 수집 OFF. 광고 개인화 화면 표시는 `0/307`이다.
 - Preview 배포 `dpl_4oga5WktqE7j4g8VSQQm1YdgVnMY`는 READY이며 `dino-nanobanana-ogt2lb0sp-henry-kils-projects.vercel.app`과 [https://google-korea-team-gemini.vercel.app](https://google-korea-team-gemini.vercel.app) 별칭이 연결되었다. 공개 `/api/config`는 테스트 ID `G-VG9FXGTRDE`, `enabled=true`, `debug=true`를 반환했고 `/api/health`는 HTTP 200과 DB ready를 반환했다.
-- 실제 브라우저 검증에서 동의 전과 거절 후에는 Google Tag Manager 스크립트가 없었고 순위 화면은 정상 작동했다. 허용 후에만 정확한 테스트 태그가 삽입되었다.
+- **이전 동의형 버전의 당시 기록:** 동의 전과 거절 후에는 Google Tag Manager 스크립트가 없었고 순위 화면은 정상 작동했다. 허용 후에만 정확한 테스트 태그가 삽입되었다. 현재 정책의 동작 설명으로 사용하지 않는다.
 - 테스트 속성 DebugView의 최근 30분 요약은 8개 이벤트를 표시했다: `content_view` 2건, `page_view` 2건, `benefit_view`, `first_visit`, `gemini_cta_view`, `session_start` 각 1건. `non_personalized_ads=1`은 이벤트가 아니라 사용자 속성으로 확인했다. 이는 Preview 허용 후 테스트 속성의 서버 수신을 확인한 결과다.
 - 분석 설정은 각 속성에 사용자 정의 차원 11개와 `duration_seconds` 사용자 정의 지표를 생성했다. 운영 속성에는 01~07의 탐색 8개(06A·06B 분리)를 저장했다. TOP3는 입력을 시작한 대상자를 분모로 쓰며, 추천 발신자와 유입자를 서로 다른 사용자로 분리해 집계한다. 실제 URL과 해석 기준은 [GA4 보고서 구성](ga4-report-layout.md)에 기록했다. 현재 베타는 테스트 속성으로만 수집하므로 운영 탐색의 값은 비어 있다.
-- 분석 철회 시 재로드를 확인했고, 재로드 후 CUA DOM의 Google 측정 스크립 목록은 빈 배열이었으며 혜택 화면은 정상 작동했다. CUA에서 원시 네트워크 로그는 직접 확인할 수 없었으나, 동의 전·거절·철회 후 SDK 부재와 프론트엔드 회귀 테스트로 기본 동의 계약을 검증했다.
+- **이전 동의형 버전의 당시 기록:** 분석 철회 후 재로드에서 CUA DOM의 Google 측정 스크립 목록은 빈 배열이었으며 혜택 화면은 정상 작동했다. CUA에서 원시 네트워크 로그는 직접 확인할 수 없었다.
+- **현재 자동 수집 버전:** 사용자의 최종 승인에 따라 팝업과 상단 분석 설정을 제거했다. 기존 거부가 없는 브라우저는 GA4를 자동으로 사용하지만 방문만으로 `granted` 선택을 저장하지 않는다. 기존 거부 브라우저에서는 SDK가 없었고, 개인정보 안내에서 `자동 분석 다시 사용`을 선택한 뒤 팝업 없이 테스트 태그가 로드됐으며, 다시 `분석 사용 중지`를 선택한 뒤 SDK가 제거되는 흐름을 확인했다. 게임 기능은 계속 작동했다.
 - Vercel 수신 프로젝트의 Production `DD_API_KEY`는 사용자 승인 후 UI에 민감 값으로 저장되었고, `VERCEL_DRAIN_SECRET`은 CLI로 Production에 저장되었다.
 - 수신기 배포 `dpl_8H9tDzTwRNDvVnVBm9V5KYpBtkey`는 Production READY이다. 안정 도메인의 `/api/drain`은 서명 없는 요청에 403을 반환했고 Vercel 공식 전송 테스트에 200을 반환했다. 이 결과는 Datadog에 실제 로그가 최종 표시되었음을 증명하지는 않는다.
 - Vercel 연속 드레인 `drn_fFTUMpevVS39jHws`(`gemini-dino-api-logs`)는 enabled 상태다. `filterV2`는 `sources=[lambda]`, 소스 프로젝트 `prj_U9Wi3VyA46EpOdOyrq0P3RRHwMSX`, `deploymentEnvironments=[preview]`로 제한되고 schema는 `log.v1`이다. 약 05:23 UTC에 정상 API 요청 2건을 발생시켜 HTTP 200을 확인했다.
@@ -51,8 +52,9 @@
 
 ### 2.1 승인된 정책
 
-- 신규 이용자는 분석을 명시적으로 허용하기 전까지 GA4 스크립트와 분석 쿠키를 사용하지 않는다.
-- 거절 상태도 저장하며 상단 `분석 설정`에서 나중에 변경할 수 있다.
+- 사용자의 최종 승인에 따라 별도 동의 팝업과 상단 `분석 설정` 없이 GA4를 자동으로 사용한다. 방문 자체를 명시 동의로 기록하거나 `granted` 선택을 저장하지 않는다.
+- 기존 `denied` 저장값과 수집 중지 쿠키, Global Privacy Control·Do Not Track·Google 차단 신호를 우선한다. 거부 상태이거나 저장소 확인에 실패하면 수집하지 않는다.
+- 개인정보 안내의 `이 브라우저에서 분석 사용 중지`로 기존 GA 쿠키와 분석 중복 방지 기록을 삭제하고 이후 수집을 막는다. 같은 화면의 `자동 분석 다시 사용`으로 해당 브라우저의 사이트 거부값을 해제할 수 있다.
 - 사용자별 이벤트 데이터 보관은 **2개월**로 설정한다.
 - GA4 관리 화면의 **새 활동 시 보관기간 재설정**은 **끔(OFF)** 으로 설정한다.
 - 테스트와 운영은 서로 다른 GA4 속성을 사용한다. 한 속성의 스트림만 나눠 운영 데이터 격리를 대신하지 않는다.
@@ -65,7 +67,7 @@
 
 | 변수 | 설정 원칙 |
 | --- | --- |
-| `GA4_ENABLED` | 최초 검증 전 `false`. 테스트 속성 검증 때만 `true`로 변경 |
+| `GA4_ENABLED` | Preview·Production의 승인된 자동 분석에서는 `true`. 긴급 중지나 미검증 환경에서는 `false` |
 | `GA4_TEST_MEASUREMENT_ID` | Preview 전용 테스트 속성의 `G-...` ID |
 | `GA4_PRODUCTION_MEASUREMENT_ID` | 운영 전용 속성의 `G-...` ID. 테스트 ID와 달라야 함 |
 | `GA4_ALLOWED_ORIGINS` | 전송을 허용할 정확한 HTTPS origin을 쉼표로 구분. 와일드카드·경로·쿼리 금지 |
@@ -81,10 +83,11 @@
 4. 각 속성에 실제 사이트용 웹 데이터 스트림을 만들고 서로 다른 측정 ID를 확인한다.
 5. Preview의 정확한 HTTPS origin만 `GA4_ALLOWED_ORIGINS`에 넣는다.
 6. Preview에서 `GA4_ENABLED=true`, 테스트 측정 ID, 필요 시 `GA4_DEBUG_MODE=true`를 적용한다.
-7. 신규 브라우저에서 동의 전 네트워크 무전송, 거절, 허용, 설정 변경, `_ga` 쿠키 삭제를 확인한다.
-8. DebugView에서 테스트 속성 이벤트를 확인하고 중복·개인정보·원시 URL이 없는지 검사한다.
-9. 운영 배포 승인 후 운영 origin과 운영 측정 ID로 별도 검증한다.
-10. 문제가 있으면 `GA4_ENABLED=false`로 되돌린다. 게임 기능은 계속 동작해야 한다.
+7. 기존 거부가 없는 새 브라우저에서 팝업·상단 설정 없이 정확한 환경의 태그가 자동 로드되는지 확인한다. 방문만으로 `granted`가 저장되지 않아야 한다.
+8. 기존 거부·브라우저 거부 신호에서는 SDK가 로드되지 않는지, 개인정보 안내의 중지·재사용과 `_ga` 쿠키 삭제가 동작하는지 확인한다.
+9. DebugView에서 테스트 속성 이벤트를 확인하고 중복·개인정보·원시 URL이 없는지 검사한다. 운영 공개 후에는 운영 속성 Realtime 수신을 별도로 확인한다.
+10. 운영 배포 승인 후 운영 origin과 운영 측정 ID로 별도 검증한다.
+11. 문제가 있으면 `GA4_ENABLED=false`로 되돌린다. 게임 기능은 계속 동작해야 한다.
 
 ### 2.4 코드 기준 GA4 이벤트
 
@@ -260,7 +263,7 @@ critical은 3건 이상, recovery는 0건 이하로 설정했다.
 | GA4 테스트 속성·스트림 | 속성명, 확인 시각, 측정 ID 끝 4자리 |
 | GA4 운영 속성·스트림 | 속성명, 확인 시각, 측정 ID 끝 4자리 |
 | GA4 보관·재설정 | 2개월, reset OFF 화면 확인 시각 |
-| GA4 동의 검증 | 동의 전 무전송, 거절, 허용, 철회 결과 |
+| GA4 자동 수집 검증 | 새 브라우저 자동 태그·전송, 팝업·상단 설정 부재, 기존 거부·브라우저 신호 우선, 개인정보 안내의 중지·재사용 결과 |
 | Datadog 학생 혜택 | 조직명, US5, 적용 기간, 실제 한도 확인 시각 |
 | Vercel 로그 연결 | 프로젝트·환경, 원시 경로·쿼리·IP 제거 표본 |
 | Datadog 파싱 | 필드 목록과 예시 요청 ID 한 건 |
