@@ -3,6 +3,8 @@ import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 import { prepareResultReferralShare } from '../referral_share.js';
 
+const campaignStatus = (router) => router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+
 const STATUS_LABELS = {
   AWAITING_INFORMATION: '정보 입력 대기',
   INFORMATION_RECEIVED: '정보 접수', PENDING_REVIEW: '확인 대기', CONTACTED: '연락 완료',
@@ -84,7 +86,10 @@ export const PrizeView = {
     const max = Number(drawState?.max_count || 10);
     if (availableCredits > 0) {
       share.textContent = '한 번 더 뽑기';
-      share.onclick = () => { if (!router.isCurrent || router.isCurrent(renderToken)) router.navigate?.('draw'); };
+      share.disabled = campaignStatus(router) !== 'ACTIVE';
+      if (share.disabled) share.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 한 번 더 뽑기'
+        : campaignStatus(router) === 'ENDED' ? '추가 뽑기가 종료됐어요' : '추가 뽑기가 잠시 중단됐어요';
+      share.onclick = () => { if (campaignStatus(router) === 'ACTIVE' && (!router.isCurrent || router.isCurrent(renderToken))) router.navigate?.('draw'); };
     } else if (used < max) {
       share.textContent = '친구에게 공유하고 한 번 더 뽑기';
       share.disabled = true;
@@ -93,6 +98,12 @@ export const PrizeView = {
       const isCurrent = () => !router.isCurrent || router.isCurrent(renderToken);
       const prepare = async () => {
         if (preparing || !isCurrent()) return;
+        if (campaignStatus(router) !== 'ACTIVE') {
+          share.disabled = true;
+          share.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 공유하기'
+            : campaignStatus(router) === 'ENDED' ? '추가 뽑기 공유가 종료됐어요' : '추가 뽑기 공유가 잠시 중단됐어요';
+          return;
+        }
         preparing = true;
         share.disabled = true;
         try {
@@ -101,20 +112,20 @@ export const PrizeView = {
             onReceipt: (receipt) => {
               if (!isCurrent() || receipt?.status !== 'confirmed' || receipt?.reward_type !== 'DRAW' || receipt?.reward_status !== 'granted') return;
               if (receipt.draw_state && router?.state) router.state.draw = receipt.draw_state;
-              share.disabled = false;
+              share.disabled = campaignStatus(router) !== 'ACTIVE';
               share.textContent = '한 번 더 뽑기';
-              share.onclick = () => router.navigate?.('draw');
+              share.onclick = () => { if (campaignStatus(router) === 'ACTIVE') router.navigate?.('draw'); };
               void router.refreshState?.({ quiet: true })?.catch?.(() => {});
             },
           });
           if (!isCurrent()) return;
           prepared = value;
           share.textContent = '친구에게 공유하고 한 번 더 뽑기';
-          share.disabled = false;
+          share.disabled = campaignStatus(router) !== 'ACTIVE';
         } catch (_) {
           if (!isCurrent()) return;
           prepared = null;
-          share.disabled = false;
+          share.disabled = campaignStatus(router) !== 'ACTIVE';
           share.textContent = '공유 다시 준비하기';
         } finally { preparing = false; }
       };
@@ -124,7 +135,7 @@ export const PrizeView = {
         share.disabled = true;
         try { await prepared.share(); }
         catch (error) { ui.showToast(error.message || '공유를 시작하지 못했어요.'); }
-        finally { if (share.textContent !== '한 번 더 뽑기') share.disabled = false; }
+        finally { if (share.textContent !== '한 번 더 뽑기') share.disabled = campaignStatus(router) !== 'ACTIVE'; }
       };
       void prepare();
     } else {
@@ -143,9 +154,14 @@ export const PrizeView = {
     detail.textContent = status === 'LOCKED' ? '정상 검증된 게임을 한 번 완료하면 첫 복주머니를 열 수 있어요.' : hasDrawResult ? '이미 저장된 복주머니 결과를 다시 확인할 수 있어요.' : '첫 게임을 완료했으니 복주머니를 열 수 있어요.';
     const button = document.createElement('button'); button.className = 'btn btn-primary';
     button.textContent = status === 'LOCKED' ? '홈에서 게임 시작하기' : hasDrawResult ? '내 복주머니 결과 보기' : '복주머니 열기';
+    button.disabled = status === 'AVAILABLE' && !hasDrawResult && campaignStatus(router) !== 'ACTIVE';
+    if (button.disabled) button.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 복주머니 열기'
+      : campaignStatus(router) === 'ENDED' ? '복주머니 행사가 종료됐어요' : '복주머니 행사가 잠시 중단됐어요';
     button.onclick = () => {
       const latest = router.state?.draw?.status || 'LOCKED';
       if (!['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(latest)) { router.navigate('home'); return; }
+      const saved = ['DRAWN', 'WON', 'EXHAUSTED'].includes(latest) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+      if (!saved && campaignStatus(router) !== 'ACTIVE') return;
       analytics.track('draw_cta_clicked', { source: 'claims', draw_status: latest });
       router.navigate('draw');
     };
@@ -200,7 +216,7 @@ export const PrizeView = {
     const words = document.createElement('span'); words.textContent = `경품 안내와 수령 확인을 위한\n이름·연락처·학교${claim.category === 'SHIPPING' ? '·주소' : ''} 수집에 동의합니다.`;
     consent.append(checkbox, words); form.appendChild(consent);
     const privacy = document.createElement('p'); privacy.className = 'contact-accuracy';
-    privacy.textContent = '재학생·휴학생 모두 수령 가능해요.\n수집 정보는 경품 지급 완료 후 30일 이내 삭제해요.\n문의: sea42471@naver.com';
+    privacy.textContent = '재학생·휴학생 모두 수령 가능해요.\n개인정보는 지급 완료 후 30일 이내 삭제해요.\n미지급 정보는 전체 경품 지급 종료 후 30일 이내 삭제해요.\n문의: sea42471@naver.com';
     form.appendChild(privacy);
     const accuracyNote = document.createElement('p'); accuracyNote.className = 'result-contact-accuracy';
     accuracyNote.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';
@@ -212,6 +228,7 @@ export const PrizeView = {
         if (!checkbox.checked || fields.some(({ input }) => !input.value.trim())) { ui.showToast('필수 항목을 입력하고 수집에 동의해 주세요.'); return false; }
         try {
           await api.saveClaimDraft(claim.id, { ...Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])), consent: true, notice_version: 'claim-contact-v1' });
+          analytics.trackGa4?.('claim_draft_saved', { claim_type: claimType }, { dedupKey: `claim-draft:${claim.id}` });
           router.announceStateChange?.();
           if (active()) this.claimShareModal(claim, router, renderToken);
           return true;
@@ -254,7 +271,7 @@ export const PrizeView = {
     };
     const complete = async () => {
       await api.submitClaim(claim.id, { share_intent_id: shareId });
-      analytics.track('claim_form_submitted', { claim_type: claim.claim_type || claim.type || 'DRAW' });
+      analytics.track('claim_form_submitted', { claim_type: claim.claim_type || claim.type || 'DRAW' }, { dedupKey: `claim-submit:${claim.id}` });
       router.announceStateChange?.();
       if (!active()) return;
       const done = document.createElement('div'); done.className = 'claim-share-step';

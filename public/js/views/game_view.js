@@ -119,9 +119,11 @@ export const GameView = {
       const state = await api.getSession(pending.sessionId);
       if (!router.isCurrent(renderToken)) return true;
       if (state.status === 'FINISHED') {
+        const result = state.result || state;
         this.removePendingResult(pending.sessionId, pending.key);
         storageRemove(`${SNAPSHOT_PREFIX}${pending.sessionId}`);
-        this.acceptResult(state.result || state, router);
+        this.acceptResult(result, router);
+        this.trackCompletedResult(pending.payload, result, pending.sessionId);
         analytics.track('game_recovered', { status: 'FINISHED' }, { gameSessionId: pending.sessionId });
         router.navigate('result');
         return true;
@@ -137,10 +139,12 @@ export const GameView = {
       this.removePendingResult(pending.sessionId, pending.key);
       storageRemove(`${SNAPSHOT_PREFIX}${pending.sessionId}`);
       this.acceptResult(result, router);
+      this.trackCompletedResult(pending.payload, result, pending.sessionId);
       router.navigate('result');
       return true;
     } catch (error) {
-      if (router.isCurrent(renderToken) && error.status && error.status < 500) {
+      const terminalClientError = error.status && error.status < 500 && error.status !== 408 && error.status !== 429;
+      if (router.isCurrent(renderToken) && terminalClientError) {
         this.removePendingResult(pending.sessionId, pending.key);
         await router.refreshState({ quiet: true });
         return false;
@@ -176,7 +180,8 @@ export const GameView = {
       if (state.tickets) router.state.tickets = state.tickets;
       router.updateNav();
       router.announceStateChange();
-      if (router.config?.campaign?.status && router.config.campaign.status !== 'ACTIVE') {
+      const campaignStatus = router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+      if (campaignStatus !== 'ACTIVE') {
         router.navigate('home');
         return;
       }
@@ -288,7 +293,10 @@ export const GameView = {
     const started = await api.startSession(this.sessionId);
     if (!router.isCurrent(renderToken)) return;
     this.monitorSessionExpiry(container, router, renderToken, started.expires_at);
-    analytics.track('game_start_approved', { game_version: session.version || '' }, { gameSessionId: this.sessionId });
+    analytics.track('game_start_approved', {
+      game_version: session.version || '',
+      play_type: session.ticket_kind === 'INITIAL' ? 'first' : 'retry',
+    }, { gameSessionId: this.sessionId });
     analytics.track('game_checkpoint', { stage: 'stage_1', checkpoint: 0 }, { gameSessionId: this.sessionId });
     this.engine.start(session.seed);
     this.persistResumeSnapshot();
@@ -519,12 +527,27 @@ export const GameView = {
       storageRemove(`${FAULT_PREFIX}${sessionId}`);
       storageRemove(`${SNAPSHOT_PREFIX}${sessionId}`);
       this.acceptResult(response, router);
-      analytics.track('game_completed', { game_version: payload.version, end_reason: payload.end_reason, score: response.score, rank: response.rank || 0, status: response.verification, coin_count: payload.summary.coins, coin_score: payload.summary.coin_score, revive_count: payload.summary.revives }, { gameSessionId: sessionId });
+      this.trackCompletedResult(payload, response, sessionId);
       router.announceStateChange();
       router.navigate('result');
     } catch (error) {
       if (router.isCurrent(renderToken) && this.isOperationCurrent(lifecycleId, sessionId)) this.renderFinishRetry(container, router, error);
     }
+  },
+
+  trackCompletedResult(payload, result, sessionId) {
+    const summary = payload?.summary || {};
+    analytics.track('game_completed', {
+      game_version: payload?.version,
+      end_reason: payload?.end_reason,
+      score: result?.score,
+      rank: result?.rank || 0,
+      status: result?.verification,
+      duration_seconds: Math.min(600, Math.max(1, Number(payload?.ticks) / 60)),
+      coin_count: Number(summary.coins || 0),
+      coin_score: Number(summary.coin_score || 0),
+      revive_count: Number(summary.revives || 0),
+    }, { gameSessionId: sessionId });
   },
 
   acceptResult(result, router) {

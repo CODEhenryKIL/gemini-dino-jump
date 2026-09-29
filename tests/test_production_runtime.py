@@ -92,7 +92,7 @@ class ProductionRuntimeSmokeTest(unittest.TestCase):
         ).encode()
         cls.digest = hashlib.sha256(payload).hexdigest()
         with psycopg.connect(cls.database.dsn) as conn:
-            provision(conn, copy.deepcopy(cls.manifest), cls.digest)
+            provision(conn, copy.deepcopy(cls.manifest), cls.digest, payload)
 
         cls.now = dt.datetime.now(UTC)
         cls.opens_at = cls.now - dt.timedelta(hours=1)

@@ -2,6 +2,10 @@
 
 작성: 2026-09-29. 쿠키 인증·Origin·멱등 키·연락처 비공개 등 공통 규칙은 기존 API 계약을 유지한다. 아래 내용이 기존 단일 추첨·방문 보상 계약을 대체한다.
 
+## 행사 화면 시간
+
+`GET /api/config`는 `server_time`에 DB 현재 시각을 제공하고 기존 no-store 응답 정책을 유지한다. 클라이언트는 이를 받은 시점의 단조 증가 시간을 기준으로 시작·종료 경계를 계산한다. 기기 날짜 변경으로 행동 버튼을 조기에 닫지 않으며, 실제 게임·추첨 허용과 마감 판정은 서버가 수행한다. 앱 복귀와 상태 새로고침 때 행사 설정과 시각을 다시 받는다.
+
 ## 추첨 상태
 
 `GET /api/me`의 `draw`와 `GET /api/draws/me`의 `draw_state`에 다음 상태를 제공한다.
@@ -63,7 +67,25 @@
 
 자격·전달·증거 누락은 각각 `CLAIM_VERIFICATION_REQUIRED`, `DELIVERY_CONFIRMATION_REQUIRED`, `DELIVERY_EVIDENCE_REQUIRED`의 `409`로 거부한다. 실패하면 수령 상태·버전·재고·감사 기록을 변경하지 않는다. 성공 시 수령 상태, 재고의 RESERVED→PAID, 재고 이력, 전후 확인 상태와 담당자 감사 기록을 한 트랜잭션에 저장한다. 오래된 버전 재요청은 `VERSION_CONFLICT`로 거부하며 재고를 다시 처리하지 않는다.
 
-이미 지급 완료된 건에서도 필수 확인 상태를 해제할 수 없다. 기존 기록을 소급 수정하지 않으며, 랭킹 지급은 최종 수상 정책이 미정인 동안 계속 `FINAL_RANKING_UNDECIDED`로 차단한다. 이 API는 실제 쿠폰·경품을 발송하지 않는다.
+이미 지급 완료된 건에서도 필수 확인 상태를 해제할 수 없다. 랭킹 지급은 해당 참가자·수령 요청·재고가 FINAL 스냅샷의 ranking_award에 연결된 경우에만 허용하며, 미확정은 `FINAL_RANKING_UNDECIDED`로 차단한다. 이 API는 실제 쿠폰·경품을 발송하지 않는다.
+
+수령 정보 미접수 건은 기본적으로 관리자 수정이 차단된다. 예외는 접수 기한 경과 후 `AWAITING_INFORMATION → NO_RESPONSE` 마감뿐이다. 최신 버전·claims:write 권한·3자 이상 사유를 요구하며, 개인정보·외부 전달·자격 확인 상태를 임의로 채우거나 재고를 재배정하지 않는다. 목록의 `can_close_no_response`는 서버 시각과 해당 행사의 접수 기한으로 계산되며, PATCH에서 조건을 재검증한다.
+
+전체 지급 종료 감사 기록이 있으면 `NO_RESPONSE → PENDING_REVIEW` 재개를 `FULFILLMENT_ALREADY_COMPLETE`로 거부한다. 개인정보 정리 기산일 확정 후 지급 절차를 임의로 다시 열지 않는다.
+
+## 최종 TOP3 플레이 검토
+
+`POST /api/admin/ranking-snapshots/{id}/reviews`는 `ranking:write` 권한·멱등 키와 다음 본문을 사용한다.
+
+```json
+{"participant_id":"참가자 ID","outcome":"APPROVED","evidence_reference":"REF_REVIEW_01","reason":"플레이 기록 검토 사유","event_id":"고유 이벤트 ID"}
+```
+
+- `outcome`은 APPROVED / HOLD. 참조는 production에서 REF_, 베타에서는 TEST_REF_ 접두사를 쓴다.
+- 현재 행사의 DRAFT 스냅샷 TOP3만 검토하며, 승인하려면 참가자가 ACTIVE이고 검토 대상 세션·최고점·달성 시각이 현재 기록과 일치해야 한다.
+- RANKING_GAMEPLAY_REVIEW 감사 기록을 남기고 목록의 candidates에 검토 결과와 세션 정보를 제공한다. 대학생 자격 확인과 플레이 검토는 별도다.
+- 최종 확정은 참가자 행을 잠근 뒤 검토와 상태를 다시 검사한다. 미검토는 RANKING_GAMEPLAY_REVIEW_REQUIRED, 보류는 RANKING_GAMEPLAY_REVIEW_ON_HOLD, 변경된 기록은 RANKING_CANDIDATE_STALE로 거부한다.
+- 의심 후보는 보류·재검토한다. 자동 차순위 선정이나 자동 플레이 완전 차단을 의미하지 않는다.
 
 ## 배포·호환성
 

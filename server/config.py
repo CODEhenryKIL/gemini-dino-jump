@@ -1,5 +1,5 @@
 """Fail-closed Phase 1 environment configuration."""
-from dataclasses import dataclass,replace
+from dataclasses import dataclass,replace,field
 from contextlib import contextmanager
 from contextvars import ContextVar
 import base64,hashlib,hmac,json,os,re
@@ -34,7 +34,32 @@ APPROVED_PREVIEW_PROJECT_REF="igfrnexknwtiljdqjrbp"
 APPROVED_PRODUCTION_PROJECT_REF=APPROVED_PREVIEW_PROJECT_REF
 PRODUCTION_MANIFEST_PATH=ROOT/"server"/"production-launch-manifest.json"
 PRODUCTION_FLAGS={"unlimited_play":False,"synthetic_inventory":False,"shortened_clock":False}
+PRODUCTION_POLICY_KEYS=("pool_exhaustion","unallocated_inventory_at_close","beta_data_migration","ranking_ties","finish_after_close","draw_and_ranking_double_award","eligibility_and_proof","claim_deadline_and_no_response","duplicate_person_claims","privacy_retention_and_deletion","operator_contact")
+PRODUCTION_APPROVAL_KEYS=("environment","inventory","privacy","benefit_and_brand","public_launch")
+PRODUCTION_EVIDENCE_KEYS=("target_db_and_backup","runtime_production_guard","inventory_reconciliation","real_kakao_game_and_draw","physical_device_qa","final_load_test","notion_and_benefit_links","rollback_rehearsal")
+PRODUCTION_PREPARATION_APPROVAL_KEYS=("environment","inventory")
+PRODUCTION_PREPARATION_EVIDENCE_KEYS=("target_db_and_backup","runtime_production_guard","inventory_reconciliation")
+PRODUCTION_FAILURE_MARKERS=("FAILED","NOT_RUN","REJECTED","BLOCKED","SKIPPED","보류","미실행","실패")
+PRODUCTION_LIMITATION_EVIDENCE_KEYS=frozenset(("physical_device_qa","final_load_test"))
 class ConfigurationError(RuntimeError): pass
+
+def ga4_public_config(environment, allowed_origins, base_url):
+    """Optional telemetry fails closed without taking the game offline."""
+    disabled={"enabled":False}
+    if os.getenv("GA4_ENABLED","false").lower()!="true":return disabled
+    if environment not in {"preview","production"}:return {**disabled,"disabled_reason":"ENVIRONMENT_NOT_ALLOWED"}
+    production_id=os.getenv("GA4_PRODUCTION_MEASUREMENT_ID","").strip()
+    test_id=os.getenv("GA4_TEST_MEASUREMENT_ID","").strip()
+    measurement_id=production_id if environment=="production" else test_id
+    if not re.fullmatch(r"G-[A-Z0-9]{6,20}",measurement_id):return {**disabled,"disabled_reason":"MEASUREMENT_ID_REQUIRED"}
+    if not re.fullmatch(r"G-[A-Z0-9]{6,20}",production_id) or not re.fullmatch(r"G-[A-Z0-9]{6,20}",test_id) or production_id==test_id:
+        return {**disabled,"disabled_reason":"SEPARATE_PROPERTIES_REQUIRED"}
+    try:
+        origins=sorted({_origin(value.strip()) for value in os.getenv("GA4_ALLOWED_ORIGINS","").split(",") if value.strip()})
+    except (ConfigurationError,ValueError):return {**disabled,"disabled_reason":"ORIGIN_INVALID"}
+    if not origins or base_url not in origins or not set(origins).issubset(allowed_origins):
+        return {**disabled,"disabled_reason":"ORIGIN_NOT_APPROVED"}
+    return {"enabled":True,"measurement_id":measurement_id,"property_environment":"production" if environment=="production" else "test","allowed_origins":origins,"debug_mode":environment=="preview" and os.getenv("GA4_DEBUG_MODE","false").lower()=="true"}
 def _origin(value,local=False):
     p=urlparse(value); http=local and p.scheme=="http" and p.hostname in {"127.0.0.1","localhost","::1"}
     if p.scheme!="https" and not http: raise ConfigurationError("HTTPS_ORIGIN_REQUIRED")
@@ -45,6 +70,16 @@ def _manifest_time(value):
     try:return datetime.fromisoformat(str(value))
     except (TypeError,ValueError):raise ConfigurationError("PRODUCTION_MANIFEST_INVALID") from None
 
+def _manifest_entry_present(value):
+    if not isinstance(value,str) or not value.strip():return False
+    normalized=value.strip().upper()
+    return normalized not in {"TODO","TBD","PENDING","UNDECIDED"} and not any(marker in normalized for marker in PRODUCTION_FAILURE_MARKERS)
+
+def _structured_manifest_record(value,status,accepted_limit=False):
+    if not isinstance(value,dict):return False
+    details=all(isinstance(value.get(key),str) and value[key].strip() for key in ("detail","reference"))
+    return details and (value.get("status")==status or (accepted_limit and value.get("status")=="ACCEPTED_LIMIT" and value.get("accepted_by")=="user"))
+
 def _load_production_manifest():
     try:raw=PRODUCTION_MANIFEST_PATH.read_bytes(); manifest=json.loads(raw)
     except (OSError,json.JSONDecodeError):raise ConfigurationError("PRODUCTION_MANIFEST_REQUIRED") from None
@@ -52,10 +87,21 @@ def _load_production_manifest():
     actual=hashlib.sha256(raw).hexdigest()
     if not re.fullmatch(r"[0-9a-f]{64}",expected) or not hmac.compare_digest(actual,expected):
         raise ConfigurationError("PRODUCTION_MANIFEST_HASH_MISMATCH")
-    if manifest.get("status")!="APPROVED" or not isinstance(manifest.get("event_enabled"),bool):
+    if manifest.get("status") not in {"DRAFT","APPROVED"} or not isinstance(manifest.get("event_enabled"),bool):
         raise ConfigurationError("PRODUCTION_MANIFEST_NOT_APPROVED")
-    approvals=manifest.get("approvals")
-    if not isinstance(approvals,dict) or not all(isinstance(approvals.get(key),str) and approvals[key].strip() for key in ("environment","inventory","privacy","benefit_and_brand","public_launch")):
+    approvals=manifest.get("approvals") or {}; evidence=manifest.get("evidence") or {}
+    policies=manifest.get("policies") or {}
+    preparation_complete=(
+        all(_manifest_entry_present(policies.get(key)) for key in PRODUCTION_POLICY_KEYS)
+        and all(_manifest_entry_present(approvals.get(key)) or _structured_manifest_record(approvals.get(key),"APPROVED") for key in PRODUCTION_PREPARATION_APPROVAL_KEYS)
+        and all(_manifest_entry_present(evidence.get(key)) or _structured_manifest_record(evidence.get(key),"VERIFIED") for key in PRODUCTION_PREPARATION_EVIDENCE_KEYS)
+    )
+    launch_complete=(
+        manifest.get("status")=="APPROVED"
+        and all(_structured_manifest_record(approvals.get(key),"APPROVED") for key in PRODUCTION_APPROVAL_KEYS)
+        and all(_structured_manifest_record(evidence.get(key),"VERIFIED",key in PRODUCTION_LIMITATION_EVIDENCE_KEYS) for key in PRODUCTION_EVIDENCE_KEYS)
+    )
+    if not preparation_complete or (manifest["event_enabled"] and not launch_complete):
         raise ConfigurationError("PRODUCTION_MANIFEST_NOT_APPROVED")
     campaign=manifest.get("campaign") or {}; campaign_id=campaign.get("id")
     if not isinstance(campaign_id,str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{2,63}",campaign_id):
@@ -63,15 +109,17 @@ def _load_production_manifest():
     opens_at=_manifest_time(campaign.get("opens_at")); closes_at=_manifest_time(campaign.get("closes_at")); claim_closes_at=_manifest_time(campaign.get("claim_closes_at"))
     if opens_at.tzinfo is None or closes_at.tzinfo is None or claim_closes_at.tzinfo is None or opens_at>=closes_at or closes_at>=claim_closes_at:
         raise ConfigurationError("PRODUCTION_MANIFEST_INVALID")
-    policies=manifest.get("policies") or {}
     if policies.get("finish_after_close")!="RECEIVED_BEFORE_CLOSE" or policies.get("claim_deadline_and_no_response")!="MANUAL_REVIEW_AFTER_DEADLINE" or policies.get("ranking_ties")!="EARLIER_ACHIEVEMENT_FIRST":
         raise ConfigurationError("PRODUCTION_MANIFEST_INVALID")
     draw_pool=manifest.get("draw_pool") or {}; draw_prizes=manifest.get("draw_prizes"); ranking_prizes=manifest.get("ranking_prizes")
     try:
-        draw_quantity=sum(int(item["quantity"]) for item in draw_prizes)
-        ranking_quantity=sum(int(item["quantity"]) for item in ranking_prizes)
+        quantities=[item["quantity"] for item in [*draw_prizes,*ranking_prizes]]
+        if not quantities or any(type(quantity) is not int or quantity<=0 for quantity in quantities):raise ValueError()
+        draw_quantity=sum(item["quantity"] for item in draw_prizes)
+        ranking_quantity=sum(item["quantity"] for item in ranking_prizes)
     except (TypeError,KeyError,ValueError):raise ConfigurationError("PRODUCTION_MANIFEST_INVALID") from None
-    if (draw_pool.get("total_slots"),draw_pool.get("benefit_slots"),draw_pool.get("max_draws_per_participant"))!=(5000,4923,10):
+    pool_values=(draw_pool.get("total_slots"),draw_pool.get("benefit_slots"),draw_pool.get("max_draws_per_participant"))
+    if any(type(value) is not int for value in pool_values) or pool_values!=(5000,4923,10):
         raise ConfigurationError("PRODUCTION_MANIFEST_INVALID")
     if draw_quantity!=77 or ranking_quantity!=3 or manifest.get("production_flags")!=PRODUCTION_FLAGS:
         raise ConfigurationError("PRODUCTION_MANIFEST_INVALID")
@@ -86,6 +134,7 @@ class Settings:
     campaign_opens_at:str=""; campaign_closes_at:str=""; claim_closes_at:str=""; draw_pool_total:int=0; draw_prize_quantity:int=0; ranking_prize_quantity:int=0
     participant_cookie_max_age:int=2592000; invite_active_ms:int=3000; web_analytics_enabled:bool=False
     preview_unlimited_play:bool=False; kakao_javascript_key:str=""; kakao_admin_key:str=""; kakao_app_id:str=""
+    ga4:dict=field(default_factory=lambda:{"enabled":False})
     @classmethod
     def from_env(cls):
         environment=os.getenv("APP_ENV","local")
@@ -140,8 +189,8 @@ class Settings:
         campaign_id=campaign.get("id") or os.getenv("CAMPAIGN_ID","gemini_dino_phase1_test")
         if environment=="production" and os.getenv("CAMPAIGN_ID",campaign_id)!=campaign_id:raise ConfigurationError("PRODUCTION_CAMPAIGN_MISMATCH")
         draw_pool=manifest.get("draw_pool") or {}
-        return replace(cls(environment,database_url,project_ref,base,benefit,supabase,key,pepper,allowed,os.getenv("VERCEL_DEPLOYMENT_ID",os.getenv("VERCEL_GIT_COMMIT_SHA","local"))),synthetic_only=environment!="production",schema_name=schema_name,app_role=app_role,campaign_id=campaign_id,event_enabled=bool(manifest.get("event_enabled",False)),launch_manifest_sha256=manifest_hash,campaign_opens_at=str(campaign.get("opens_at") or ""),campaign_closes_at=str(campaign.get("closes_at") or ""),claim_closes_at=str(campaign.get("claim_closes_at") or ""),draw_pool_total=int(draw_pool.get("total_slots") or 0),draw_prize_quantity=draw_quantity,ranking_prize_quantity=ranking_quantity,participant_cookie_max_age=cookie_age,web_analytics_enabled=analytics=="true",preview_unlimited_play=unlimited=="true",kakao_javascript_key=kakao_key,kakao_admin_key=kakao_admin_key,kakao_app_id=kakao_app_id)
+        return replace(cls(environment,database_url,project_ref,base,benefit,supabase,key,pepper,allowed,os.getenv("VERCEL_DEPLOYMENT_ID",os.getenv("VERCEL_GIT_COMMIT_SHA","local"))),synthetic_only=environment!="production",schema_name=schema_name,app_role=app_role,campaign_id=campaign_id,event_enabled=bool(manifest.get("event_enabled",False)),launch_manifest_sha256=manifest_hash,campaign_opens_at=str(campaign.get("opens_at") or ""),campaign_closes_at=str(campaign.get("closes_at") or ""),claim_closes_at=str(campaign.get("claim_closes_at") or ""),draw_pool_total=int(draw_pool.get("total_slots") or 0),draw_prize_quantity=draw_quantity,ranking_prize_quantity=ranking_quantity,participant_cookie_max_age=cookie_age,web_analytics_enabled=analytics=="true",preview_unlimited_play=unlimited=="true",kakao_javascript_key=kakao_key,kakao_admin_key=kakao_admin_key,kakao_app_id=kakao_app_id,ga4=ga4_public_config(environment,allowed,base))
     def public(self):
-        return {"environment":self.environment,"synthetic_only":False,"gameplay_synthetic_only":self.synthetic_only,"top3_contact_collection_enabled":True,"deployment":self.deployment,"web_analytics_enabled":self.web_analytics_enabled,"campaign":{"id":self.campaign_id,"game_version":self.game_version,"event_enabled":self.event_enabled},"share":{"kakao_javascript_key":self.kakao_javascript_key,"webhook_enabled":bool(self.kakao_javascript_key and self.kakao_admin_key)},"benefit_url":self.benefit_url,"content_guides":[
+        return {"environment":self.environment,"synthetic_only":False,"gameplay_synthetic_only":self.synthetic_only,"top3_contact_collection_enabled":True,"deployment":self.deployment,"web_analytics_enabled":self.web_analytics_enabled,"ga4":self.ga4,"campaign":{"id":self.campaign_id,"game_version":self.game_version,"event_enabled":self.event_enabled},"share":{"kakao_javascript_key":self.kakao_javascript_key,"webhook_enabled":bool(self.kakao_javascript_key and self.kakao_admin_key)},"benefit_url":self.benefit_url,"content_guides":[
             {"id":"study_note","title":"4년 평점 4.26의 제미나이 공부법","description":"강의 자료 정리와 과제·시험 공부에 활용하는 공개 가이드", "url":"https://app.notion.com/p/3d41ef9d40cd803f9e56da74a08c695f?source=copy_link","available":True},
             {"id":"job_photo","title":"취업 사진 제미나이로 만드는 비법","description":"정장·배경을 선택해 취업사진을 만드는 프롬프트 안내", "url":"https://app.notion.com/p/3d01ef9d40cd80a798f1c353b8b4311d?source=copy_link","available":True}],"auth":{"supabase_url":self.supabase_url,"publishable_key":self.publishable_key},"limits":{"participant_cookie_max_age_seconds":self.participant_cookie_max_age,"invite_active_ms":self.invite_active_ms}}

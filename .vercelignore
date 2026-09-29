@@ -16,6 +16,7 @@ public/preview.html
 public/preview-*.html
 public/figma-handoff/
 scripts/
+integrations/
 test_suite.py
 README.md
 run.sh

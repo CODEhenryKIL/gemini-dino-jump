@@ -38,6 +38,91 @@ class Phase3PreflightTest(unittest.TestCase):
         self.assertEqual(MODULE.validate(self.manifest)["pending"], [])
         self.assertFalse(self.manifest["event_enabled"])
 
+    def test_paused_preparation_does_not_require_launch_only_evidence(self):
+        self.manifest["campaign"]["id"] = "phase3_unit_only"
+        for key in MODULE.PREPARATION_APPROVAL_KEYS:
+            self.manifest["approvals"][key] = "unit-test preparation approval"
+        for key in MODULE.PREPARATION_EVIDENCE_KEYS:
+            self.manifest["evidence"][key] = "unit-test preparation evidence"
+        result = MODULE.validate(self.manifest)
+        self.assertTrue(result["preparation_ready"])
+        self.assertFalse(result["launch_ready"])
+        self.assertEqual(result["preparation_pending"], [])
+        self.assertIn("approvals.public_launch", result["launch_pending"])
+
+    def test_active_manifest_requires_every_launch_gate(self):
+        self.manifest["campaign"]["id"] = "phase3_unit_only"
+        self.manifest["policies"] = {key: "unit-test policy" for key in self.manifest["policies"]}
+        self.manifest["approvals"] = {
+            key: {"status": "APPROVED", "detail": "unit-test approval", "reference": "test://approval"}
+            for key in self.manifest["approvals"]
+        }
+        self.manifest["evidence"] = {
+            key: {"status": "VERIFIED", "detail": "unit-test evidence", "reference": "test://evidence"}
+            for key in self.manifest["evidence"]
+        }
+        self.manifest["status"] = "APPROVED"
+        self.manifest["event_enabled"] = True
+        self.manifest["evidence"]["physical_device_qa"] = None
+        result = MODULE.validate(self.manifest)
+        self.assertIn("evidence.physical_device_qa", result["launch_pending"])
+        self.assertFalse(result["launch_ready"])
+        self.assertTrue(result["errors"])
+
+    def test_active_manifest_requires_structured_success_records(self):
+        self.manifest["status"] = "APPROVED"
+        self.manifest["event_enabled"] = True
+        for key in self.manifest["approvals"]:
+            self.manifest["approvals"][key] = {"status": "APPROVED", "detail": "reviewed", "reference": "test://approval"}
+        for key in self.manifest["evidence"]:
+            self.manifest["evidence"][key] = {"status": "VERIFIED", "detail": "checked", "reference": "test://evidence"}
+        self.assertTrue(MODULE.validate(self.manifest)["launch_ready"])
+        for group, key, value in (
+            ("approvals", "environment", "FAILED"),
+            ("approvals", "environment", {"status": "FAILED", "detail": "failed", "reference": "test://failure"}),
+            ("evidence", "target_db_and_backup", "NOT_RUN"),
+            ("evidence", "target_db_and_backup", {"status": "NOT_RUN", "detail": "not run", "reference": "test://failure"}),
+        ):
+            with self.subTest(group=group, key=key, value=value):
+                manifest = copy.deepcopy(self.manifest)
+                manifest[group][key] = value
+                self.assertFalse(MODULE.validate(manifest)["launch_ready"])
+
+    def test_only_two_launch_evidence_gates_allow_user_accepted_limitations(self):
+        self.manifest["status"] = "APPROVED"
+        self.manifest["event_enabled"] = True
+        self.manifest["approvals"] = {
+            key: {"status": "APPROVED", "detail": "reviewed", "reference": "test://approval"}
+            for key in self.manifest["approvals"]
+        }
+        self.manifest["evidence"] = {
+            key: {"status": "VERIFIED", "detail": "checked", "reference": "test://evidence"}
+            for key in self.manifest["evidence"]
+        }
+        limitation = {"status": "ACCEPTED_LIMIT", "accepted_by": "user", "detail": "known device gap", "reference": "test://acceptance"}
+        for key in MODULE.LIMITATION_EVIDENCE_KEYS:
+            self.manifest["evidence"][key] = limitation
+        self.assertTrue(MODULE.validate(self.manifest)["launch_ready"])
+        invalid = copy.deepcopy(self.manifest)
+        invalid["evidence"]["rollback_rehearsal"] = limitation
+        self.assertFalse(MODULE.validate(invalid)["launch_ready"])
+        invalid = copy.deepcopy(self.manifest)
+        invalid["evidence"]["final_load_test"] = {**limitation, "accepted_by": "operator"}
+        self.assertFalse(MODULE.validate(invalid)["launch_ready"])
+
+    def test_paused_free_text_rejects_known_failure_markers(self):
+        self.manifest["campaign"]["id"] = "phase3_unit_only"
+        for key in MODULE.PREPARATION_APPROVAL_KEYS:
+            self.manifest["approvals"][key] = "reviewed and approved"
+        for key in MODULE.PREPARATION_EVIDENCE_KEYS:
+            self.manifest["evidence"][key] = "verified report"
+        self.assertTrue(MODULE.validate(self.manifest)["preparation_ready"])
+        for marker in MODULE.FAILURE_MARKERS:
+            with self.subTest(marker=marker):
+                manifest = copy.deepcopy(self.manifest)
+                manifest["evidence"]["runtime_production_guard"] = f"check {marker}"
+                self.assertFalse(MODULE.validate(manifest)["preparation_ready"])
+
     def test_invalid_launch_control_types_and_status_are_rejected(self):
         for key, value in (("event_enabled", "false"), ("event_enabled", 0), ("status", "READY"), ("version", 123)):
             with self.subTest(key=key, value=value):

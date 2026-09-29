@@ -80,19 +80,43 @@ commit;
     return '\n'.join(pieces)
 
 
-def provision(conn, manifest, digest):
+def _same_json_value(left, right):
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(_same_json_value(left[key], right[key]) for key in left)
+    if isinstance(left, list):
+        return len(left) == len(right) and all(_same_json_value(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def provision(conn, manifest, digest, source_bytes):
     """Provision a fresh PAUSED real inventory; never activate or overwrite."""
-    from phase3_preflight import validate
+    if __package__:
+        from .phase3_preflight import validate
+    else:
+        from phase3_preflight import validate
+    if not isinstance(source_bytes, bytes):
+        raise ValueError('Invalid manifest source bytes')
+    try:
+        source_manifest = json.loads(source_bytes)
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError('Invalid manifest source bytes') from exc
+    if not _same_json_value(source_manifest, manifest) or not re.fullmatch(r'[0-9a-f]{64}', digest) or hashlib.sha256(source_bytes).hexdigest() != digest:
+        raise ValueError('Manifest bytes and digest do not match the reviewed manifest')
+    manifest = source_manifest
     result = validate(manifest)
-    if result['errors'] or result['pending'] or manifest['event_enabled']:
-        raise ValueError('An approved, complete manifest with event_enabled=false is required')
+    if not result['preparation_ready'] or manifest['event_enabled']:
+        raise ValueError('A preparation-ready manifest with event_enabled=false is required')
     if not re.fullmatch(r'[a-z][a-z0-9_]{1,63}', manifest['campaign']['id']):
         raise ValueError('Invalid production campaign ID')
-    if not re.fullmatch(r'[0-9a-f]{64}', digest):
-        raise ValueError('Invalid manifest digest')
     conn.execute("select pg_advisory_xact_lock(hashtext('dino-prod-provision'))")
-    for table in ('campaign', 'participant', 'environment_guard', 'prize', 'inventory_item', 'draw_pool_slot', 'ranking_award'):
-        if conn.execute(f'select count(*) from dino_prod.{table}').fetchone()[0]:
+    mutable_tables = conn.execute("""select tablename from pg_tables
+      where schemaname='dino_prod' and tablename<>'schema_version' order by tablename""").fetchall()
+    for row in mutable_tables:
+        table = row[0]
+        quoted_table = table.replace('"', '""')
+        if conn.execute(f'select count(*) from dino_prod."{quoted_table}"').fetchone()[0]:
             raise ValueError('Production area is not empty; refusing to overwrite')
     campaign = manifest['campaign']; cid = campaign['id']
     settings = {'initial_tickets': 1, 'invitation_balance_max': 3, 'invitation_cooldown_hours': 10,

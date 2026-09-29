@@ -118,6 +118,7 @@ def _revalidate_idempotent_replay(conn,method,path,ctx):
         if method=="PATCH" and re.fullmatch(r"/api/admin/claims/[^/]+",path):permission="claims:write"
         elif method=="PATCH" and re.fullmatch(r"/api/admin/game-faults/[^/]+",path):permission="faults:write"
         elif method=="POST" and path=="/api/admin/ranking-snapshots":permission="ranking:write"
+        elif method=="POST" and re.fullmatch(r"/api/admin/ranking-snapshots/[^/]+/reviews",path):permission="ranking:write"
         elif method=="POST" and re.fullmatch(r"/api/admin/ranking-snapshots/[^/]+/finalize",path):permission="ranking:write"
         elif method=="PATCH" and re.fullmatch(r"/api/admin/participants/[^/]+",path):permission="participants:write"
         elif method=="PATCH" and path=="/api/admin/campaign":permission="campaign:write"
@@ -1037,24 +1038,38 @@ def admin_session(conn,ctx):
 def admin_overview(conn,query,ctx):
     _admin(conn,ctx,"analytics:read")
     return metrics.build_overview(conn,query,ctx)
+def _claim_deadline_passed(conn,campaign_id,ctx):
+    campaign=_one(conn,f"select * from {database_schema()}.campaign where id=%s",(campaign_id,))
+    if not campaign:return False
+    now=_one(conn,"select clock_timestamp() as now")["now"]
+    try:_claim_submission_allowed(conn,campaign,{**ctx,"request_received_at":now})
+    except DomainError as error:return error.code=="CLAIM_SUBMISSION_CLOSED"
+    return False
 def admin_claims(conn,query,ctx):
     _admin(conn,ctx,"claims:read");conditions=[];params=[]
     for key,column in (("status","c.status"),("type","c.claim_type"),("assignee","c.assignee_user_id::text")):
         if query.get(key):conditions.append(column+"=%s");params.append(str(query[key]))
     where=(" where "+" and ".join(conditions)) if conditions else ""
     rows=_all(conn,f"""select c.*,p.name prize_name,cc.recipient_name,cc.contact,cc.school,cc.address from {database_schema()}.claim c left join {database_schema()}.prize p on p.id=c.prize_id left join {database_schema()}.claim_contact cc on cc.claim_id=c.id"""+where+" order by c.updated_at desc limit 200",params)
-    return 200,{"claims":[{**dict(r),"created_at":_iso(r["created_at"]),"updated_at":_iso(r["updated_at"]),"contact_submitted_at":_iso(r["contact_submitted_at"]),"contacted_at":_iso(r["contacted_at"]),"paid_at":_iso(r["paid_at"])} for r in rows]}
+    deadlines={campaign_id:_claim_deadline_passed(conn,campaign_id,ctx) for campaign_id in {r["campaign_id"] for r in rows if r["status"]=="AWAITING_INFORMATION"}}
+    return 200,{"claims":[{**dict(r),"created_at":_iso(r["created_at"]),"updated_at":_iso(r["updated_at"]),"contact_submitted_at":_iso(r["contact_submitted_at"]),"contacted_at":_iso(r["contacted_at"]),"paid_at":_iso(r["paid_at"]),"can_close_no_response":r["status"]=="AWAITING_INFORMATION" and deadlines.get(r["campaign_id"],False)} for r in rows]}
 def admin_claim_patch(conn,cid,body,ctx):
     admin=_admin(conn,ctx,"claims:write"); claim=_one(conn,f"select * from {database_schema()}.claim where id=%s for update",(cid,))
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
     try:expected=int(body.get("expected_version"))
     except (TypeError,ValueError):expected=-1
     if expected!=claim["version"]:raise DomainError("VERSION_CONFLICT","다른 관리자가 먼저 변경했습니다.",409)
-    contact=_one(conn,f"select claim_id from {database_schema()}.claim_contact where claim_id=%s",(cid,))
-    if not claim["contact_submitted_at"] or not contact:raise DomainError("CLAIM_INFORMATION_REQUIRED","당첨자가 수령 정보를 입력한 뒤에 처리할 수 있습니다.",409)
     status=str(body.get("status") or claim["status"]); changing_status=status!=claim["status"]
-    transitions={"AWAITING_INFORMATION":set(),"INFORMATION_RECEIVED":{"PENDING_REVIEW","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"PENDING_REVIEW":{"CONTACTED","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"CONTACTED":{"PAID","ON_HOLD","NO_RESPONSE"},"ON_HOLD":{"PENDING_REVIEW","INELIGIBLE","NO_RESPONSE"},"NO_RESPONSE":{"PENDING_REVIEW","INELIGIBLE"},"PAID":set(),"INELIGIBLE":set()}
+    close_unsubmitted=claim["status"]=="AWAITING_INFORMATION" and status=="NO_RESPONSE" and _claim_deadline_passed(conn,claim["campaign_id"],ctx)
+    contact=_one(conn,f"select claim_id from {database_schema()}.claim_contact where claim_id=%s",(cid,))
+    if (not claim["contact_submitted_at"] or not contact) and not close_unsubmitted:raise DomainError("CLAIM_INFORMATION_REQUIRED","당첨자가 수령 정보를 입력한 뒤에 처리할 수 있습니다.",409)
+    if close_unsubmitted and (body.get("external_delivery",claim["external_delivery"])!=claim["external_delivery"] or body.get("verification_status",claim["verification_status"])!=claim["verification_status"] or body.get("verification_reference",claim["verification_reference"])!=claim["verification_reference"]):
+        raise DomainError("CLAIM_INFORMATION_REQUIRED","미접수 건은 기한 후 미응답으로만 마감할 수 있습니다.",409)
+    transitions={"AWAITING_INFORMATION":{"NO_RESPONSE"} if close_unsubmitted else set(),"INFORMATION_RECEIVED":{"PENDING_REVIEW","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"PENDING_REVIEW":{"CONTACTED","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"CONTACTED":{"PAID","ON_HOLD","NO_RESPONSE"},"ON_HOLD":{"PENDING_REVIEW","INELIGIBLE","NO_RESPONSE"},"NO_RESPONSE":{"PENDING_REVIEW","INELIGIBLE"},"PAID":set(),"INELIGIBLE":set()}
     if changing_status and status not in transitions.get(claim["status"],set()):raise DomainError("INVALID_CLAIM_TRANSITION","현재 상태에서 해당 처리로 변경할 수 없습니다.",409)
+    if changing_status and claim["status"]=="NO_RESPONSE" and status=="PENDING_REVIEW":
+        completed=_one(conn,f"select id from {database_schema()}.admin_audit where action='PRIZE_FULFILLMENT_COMPLETE' and target_type='campaign' and target_id=%s limit 1",(claim["campaign_id"],))
+        if completed:raise DomainError("FULFILLMENT_ALREADY_COMPLETE","전체 경품 지급 종료가 기록되어 미응답 요청을 다시 열 수 없습니다.",409)
     if changing_status and claim["claim_type"]=="RANKING" and status=="PAID":
         award=_one(conn,f"""select a.claim_id from {database_schema()}.ranking_award a
           join {database_schema()}.ranking_snapshot s on s.id=a.snapshot_id and s.status='FINAL'
@@ -1133,13 +1148,62 @@ def admin_participant_patch(conn,pid,body,ctx):
     conn.execute(f"insert into {database_schema()}.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'PARTICIPANT_ACCESS','participant',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],pid,json.dumps({"status":participant["status"]}),json.dumps({"status":status,"session_revoked":revoke}),reason or None,str(body.get("event_id"))))
     return 200,{"participant_id":pid,"status":updated["status"],"session_revoked":revoke}
 
+def _ranking_review_target(snapshot_id,participant_id):return f"{snapshot_id}:{participant_id}"
+
+def _ranking_review_candidates(conn,snapshot):
+    source=_score_source(snapshot["game_version"])
+    rows=_all(conn,f"""select e.participant_id,e.rank,e.score,e.achieved_at,p.status participant_status,
+      b.session_id current_session_id,b.score current_score,b.achieved_at current_achieved_at,
+      g.id finished_session_id,g.score session_score,g.valid_ticks,g.game_summary,g.end_reason,g.verification_result,
+      review.after_value review_value,review.reason review_reason,review.created_at reviewed_at
+      from {database_schema()}.ranking_snapshot_entry e
+      join {database_schema()}.participant p on p.id=e.participant_id
+      left join {source} b on b.participant_id=e.participant_id
+      left join {database_schema()}.game_session g on g.id=b.session_id and g.participant_id=b.participant_id
+        and g.campaign_id=p.campaign_id and g.version=%s and g.status='FINISHED'
+      left join lateral (
+        select after_value,reason,created_at from {database_schema()}.admin_audit
+        where action='RANKING_GAMEPLAY_REVIEW' and target_type='ranking_snapshot_candidate'
+          and target_id=(%s||':'||e.participant_id) order by id desc limit 1
+      ) review on true
+      where e.snapshot_id=%s and e.rank<=3 order by e.rank""",(snapshot["game_version"],snapshot["id"],snapshot["id"]))
+    candidates=[]
+    for row in rows:
+        binding_current=bool(row["current_session_id"] and row["finished_session_id"]==row["current_session_id"]
+          and row["session_score"]==row["score"] and row["current_score"]==row["score"] and row["current_achieved_at"]==row["achieved_at"])
+        review_value=row["review_value"] or None
+        review_current=bool(review_value and binding_current
+          and review_value.get("snapshot_id")==snapshot["id"]
+          and review_value.get("participant_id")==row["participant_id"]
+          and review_value.get("session_id")==row["current_session_id"]
+          and review_value.get("score")==row["score"]
+          and review_value.get("achieved_at")==_iso(row["achieved_at"]))
+        candidates.append({"participant_id":row["participant_id"],"rank":row["rank"],"score":row["score"],
+          "achieved_at":_iso(row["achieved_at"]),"session_id":row["current_session_id"],
+          "elapsed_seconds":row["valid_ticks"]/60.0 if row["valid_ticks"] is not None else None,
+          "summary":row["game_summary"] or {},"end_reason":row["end_reason"],"verification":row["verification_result"],
+          "participant_status":row["participant_status"],"binding_current":binding_current,
+          "review":({"outcome":review_value.get("outcome"),"evidence_reference":review_value.get("evidence_reference"),
+            "reason":row["review_reason"],"reviewed_at":_iso(row["reviewed_at"]),"binding_current":review_current} if review_value else None)})
+    return candidates
+
+def _lock_ranking_candidate_participants(conn,snapshot_id):
+    return _all(conn,f"""select p.id from {database_schema()}.participant p
+      join {database_schema()}.ranking_snapshot_entry e on e.participant_id=p.id
+      where e.snapshot_id=%s and e.rank<=3 order by p.id for update of p""",(snapshot_id,))
+
 def admin_ranking_snapshots(conn,ctx):
     _admin(conn,ctx,"ranking:read");rows=_all(conn,f"""select s.id,s.status,s.tie_policy,s.game_version,s.campaign_closes_at,s.captured_at,s.finalized_at,
       count(distinct e.participant_id)::int entry_count,count(distinct a.rank)::int final_awards_created
       from {database_schema()}.ranking_snapshot s left join {database_schema()}.ranking_snapshot_entry e on e.snapshot_id=s.id
       left join {database_schema()}.ranking_award a on a.snapshot_id=s.id group by s.id order by s.captured_at desc limit 50""")
-    return 200,{"snapshots":[{**dict(row),"campaign_closes_at":_iso(row["campaign_closes_at"]),"captured_at":_iso(row["captured_at"]),
-      "finalized_at":_iso(row["finalized_at"]),"final_awards_created":row["final_awards_created"]==3} for row in rows]}
+    snapshots=[]
+    for row in rows:
+        snapshot=dict(row);snapshot["campaign_closes_at"]=_iso(row["campaign_closes_at"]);snapshot["captured_at"]=_iso(row["captured_at"])
+        snapshot["finalized_at"]=_iso(row["finalized_at"]);snapshot["final_awards_created"]=row["final_awards_created"]==3
+        snapshot["candidates"]=_ranking_review_candidates(conn,row)
+        snapshots.append(snapshot)
+    return 200,{"snapshots":snapshots}
 
 def admin_ranking_contacts(conn,ctx):
     _admin(conn,ctx,"claims:read");rows=_all(conn,f"""select r.participant_id,r.status ranking_status,r.game_version,r.requested_at,r.submitted_at,c.id claim_id,c.status claim_status,
@@ -1162,6 +1226,34 @@ def create_admin_ranking_snapshot(conn,body,ctx):
     count=_one(conn,f"select count(*)::int n from {database_schema()}.ranking_snapshot_entry where snapshot_id=%s",(sid,))["n"]
     conn.execute(f"insert into {database_schema()}.admin_audit(admin_user_id,action,target_type,target_id,after_value,event_id) values(%s,'RANKING_SNAPSHOT','ranking_snapshot',%s,%s::jsonb,%s)",(admin["auth_user_id"],sid,json.dumps({"status":"DRAFT","tie_policy":"EARLIEST_ACHIEVED_AT","entry_count":count}),str(body.get("event_id"))))
     return 201,{"id":sid,"status":snapshot["status"],"tie_policy":snapshot["tie_policy"],"campaign_closes_at":_iso(snapshot["campaign_closes_at"]),"captured_at":_iso(snapshot["captured_at"]),"entry_count":count,"game_version":version,"final_awards_created":False}
+
+def review_admin_ranking_candidate(conn,sid,body,ctx):
+    admin=_admin(conn,ctx,"ranking:write")
+    snapshot=_one(conn,f"select * from {database_schema()}.ranking_snapshot where id=%s for update",(sid,))
+    if not snapshot:raise DomainError("RANKING_SNAPSHOT_NOT_FOUND","랭킹 스냅샷을 찾을 수 없습니다.",404)
+    if snapshot["status"]!="DRAFT":raise DomainError("RANKING_ALREADY_FINALIZED","이미 최종 랭킹이 확정되었습니다.",409)
+    campaign=_campaign(conn)
+    if snapshot["campaign_id"]!=campaign["id"] or snapshot["campaign_id"]!=ctx.get("campaign_id"):
+        raise DomainError("CAMPAIGN_NOT_CONFIGURED","현재 행사의 랭킹 후보만 검토할 수 있습니다.",409)
+    participant_id=str(body.get("participant_id") or "");outcome=str(body.get("outcome") or "")
+    reason=str(body.get("reason") or "").strip();reference=str(body.get("evidence_reference") or "").strip()
+    reference_pattern=r"REF_[A-Za-z0-9_-]{1,100}" if ctx.get("environment")=="production" else r"TEST_REF_[A-Za-z0-9_-]{1,100}"
+    if outcome not in {"APPROVED","HOLD"} or len(reason)<3 or len(reason)>500 or not re.fullmatch(reference_pattern,reference):
+        raise DomainError("VALIDATION_ERROR","검토 결과, 사유, 비개인 정보 근거 참조를 확인해 주세요.")
+    _lock_ranking_candidate_participants(conn,sid)
+    candidates=_ranking_review_candidates(conn,snapshot);candidate=next((row for row in candidates if row["participant_id"]==participant_id),None)
+    if not candidate:raise DomainError("RANKING_CANDIDATE_NOT_FOUND","해당 스냅샷의 TOP3 후보가 아닙니다.",404)
+    if not candidate["binding_current"]:raise DomainError("RANKING_CANDIDATE_STALE","현재 최고 기록과 스냅샷이 다릅니다. 새 스냅샷을 만들어 주세요.",409)
+    if outcome=="APPROVED" and candidate["participant_status"]!="ACTIVE":
+        raise DomainError("RANKING_PARTICIPANT_BLOCKED","참가 제한 상태의 후보는 승인할 수 없습니다.",409)
+    after={"snapshot_id":sid,"participant_id":participant_id,"session_id":candidate["session_id"],"score":candidate["score"],
+      "achieved_at":candidate["achieved_at"],"outcome":outcome,"evidence_reference":reference}
+    before=candidate["review"] or None
+    conn.execute(f"""insert into {database_schema()}.admin_audit
+      (admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id)
+      values(%s,'RANKING_GAMEPLAY_REVIEW','ranking_snapshot_candidate',%s,%s::jsonb,%s::jsonb,%s,%s)""",
+      (admin["auth_user_id"],_ranking_review_target(sid,participant_id),json.dumps(before),json.dumps(after),reason,str(body.get("event_id"))))
+    return 200,{**after,"reviewed_at":_iso(_one(conn,"select clock_timestamp() as now")["now"]),"binding_current":True}
 
 def _ranking_cutoff(campaign):
     settings=campaign.get("settings") or {}
@@ -1201,6 +1293,16 @@ def finalize_admin_ranking_snapshot(conn,sid,body,ctx):
     winners=_all(conn,f"select * from {database_schema()}.ranking_snapshot_entry where snapshot_id=%s and rank<=3 order by rank",(sid,))
     awards=_all(conn,f"select * from {database_schema()}.ranking_award where campaign_id=%s order by rank for update",(campaign["id"],))
     if len(winners)!=3 or [r["rank"] for r in winners]!=[1,2,3]:raise DomainError("RANKING_ENTRIES_INCOMPLETE","상위 3명의 최종 기록이 필요합니다.",409)
+    _lock_ranking_candidate_participants(conn,sid)
+    candidates=_ranking_review_candidates(conn,snapshot)
+    if any(row["participant_status"]!="ACTIVE" for row in candidates):
+        raise DomainError("RANKING_PARTICIPANT_BLOCKED","참가 제한 상태의 TOP3 후보가 있습니다. 자동 차순위 선정 없이 후보를 재검토해 주세요.",409)
+    if any(not row["binding_current"] or (row["review"] and not row["review"]["binding_current"]) for row in candidates):
+        raise DomainError("RANKING_CANDIDATE_STALE","검토한 기록과 현재 최고 기록이 다릅니다. 새 스냅샷을 만들어 주세요.",409)
+    if any(not row["review"] for row in candidates):
+        raise DomainError("RANKING_GAMEPLAY_REVIEW_REQUIRED","모든 TOP3 후보의 플레이 기록을 검토해 주세요.",409)
+    if any(row["review"]["outcome"]!="APPROVED" for row in candidates):
+        raise DomainError("RANKING_GAMEPLAY_REVIEW_ON_HOLD","보류된 TOP3 후보가 있습니다. 자동 차순위 선정 없이 재검토해 주세요.",409)
     if len(awards)!=3 or [r["rank"] for r in awards]!=[1,2,3] or any(r["snapshot_id"] for r in awards):
         raise DomainError("RANKING_AWARDS_NOT_CONFIGURED","랭킹 1~3위 전용 경품 재고를 확인해 주세요.",409)
     for winner,award in zip(winners,awards):
@@ -1274,6 +1376,8 @@ def dispatch(conn,method,path,body,query,ctx):
         if method=="PATCH" and m:return admin_fault_patch(conn,m.group(1),body,ctx)
         if method=="GET" and path=="/api/admin/ranking-snapshots":return admin_ranking_snapshots(conn,ctx)
         if method=="POST" and path=="/api/admin/ranking-snapshots":return create_admin_ranking_snapshot(conn,body,ctx)
+        m=re.fullmatch(r"/api/admin/ranking-snapshots/([^/]+)/reviews",path)
+        if method=="POST" and m:return review_admin_ranking_candidate(conn,m.group(1),body,ctx)
         m=re.fullmatch(r"/api/admin/ranking-snapshots/([^/]+)/finalize",path)
         if method=="POST" and m:return finalize_admin_ranking_snapshot(conn,m.group(1),body,ctx)
         if method=="GET" and path=="/api/admin/ranking-contacts":return admin_ranking_contacts(conn,ctx)

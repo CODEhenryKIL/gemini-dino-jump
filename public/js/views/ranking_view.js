@@ -4,6 +4,7 @@ import { prepareResultReferralShare } from '../referral_share.js';
 
 const rankingRequests = new WeakMap();
 const rankLabel = (rank) => ['🥇', '🥈', '🥉'][rank - 1] || `${rank}위`;
+const campaignStatus = (router) => router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
 
 export const RankingView = {
   render(container, router, renderToken) {
@@ -74,22 +75,28 @@ export const RankingView = {
 
   async prepareSharing(button, feedback, router, isCurrent) {
     button.disabled = true;
+    if (campaignStatus(router) !== 'ACTIVE') {
+      feedback.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 게임권 공유를 이용할 수 있어요.' : '현재 게임권 공유를 이용할 수 없어요.';
+      feedback.hidden = false;
+      return;
+    }
     try {
       const prepared = await prepareResultReferralShare(router, { kind: 'retry_invite' });
       if (!isCurrent()) return;
-      button.disabled = false; feedback.hidden = true;
+      button.disabled = campaignStatus(router) !== 'ACTIVE'; feedback.hidden = campaignStatus(router) === 'ACTIVE';
+      if (button.disabled) { feedback.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 게임권 공유를 이용할 수 있어요.' : '현재 게임권 공유를 이용할 수 없어요.'; }
       button.onclick = async () => {
-        if (button.disabled || !isCurrent()) return;
+        if (button.disabled || !isCurrent() || campaignStatus(router) !== 'ACTIVE') return;
         button.disabled = true;
         try {
           const result = await prepared.share();
           if (isCurrent() && result?.status === 'failed') { feedback.textContent = '공유를 열지 못했어요. 다시 시도해 주세요.'; feedback.hidden = false; }
-        } finally { if (isCurrent()) button.disabled = false; }
+        } finally { if (isCurrent()) button.disabled = campaignStatus(router) !== 'ACTIVE'; }
       };
     } catch (_) {
       if (!isCurrent()) return;
       feedback.textContent = '공유를 준비하지 못했어요. 버튼을 눌러 다시 준비해 주세요.'; feedback.hidden = false;
-      button.disabled = false;
+      button.disabled = campaignStatus(router) !== 'ACTIVE';
       button.onclick = () => this.prepareSharing(button, feedback, router, isCurrent);
     }
   },

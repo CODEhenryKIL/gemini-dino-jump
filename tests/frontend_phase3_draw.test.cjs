@@ -45,6 +45,46 @@ function shareHarness(prepare) {
   return { button, container, routes, router, status, view: loadDraw(prepare) };
 }
 
+test('pouch and scratch hooks report the server round being acted on', () => {
+  const tracked = [];
+  class ScratchCardMock {
+    constructor(_canvas, options) { this.options = options; }
+    destroy() {}
+  }
+  const pouches = [0, 1, 2].map((index) => ({
+    ...node(), dataset: { index: String(index) }, classList: { toggle() {} },
+  }));
+  const open = node();
+  const description = node();
+  const selectionContainer = {
+    innerHTML: '',
+    querySelector(selector) { return selector === '#btn-open-pouch' ? open : description; },
+    querySelectorAll() { return pouches; },
+  };
+  const view = loadDraw(async () => ({}), {
+    analytics: { track: (...args) => tracked.push(args) },
+    ScratchCard: ScratchCardMock,
+    document: { activeElement: null },
+  });
+  const router = { state: { draw: { used_count: 3, max_count: 10, available_credits: 1 } }, isCurrent: () => true, announceStateChange() {}, navigate() {} };
+  view.renderSelection(selectionContainer, router, 1);
+  pouches[2].onclick();
+  assert.equal(tracked.at(-1)[0], 'pouch_selected');
+  assert.deepEqual(JSON.parse(JSON.stringify(tracked.at(-1)[1])), { action: 'pouch_2', round_number: 4 });
+
+  const selectors = [
+    '#scratch-title', '#scratch-instruction', '#result-prize-img', '#result-prize-title', '#result-prize-sub',
+    '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status',
+    '#scratch-canvas', '#scratch-result-content', '#btn-draw-share', '#draw-share-status',
+  ];
+  const nodes = new Map(selectors.map((selector) => [selector, node()]));
+  const scratchContainer = { innerHTML: '', querySelector: (selector) => nodes.get(selector) };
+  view.renderScratch(scratchContainer, router, { draw_id: 'draw-round-4', round_number: 4, pouch_index: 2, outcome_kind: 'BENEFIT', scratch_completed: false, prize: {} }, 2, router.state.draw);
+  view.scratchCard.options.onStart();
+  assert.equal(tracked.at(-1)[0], 'scratch_started');
+  assert.deepEqual(JSON.parse(JSON.stringify(tracked.at(-1)[1])), { round_number: 4 });
+});
+
 test('Gemini benefit result prepares draw_retry and confirmed webhook exposes a direct next action', async () => {
   let options;
   const h = shareHarness(async (_router, received) => {

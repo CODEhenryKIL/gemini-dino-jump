@@ -70,7 +70,7 @@ class Phase3ClaimPaymentTest(unittest.TestCase):
             self.admin_id = str(uuid.uuid4())
             conn.execute(
                 """insert into dino_dev.admin_member(auth_user_id,display_name,permissions)
-                values(%s,'TEST_admin',array['claims:write'])""",
+                values(%s,'TEST_admin',array['claims:read','claims:write'])""",
                 (self.admin_id,),
             )
 
@@ -143,6 +143,52 @@ class Phase3ClaimPaymentTest(unittest.TestCase):
                 "select count(*)::int n from dino_dev.admin_audit where target_id=%s", (claim_id,)
             ).fetchone()["n"]
         return dict(claim), dict(inventory), history, audits
+
+    def test_unsubmitted_claim_can_only_close_as_no_response_after_deadline(self):
+        claim_id, inventory_id = self.seed_claim('unsubmitted', verification_status='NOT_REQUESTED', verification_reference=None)
+        with psycopg.connect(self.database.dsn) as conn:
+            conn.execute("delete from dino_dev.claim_contact where claim_id=%s", (claim_id,))
+            conn.execute("update dino_dev.claim set status='AWAITING_INFORMATION',contact_submitted_at=null,contacted_at=null where id=%s", (claim_id,))
+        body = {'status':'NO_RESPONSE','expected_version':1,'reason':'접수 기한 경과 확인','event_id':'evt_no_response'}
+        before = self.snapshot(claim_id, inventory_id)
+        for deadline in (None, 'invalid', '2999-01-01T00:00:00+00:00'):
+            with psycopg.connect(self.database.dsn) as conn:
+                conn.execute("update dino_dev.campaign set settings=jsonb_build_object('claim_submission_cutoff',%s::text) where id=%s", (deadline,CAMPAIGN_ID))
+            with self.app_tx() as conn:
+                self.assertFalse(operations.admin_claims(conn,{},self.ctx())[1]['claims'][0]['can_close_no_response'])
+                with self.assertRaises(operations.DomainError) as caught:
+                    operations.admin_claim_patch(conn,claim_id,body,self.ctx())
+            self.assertEqual(caught.exception.code,'CLAIM_INFORMATION_REQUIRED')
+            self.assertEqual(self.snapshot(claim_id, inventory_id),before)
+        with psycopg.connect(self.database.dsn) as conn:
+            conn.execute("update dino_dev.campaign set settings=jsonb_build_object('claim_submission_cutoff',clock_timestamp()-interval '1 second') where id=%s",(CAMPAIGN_ID,))
+        for change,code in (({'reason':''},'VALIDATION_ERROR'),({'expected_version':0},'VERSION_CONFLICT'),({'status':'PAID'},'CLAIM_INFORMATION_REQUIRED'),({'external_delivery':True},'CLAIM_INFORMATION_REQUIRED')):
+            with self.app_tx() as conn, self.assertRaises(operations.DomainError) as caught:
+                operations.admin_claim_patch(conn,claim_id,{**body,**change},self.ctx())
+            self.assertEqual(caught.exception.code,code)
+            self.assertEqual(self.snapshot(claim_id,inventory_id),before)
+        with self.app_tx() as conn:
+            self.assertTrue(operations.admin_claims(conn,{},self.ctx())[1]['claims'][0]['can_close_no_response'])
+            result=operations.admin_claim_patch(conn,claim_id,body,self.ctx())[1]
+        self.assertEqual((result['status'],result['version']),('NO_RESPONSE',2))
+        after=self.snapshot(claim_id,inventory_id)
+        self.assertEqual(after[1:3],before[1:3])  # No payout, inventory release, or extra winner.
+        self.assertEqual(after[3],1)
+        with self.app_tx() as conn, self.assertRaises(operations.DomainError) as caught:
+            operations.admin_claim_patch(conn,claim_id,{**body,'expected_version':2,'status':'PENDING_REVIEW'},self.ctx())
+        self.assertEqual(caught.exception.code,'CLAIM_INFORMATION_REQUIRED')
+
+    def test_completion_marker_blocks_reopening_no_response_claim(self):
+        claim_id, inventory_id = self.seed_claim('completed_no_response')
+        with psycopg.connect(self.database.dsn) as conn:
+            conn.execute("update dino_dev.claim set status='NO_RESPONSE' where id=%s", (claim_id,))
+            conn.execute("""insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,event_id)
+                values(%s,'PRIZE_FULFILLMENT_COMPLETE','campaign',%s,'evt_complete')""",(self.admin_id,CAMPAIGN_ID))
+        before=self.snapshot(claim_id,inventory_id)
+        with self.app_tx() as conn, self.assertRaises(operations.DomainError) as caught:
+            operations.admin_claim_patch(conn,claim_id,{'status':'PENDING_REVIEW','expected_version':1,'event_id':'evt_reopen'},self.ctx())
+        self.assertEqual(caught.exception.code,'FULFILLMENT_ALREADY_COMPLETE')
+        self.assertEqual(self.snapshot(claim_id,inventory_id),before)
 
     def test_paid_rejects_each_missing_evidence_without_mutation(self):
         cases = (

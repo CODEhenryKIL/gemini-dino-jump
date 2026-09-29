@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 
 const slides = [
@@ -42,7 +43,20 @@ export function showGameGuide(router, autoStart = true) {
   let previous;
   let skip;
   let overlay;
+  const campaignStatus = () => router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+  analytics.trackGa4?.('tutorial_viewed', { tutorial_step: 1 });
+  const applyCampaignState = () => {
+    if (!autoStart || !confirm || !skip) return;
+    const status = campaignStatus();
+    const blocked = status !== 'ACTIVE';
+    if (index === slides.length - 1) {
+      confirm.disabled = blocked;
+      confirm.textContent = blocked ? (status === 'NOT_OPEN' ? '행사 시작 전이에요' : status === 'ENDED' ? '행사가 종료됐어요' : '행사가 잠시 중단됐어요') : '게임 시작';
+    }
+    skip.disabled = blocked;
+  };
   const finish = () => {
+    if (autoStart && campaignStatus() !== 'ACTIVE') { applyCampaignState(); return; }
     ui.hideModal();
     if (autoStart) router.navigate('game');
   };
@@ -114,10 +128,12 @@ export function showGameGuide(router, autoStart = true) {
       renderRanking();
       if (!ranking && !rankingError) loadRanking();
     }
+    applyCampaignState();
   }
 
   function changeSlide(next) {
     index = Math.max(0, Math.min(slides.length - 1, next));
+    analytics.trackGa4?.('tutorial_progressed', { tutorial_step: index + 1 });
     renderSlide();
     content.querySelector('.guide-slide-title').focus({ preventScroll: true });
     const scrollHost = overlay.querySelector('.modal-body');
@@ -147,8 +163,12 @@ export function showGameGuide(router, autoStart = true) {
   previous.onclick = () => changeSlide(index - 1);
   confirm.before(previous);
   skip = document.createElement('button'); skip.type = 'button'; skip.className = 'guide-text-button guide-skip';
-  skip.textContent = autoStart ? '건너뛰고 게임 시작' : '건너뛰기'; skip.onclick = finish;
+  skip.textContent = autoStart ? '건너뛰고 게임 시작' : '건너뛰기'; skip.onclick = () => {
+    analytics.trackGa4?.('tutorial_skipped', { tutorial_step: index + 1 });
+    finish();
+  };
   overlay.querySelector('.modal-card').appendChild(skip);
+  applyCampaignState();
 
   let touchStart = null;
   content.addEventListener('touchstart', (event) => {

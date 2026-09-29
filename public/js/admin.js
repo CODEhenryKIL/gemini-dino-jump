@@ -11,6 +11,8 @@ let loginInFlight = false;
 let campaignVersion = 0;
 let adminPermissions = new Set();
 let adminEnvironment = 'preview';
+let recoveryAccessToken = '';
+let recoveryInFlight = false;
 const loadFailures = new Set();
 const sectionRevisions = new Map();
 let sessionLoadMessage = '';
@@ -106,6 +108,146 @@ async function login() {
     await showAdmin();
   } catch (error) { message.textContent = error.message; }
   finally { loginInFlight = false; document.querySelector('#btn-admin-login').disabled = false; }
+}
+
+function recoveryRedirectUrl() {
+  const url = new URL(window.location.href);
+  url.hash = '';
+  url.search = '';
+  return url.toString();
+}
+
+function clearRecoveryUrl() {
+  window.history?.replaceState?.(null, '', window.location.pathname || '/admin.html');
+}
+
+function leaveRecoveryMode() {
+  recoveryAccessToken = '';
+  clearRecoveryUrl();
+  document.querySelector('#admin-password-recovery').hidden = true;
+  document.querySelector('#admin-login').hidden = false;
+}
+
+async function requestPasswordRecovery() {
+  if (recoveryInFlight) return;
+  const emailInput = document.querySelector('#admin-email');
+  const email = emailInput.value.trim();
+  const message = document.querySelector('#admin-password-reset-message');
+  if (!email || (emailInput.validity && !emailInput.validity.valid)) {
+    message.textContent = '관리자 이메일을 입력해 주세요.';
+    emailInput.focus?.();
+    return;
+  }
+  recoveryInFlight = true;
+  document.querySelector('#btn-admin-password-reset').disabled = true;
+  const genericMessage = '등록된 관리자 이메일이라면 비밀번호 설정 링크를 보냈습니다. 받은편지함과 스팸함을 확인해 주세요.';
+  try {
+    const config = await api.getConfig();
+    await fetch(`${config.auth.supabase_url}/auth/v1/recover?redirect_to=${encodeURIComponent(recoveryRedirectUrl())}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: config.auth.publishable_key },
+      body: JSON.stringify({ email }),
+    });
+    message.textContent = genericMessage;
+  } catch (_) {
+    message.textContent = '비밀번호 설정 요청을 보내지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요.';
+  } finally {
+    recoveryInFlight = false;
+    document.querySelector('#btn-admin-password-reset').disabled = false;
+  }
+}
+
+async function verifyRecoveryAdministrator(token) {
+  const response = await fetch('/api/admin/session', {
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: 'same-origin',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.admin) {
+    const error = new Error('이 링크로는 관리자 권한을 확인할 수 없습니다. 새 링크를 요청해 주세요.');
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+async function initializePasswordRecovery() {
+  const params = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+  const recoveryRequested = params.get('type') === 'recovery' || params.has('error_code') || params.has('error_description');
+  const token = params.get('access_token') || '';
+  if (!recoveryRequested) return false;
+
+  clearRecoveryUrl();
+  sessionClear();
+  accessToken = '';
+  recoveryAccessToken = '';
+  document.querySelector('#admin-login').hidden = true;
+  document.querySelector('#admin-app').hidden = true;
+  document.querySelector('#admin-password-recovery').hidden = false;
+  const message = document.querySelector('#admin-password-recovery-message');
+  if (!token) {
+    message.textContent = '비밀번호 설정 링크가 만료되었거나 올바르지 않습니다. 로그인 화면에서 새 링크를 요청해 주세요.';
+    return true;
+  }
+  message.textContent = '관리자 권한을 확인하고 있습니다.';
+  try {
+    await verifyRecoveryAdministrator(token);
+    recoveryAccessToken = token;
+    message.textContent = '';
+  } catch (error) {
+    recoveryAccessToken = '';
+    message.textContent = error.message;
+  }
+  return true;
+}
+
+async function updateRecoveredPassword() {
+  if (recoveryInFlight) return;
+  const message = document.querySelector('#admin-password-recovery-message');
+  if (!recoveryAccessToken) {
+    message.textContent = '유효한 비밀번호 설정 링크를 다시 요청해 주세요.';
+    return;
+  }
+  const password = document.querySelector('#admin-new-password').value;
+  const confirmation = document.querySelector('#admin-new-password-confirm').value;
+  if (password.length < 12) {
+    message.textContent = '새 비밀번호는 12자 이상으로 입력해 주세요.';
+    return;
+  }
+  if (password !== confirmation) {
+    message.textContent = '새 비밀번호가 서로 일치하지 않습니다.';
+    return;
+  }
+  recoveryInFlight = true;
+  document.querySelector('#btn-admin-password-update').disabled = true;
+  try {
+    const config = await api.getConfig();
+    const response = await fetch(`${config.auth.supabase_url}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: config.auth.publishable_key,
+        Authorization: `Bearer ${recoveryAccessToken}`,
+      },
+      body: JSON.stringify({ password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.msg || data.message || data.error_description || '새 비밀번호를 저장하지 못했습니다.');
+    sessionRevision += 1;
+    accessToken = recoveryAccessToken;
+    recoveryAccessToken = '';
+    sessionSet(accessToken);
+    window.history?.replaceState?.(null, '', window.location.pathname || '/admin.html');
+    document.querySelector('#admin-new-password').value = '';
+    document.querySelector('#admin-new-password-confirm').value = '';
+    document.querySelector('#admin-password-recovery').hidden = true;
+    await showAdmin();
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    recoveryInFlight = false;
+    document.querySelector('#btn-admin-password-update').disabled = false;
+  }
 }
 
 async function showAdmin() {
@@ -592,12 +734,17 @@ function rankingSnapshotEditor(snapshot) {
   const status = document.createElement('p'); status.className = 'status-note';
   status.textContent = snapshot.status === 'FINAL'
     ? `확정 ${snapshot.finalized_at ? new Date(snapshot.finalized_at).toLocaleString('ko-KR') : '-'} · TOP3 수령 요청과 경품 예약 생성 완료`
-    : '최종 확정 전에는 수령 요청과 경품 예약이 생성되지 않아요.';
+    : '최종 확정 전에 TOP3 플레이 기록을 각각 검토해야 합니다. 재학생 자격 확인은 수령 업무에서 별도로 진행합니다.';
   item.append(title, meta, status);
+  const candidates = Array.isArray(snapshot.candidates) ? snapshot.candidates : [];
+  for (const candidate of candidates) item.appendChild(rankingCandidateReview(snapshot, candidate));
   if (snapshot.status !== 'FINAL') {
     const controls = document.createElement('div'); controls.className = 'inline-controls';
     const reason = document.createElement('input'); reason.maxLength = 160; reason.placeholder = '최종 확정 사유'; reason.ariaLabel = '최종 랭킹 확정 사유';
     const finalize = document.createElement('button'); finalize.type = 'button'; finalize.className = 'btn btn-primary btn-sm'; finalize.textContent = 'TOP3 최종 확정';
+    const ready = candidates.length === 3 && candidates.every((candidate) => candidate.participant_status === 'ACTIVE'
+      && candidate.binding_current && candidate.review?.binding_current && candidate.review?.outcome === 'APPROVED');
+    if (!ready) { finalize.disabled = true; finalize.textContent = '검토 완료 후 확정'; }
     if (!adminPermissions.has('ranking:write')) { reason.disabled = true; finalize.disabled = true; finalize.textContent = '읽기 전용'; }
     finalize.onclick = async () => {
       const value = reason.value.trim();
@@ -614,6 +761,48 @@ function rankingSnapshotEditor(snapshot) {
     controls.append(reason, finalize); item.appendChild(controls);
   }
   return item;
+}
+
+function rankingCandidateReview(snapshot, candidate) {
+  const card = document.createElement('section'); card.className = 'status-note';
+  const title = document.createElement('strong');
+  title.textContent = `${candidate.rank}위 후보 · ${Number(candidate.score || 0).toLocaleString('ko-KR')}점 · ${Number(candidate.elapsed_seconds || 0).toFixed(1)}초`;
+  const session = document.createElement('p');
+  session.textContent = `세션 ${candidate.session_id || '-'} · 완료 ${candidate.achieved_at ? new Date(candidate.achieved_at).toLocaleString('ko-KR') : '-'} · ${candidate.end_reason || '-'} · ${candidate.verification || '-'}`;
+  const summary = document.createElement('p');
+  const summaryText = Object.entries(candidate.summary || {}).map(([key, value]) => `${key} ${value}`).join(' · ');
+  summary.textContent = `게임 요약: ${summaryText || '기록 없음'}`;
+  const review = document.createElement('p');
+  if (candidate.participant_status !== 'ACTIVE') review.textContent = '참가 제한 상태 — 자동으로 차순위를 선정하지 않습니다.';
+  else if (!candidate.binding_current || (candidate.review && !candidate.review.binding_current)) review.textContent = '현재 최고 기록과 다름 — 새 스냅샷이 필요합니다.';
+  else if (candidate.review?.outcome === 'APPROVED') review.textContent = `플레이 검토 승인 · ${candidate.review.evidence_reference}`;
+  else if (candidate.review?.outcome === 'HOLD') review.textContent = `플레이 검토 보류 · ${candidate.review.evidence_reference}`;
+  else review.textContent = '플레이 기록 미검토';
+  card.append(title, session, summary, review);
+  if (snapshot.status === 'FINAL') return card;
+  const controls = document.createElement('div'); controls.className = 'inline-controls';
+  const evidence = document.createElement('input'); evidence.maxLength = 109; evidence.placeholder = '근거 참조 (TEST_REF_... / REF_...)'; evidence.ariaLabel = `${candidate.rank}위 검토 근거 참조`;
+  const reason = document.createElement('input'); reason.maxLength = 500; reason.placeholder = '검토 사유 (개인정보 금지)'; reason.ariaLabel = `${candidate.rank}위 검토 사유`;
+  const approve = document.createElement('button'); approve.type = 'button'; approve.className = 'btn btn-primary btn-sm'; approve.textContent = '플레이 승인';
+  const hold = document.createElement('button'); hold.type = 'button'; hold.className = 'btn btn-sm'; hold.textContent = '검토 보류';
+  const writable = adminPermissions.has('ranking:write') && candidate.participant_status === 'ACTIVE' && candidate.binding_current;
+  if (!writable) { evidence.disabled = true; reason.disabled = true; approve.disabled = true; hold.disabled = true; }
+  const submit = async (outcome, button) => {
+    const evidenceReference = evidence.value.trim(); const reviewReason = reason.value.trim();
+    if (!evidenceReference || reviewReason.length < 3) { ui.showToast('비개인 정보 근거 참조와 검토 사유를 입력해 주세요.'); return; }
+    approve.disabled = true; hold.disabled = true;
+    try {
+      await adminRequest(`/api/admin/ranking-snapshots/${encodeURIComponent(snapshot.id)}/reviews`, {
+        method: 'POST', body: JSON.stringify({ participant_id: candidate.participant_id, outcome,
+          evidence_reference: evidenceReference, reason: reviewReason, event_id: api.createRequestId('evt') }),
+      });
+      ui.showToast(outcome === 'APPROVED' ? '플레이 기록을 승인했습니다.' : '플레이 기록을 보류했습니다.');
+      await loadRankingSnapshots();
+    } catch (error) { ui.showToast(error.message); button.disabled = false; approve.disabled = false; hold.disabled = false; }
+  };
+  approve.onclick = () => submit('APPROVED', approve); hold.onclick = () => submit('HOLD', hold);
+  controls.append(evidence, reason, approve, hold); card.appendChild(controls);
+  return card;
 }
 
 function claimEditor(claim) {
@@ -635,16 +824,19 @@ function claimEditor(claim) {
   }
   const awaitingInformation = claim.status === 'AWAITING_INFORMATION';
   const needsContact = !claim.contact_submitted_at || !claim.recipient_name || !claim.contact;
+  const canCloseNoResponse = awaitingInformation && claim.can_close_no_response === true;
   if (awaitingInformation || needsContact) {
     const note = document.createElement('p'); note.className = 'status-note';
-    note.textContent = '참가자가 수령 정보를 제출한 뒤 확인·연락·지급 상태로 변경할 수 있습니다.';
+    note.textContent = canCloseNoResponse
+      ? '접수 기한이 지났습니다. 사유를 남겨 미응답으로 마감할 수 있습니다. 지급 처리는 할 수 없습니다.'
+      : '참가자가 수령 정보를 제출한 뒤 확인·연락·지급 상태로 변경할 수 있습니다.';
     info.appendChild(note);
   }
   const state = document.createElement('select');
   for (const [status, label] of Object.entries(CLAIM_STATUS_LABELS)) {
     const option = document.createElement('option'); option.value = status; option.textContent = label; option.selected = claim.status === status;
     option.disabled = (claim.claim_type === 'RANKING' && !finalizedRanking && status === 'PAID')
-      || (awaitingInformation ? status !== 'AWAITING_INFORMATION' : status === 'AWAITING_INFORMATION');
+      || (awaitingInformation ? status !== 'AWAITING_INFORMATION' && !(canCloseNoResponse && status === 'NO_RESPONSE') : status === 'AWAITING_INFORMATION');
     state.appendChild(option);
   }
   state.value = claim.status;
@@ -672,12 +864,16 @@ function claimEditor(claim) {
   };
   state.onchange = updatePaymentNote; updatePaymentNote();
   if (claim.status === 'PAID') { verification.disabled = true; reference.disabled = true; externalBox.disabled = true; }
+  if (canCloseNoResponse) { verification.disabled = true; reference.disabled = true; externalBox.disabled = true; }
   const save = document.createElement('button'); save.className = 'btn btn-primary btn-sm'; save.textContent = '상태 저장';
-  if (!adminPermissions.has('claims:write') || awaitingInformation || needsContact) {
+  if (!adminPermissions.has('claims:write') || ((awaitingInformation || needsContact) && !canCloseNoResponse)) {
     state.disabled = true; assignee.disabled = true; reason.disabled = true; verification.disabled = true; reference.disabled = true; externalBox.disabled = true; save.disabled = true;
     save.textContent = awaitingInformation ? '수령 정보 입력 대기' : needsContact ? '수령 정보 확인 필요' : '읽기 전용';
   }
   save.onclick = async () => {
+    if (canCloseNoResponse && (state.value !== 'NO_RESPONSE' || reason.value.trim().length < 3)) {
+      ui.showToast('미응답을 선택하고 마감 사유를 3자 이상 입력해 주세요.'); return;
+    }
     const verificationReference = reference.value.trim() || null;
     const referencePattern = adminEnvironment === 'production' ? /^REF_[A-Za-z0-9_-]{1,100}$/ : /^TEST_REF_[A-Za-z0-9_-]{1,100}$/;
     if (verificationReference && !referencePattern.test(verificationReference)) {
@@ -701,6 +897,10 @@ function claimEditor(claim) {
 
 document.querySelector('#btn-admin-login').onclick = login;
 document.querySelector('#admin-password').addEventListener('keydown', (event) => { if (event.key === 'Enter') login(); });
+document.querySelector('#btn-admin-password-reset').onclick = requestPasswordRecovery;
+document.querySelector('#btn-admin-password-update').onclick = updateRecoveredPassword;
+document.querySelector('#btn-admin-password-recovery-cancel').onclick = leaveRecoveryMode;
+document.querySelector('#admin-new-password-confirm').addEventListener('keydown', (event) => { if (event.key === 'Enter') updateRecoveredPassword(); });
 document.querySelector('#btn-admin-logout').onclick = () => { accessToken = ''; sessionClear(); window.location.reload(); };
 document.querySelector('#btn-admin-retry').onclick = async () => {
   const button = document.querySelector('#btn-admin-retry'); button.disabled = true;
@@ -731,4 +931,12 @@ document.querySelector('#btn-campaign-update').onclick = async () => {
   } catch (error) { ui.showToast(error.message); }
 };
 
-if (accessToken) showAdmin().catch(() => {});
+if (typeof window !== 'undefined') {
+  const initialAdminAccessToken = accessToken;
+  initializePasswordRecovery().then((recoveryMode) => {
+    if (!recoveryMode && initialAdminAccessToken && accessToken === initialAdminAccessToken) showAdmin().catch(() => {});
+  }).catch(() => {
+    leaveRecoveryMode();
+    ui.text(document.querySelector('#admin-login-message'), '비밀번호 설정 링크를 확인하지 못했습니다. 새 링크를 요청해 주세요.');
+  });
+}

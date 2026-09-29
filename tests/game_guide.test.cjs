@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
+function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} }), initialStatus = 'ACTIVE') {
   class Node {
     constructor(tag = 'div') {
       this.tagName = tag.toUpperCase(); this.children = []; this.attrs = {}; this.className = '';
@@ -63,7 +63,7 @@ function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
     hideModal() { hidden++; content.isConnected = false; overlay.isConnected = false; },
   };
   const context = {
-    api: { getLeaderboard }, ui, document, Node,
+    api: { getLeaderboard }, analytics: { trackGa4() {} }, ui, document, Node,
     localStorage: { setItem: (key, value) => writes.push([key, value]) },
     Intl, Number, console,
   };
@@ -72,9 +72,11 @@ function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
     .replace('export function showGameGuide', 'function showGameGuide')
     .concat('\nglobalThis.showGameGuide = showGameGuide;');
   vm.runInNewContext(source, context, { filename: 'game_guide.js' });
-  const router = { navigate: (view) => navigations.push(view) };
+  let campaignStatus = initialStatus;
+  const router = { navigate: (view) => navigations.push(view), campaignStatus: () => campaignStatus };
   context.showGameGuide(router, true);
-  return { content, title, rankHost, confirm, close, card, body, overlay, modal: () => modal, writes, navigations, hidden: () => hidden };
+  return { content, title, rankHost, confirm, close, card, body, overlay, modal: () => modal, writes, navigations, hidden: () => hidden,
+    setCampaignStatus: (value) => { campaignStatus = value; } };
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -114,6 +116,23 @@ test('skip starts the game without suppressing future tutorials', () => {
   assert.deepEqual(h.writes, []);
   assert.deepEqual(h.navigations, ['game']);
   assert.equal(h.hidden(), 1);
+});
+
+test('guide start actions recheck the live campaign boundary before navigation', () => {
+  const ended = harness(undefined, 'ENDED');
+  const endedSkip = ended.card.children.at(-1);
+  assert.equal(endedSkip.disabled, true);
+  endedSkip.onclick();
+  assert.deepEqual(ended.navigations, []);
+  assert.equal(ended.hidden(), 0);
+
+  const boundary = harness();
+  const skip = boundary.card.children.at(-1);
+  boundary.setCampaignStatus('PAUSED');
+  skip.onclick();
+  assert.deepEqual(boundary.navigations, []);
+  assert.equal(boundary.hidden(), 0);
+  assert.equal(skip.disabled, true);
 });
 
 test('final slide shows rewards and safely renders live ranking data', async () => {

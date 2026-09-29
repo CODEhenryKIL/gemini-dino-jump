@@ -7,10 +7,12 @@ import { prepareResultReferralShare } from '../referral_share.js';
 const resultGapRequests = new WeakMap();
 const contactForms = new WeakMap();
 const celebratedResults = new WeakSet();
+const preparedShares = new WeakMap();
 
 export const ResultView = {
   render(container, router, renderToken) {
     resultGapRequests.set(container, Symbol('result-render'));
+    preparedShares.delete(container);
     const result = router.state.lastResult;
     if (!result) { router.navigate('home'); return; }
     container.innerHTML = `
@@ -33,6 +35,7 @@ export const ResultView = {
     const gapNode = container.querySelector('#result-top3-gap');
     if (gapNode) this.renderGap(gapNode, result);
     container.querySelector('#btn-go-pouch').onclick = () => {
+      if (container.querySelector('#btn-go-pouch').disabled) return;
       analytics.track('draw_cta_clicked', { source: 'result', draw_status: router.state.draw?.status || 'LOCKED' });
       router.navigate('draw');
     };
@@ -59,14 +62,28 @@ export const ResultView = {
     try {
       const prepared = await prepareResultReferralShare(router);
       if (!isCurrent()) return;
-      button.disabled = false;
-      if (status) ui.text(status, prepared.mode === 'native' ? '' : prepared.mode === 'copy' ? '링크 복사는 게임권 지급 대상이 아니에요.' : '카카오톡 전송이 확인되면 재도전권이 적립돼요.');
-      button.onclick = () => { if (isCurrent()) return prepared.share(); };
+      const readyMessage = prepared.mode === 'native' ? '' : prepared.mode === 'copy' ? '링크 복사는 게임권 지급 대상이 아니에요.' : '카카오톡 전송이 확인되면 재도전권이 적립돼요.';
+      preparedShares.set(container, { message: readyMessage, run: () => prepared.share() });
+      button.onclick = () => { if (isCurrent() && !button.disabled) return preparedShares.get(container)?.run(); };
+      const campaignStatus = router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+      button.disabled = campaignStatus !== 'ACTIVE';
+      if (button.disabled) {
+        if (status) ui.text(status, campaignStatus === 'NOT_OPEN' ? '행사 시작 후 재도전권 공유를 이용할 수 있어요.' : '현재 재도전권 공유를 이용할 수 없어요.');
+        return;
+      }
+      if (status) ui.text(status, readyMessage);
     } catch (_) {
       if (!isCurrent()) return;
-      button.disabled = false;
-      if (status) ui.text(status, '초대 링크를 불러오지 못했어요. 버튼을 눌러 다시 준비해 주세요.');
-      button.onclick = () => { if (isCurrent()) return this.prepareShare(container, router, renderToken); };
+      const retryMessage = '초대 링크를 불러오지 못했어요. 버튼을 눌러 다시 준비해 주세요.';
+      preparedShares.set(container, { message: retryMessage, run: () => this.prepareShare(container, router, renderToken) });
+      button.onclick = () => { if (isCurrent() && !button.disabled) return preparedShares.get(container)?.run(); };
+      const campaignStatus = router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+      button.disabled = campaignStatus !== 'ACTIVE';
+      if (button.disabled) {
+        if (status) ui.text(status, campaignStatus === 'NOT_OPEN' ? '행사 시작 후 재도전권 공유를 이용할 수 있어요.' : '현재 재도전권 공유를 이용할 수 없어요.');
+        return;
+      }
+      if (status) ui.text(status, retryMessage);
     }
   },
 
@@ -105,14 +122,33 @@ export const ResultView = {
 
   updateState(container, router, renderToken) {
     if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return;
+    const status = router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
     const replay = container.querySelector('#btn-play-again');
     if (replay) {
       const tickets = router.state.tickets || {};
       const available = Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0)));
       const score = router.state.lastResult?.score;
       replay.hidden = !(tickets.unlimited_play === true || available > 0 || (Number.isFinite(score) && score <= 100));
-      const status = router.config?.campaign?.status || 'ACTIVE';
       replay.disabled = status !== 'ACTIVE' && !router.state.pendingGameSession;
+    }
+    const share = container.querySelector('#btn-share-record');
+    const preparedShare = preparedShares.get(container);
+    if (share) {
+      share.disabled = status !== 'ACTIVE' || !preparedShare;
+      const shareStatus = container.querySelector('#result-share-status');
+      if (shareStatus && preparedShare) {
+        ui.text(shareStatus, status === 'ACTIVE'
+          ? preparedShare.message
+          : status === 'NOT_OPEN' ? '행사 시작 후 재도전권 공유를 이용할 수 있어요.' : '현재 재도전권 공유를 이용할 수 없어요.');
+      }
+    }
+    const pouch = container.querySelector('#btn-go-pouch');
+    if (pouch) {
+      const drawStatus = router.state.draw?.status || 'LOCKED';
+      const hasSavedResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus) || Boolean(router.state.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+      pouch.disabled = !hasSavedResult && drawStatus === 'AVAILABLE' && status !== 'ACTIVE';
+      if (pouch.disabled) pouch.textContent = status === 'NOT_OPEN' ? '행사 시작 후 복주머니 열기' : status === 'ENDED' ? '복주머니 행사가 종료됐어요' : '복주머니가 잠시 중단됐어요';
+      else pouch.textContent = hasSavedResult ? '내 복주머니 결과 보기' : '복주머니 확인하기';
     }
     this.celebrateTop3(container, router.state.lastResult);
     const target = container.querySelector('#top3-request');
@@ -236,7 +272,7 @@ export const ResultView = {
     accuracyNote.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';
     form.appendChild(accuracyNote);
     const eligibilityNote = document.createElement('p'); eligibilityNote.className = 'result-contact-accuracy';
-    eligibilityNote.textContent = '재학생·휴학생이 참여할 수 있어요. 개인정보는 지급 완료 후 30일 이내 삭제하며, 문의는 sea42471@naver.com으로 보내 주세요.';
+    eligibilityNote.textContent = '재학생·휴학생이 참여할 수 있어요. 개인정보는 지급 완료 후 30일 이내 삭제해요. 미지급 정보는 전체 경품 지급 종료 후 30일 이내 삭제해요. 문의: sea42471@naver.com';
     form.appendChild(eligibilityNote);
     const feedback = document.createElement('p'); feedback.className = 'result-form-status'; feedback.setAttribute('role', 'status');
     const button = document.createElement('button'); button.type = 'submit'; button.className = 'btn btn-secondary'; button.textContent = '수령 정보 등록';
@@ -263,7 +299,7 @@ export const ResultView = {
         router.state.top3Profile = { ...previousProfile, required: false, status: submitted.status || 'SUBMITTED', submitted_at: submitted.submitted_at || previousProfile.submitted_at };
         if (router.state.lastResult) router.state.lastResult.top3Profile = router.state.top3Profile;
         router.announceStateChange?.();
-        analytics.track('top3_profile_submitted');
+        analytics.track('top3_profile_submitted', {}, { dedupKey: 'top3-profile-submit' });
         if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return;
         // Replace only this form, keeping score/share controls and scroll position intact.
         form.replaceChildren();

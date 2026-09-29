@@ -3,6 +3,8 @@ import datetime as dt
 import hashlib
 import json
 import sys
+import threading
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -161,6 +163,20 @@ class Phase3RankingFinalizationTest(unittest.TestCase):
                     (CAMPAIGN_ID, rank, prize_id, inventory_id),
                 )
 
+    def review_top3(self, conn, snapshot, outcome="APPROVED", event_prefix="evt_review"):
+        participant_ids = [row["participant_id"] for row in conn.execute(
+            "select participant_id from dino_dev.ranking_snapshot_entry where snapshot_id=%s and rank<=3 order by rank",
+            (snapshot["id"],),
+        ).fetchall()]
+        for index, participant_id in enumerate(participant_ids, 1):
+            operations.review_admin_ranking_candidate(conn, snapshot["id"], {
+                "participant_id": participant_id,
+                "outcome": outcome,
+                "reason": f"TEST gameplay review {index}",
+                "evidence_reference": f"TEST_REF_rank_review_{index}",
+                "event_id": f"{event_prefix}_{index}",
+            }, self.admin_ctx())
+
     def test_ranking_order_snapshot_finalization_and_manual_payment_are_consistent_and_idempotent(self):
         with self.app_tx() as conn:
             public = operations.leaderboard(conn, {"view": "milestones"}, self.participant_ctx("rank_d"))[1]
@@ -176,6 +192,18 @@ class Phase3RankingFinalizationTest(unittest.TestCase):
         self.assertEqual(public["tie_policy"], "EARLIEST_ACHIEVED_AT")
 
         with self.app_tx() as conn:
+            first_candidate = entries[0]["participant_id"]
+            review_path = f"/api/admin/ranking-snapshots/{snapshot['id']}/reviews"
+            review_body = {"participant_id":first_candidate,"outcome":"APPROVED","reason":"TEST endpoint review",
+                           "evidence_reference":"TEST_REF_endpoint_review","event_id":"evt_endpoint_review"}
+            review_ctx = self.admin_ctx(idempotency_key="idem-endpoint-review")
+            reviewed = operations.dispatch(conn,"POST",review_path,review_body,{},review_ctx)
+            replayed_review = operations.dispatch(conn,"POST",review_path,review_body,{},review_ctx)
+            endpoint_audits = conn.execute(
+                "select count(*)::int n from dino_dev.admin_audit where action='RANKING_GAMEPLAY_REVIEW' and event_id='evt_endpoint_review'"
+            ).fetchone()["n"]
+            self.assertEqual((reviewed[0], replayed_review, endpoint_audits), (200, reviewed, 1))
+            self.review_top3(conn, snapshot)
             status, finalized = operations.finalize_admin_ranking_snapshot(
                 conn, snapshot["id"], {"event_id":"evt_finalize_rank","reason":"TEST final ranking"}, self.admin_ctx()
             )
@@ -213,6 +241,131 @@ class Phase3RankingFinalizationTest(unittest.TestCase):
                 "reason":"TEST delivered","event_id":"evt_rank_paid",
             }, self.admin_ctx())[1]
         self.assertEqual(paid["status"], "PAID")
+
+    def test_gameplay_reviews_gate_finalization_and_are_separate_from_eligibility(self):
+        with self.app_tx() as conn:
+            snapshot = operations.create_admin_ranking_snapshot(conn, {"event_id":"evt_snapshot_review_gate"}, self.admin_ctx())[1]
+            listed = operations.admin_ranking_snapshots(conn, self.admin_ctx())[1]["snapshots"][0]
+            with self.assertRaises(operations.DomainError) as unreviewed:
+                operations.finalize_admin_ranking_snapshot(conn, snapshot["id"], {"event_id":"evt_finalize_unreviewed"}, self.admin_ctx())
+        self.assertEqual(unreviewed.exception.code, "RANKING_GAMEPLAY_REVIEW_REQUIRED")
+        self.assertEqual([(row["rank"], row["score"], row["elapsed_seconds"], row["summary"]) for row in listed["candidates"]],
+                         [(1,500,1.0,{}),(2,500,1.0,{}),(3,500,1.0,{})])
+
+        with self.app_tx() as conn:
+            self.review_top3(conn, snapshot)
+            held_id = conn.execute(
+                "select participant_id from dino_dev.ranking_snapshot_entry where snapshot_id=%s and rank=2",
+                (snapshot["id"],),
+            ).fetchone()["participant_id"]
+            operations.review_admin_ranking_candidate(conn, snapshot["id"], {
+                "participant_id": held_id, "outcome":"HOLD", "reason":"TEST suspicious input pattern",
+                "evidence_reference":"TEST_REF_rank_hold", "event_id":"evt_review_hold",
+            }, self.admin_ctx())
+            with self.assertRaises(operations.DomainError) as held:
+                operations.finalize_admin_ranking_snapshot(conn, snapshot["id"], {"event_id":"evt_finalize_held"}, self.admin_ctx())
+        self.assertEqual(held.exception.code, "RANKING_GAMEPLAY_REVIEW_ON_HOLD")
+
+        with psycopg.connect(self.database.dsn) as conn:
+            review_count = conn.execute(
+                "select count(*) from dino_dev.admin_audit where action='RANKING_GAMEPLAY_REVIEW' and target_id=%s",
+                (f"{snapshot['id']}:{held_id}",),
+            ).fetchone()[0]
+            claim_verifications = conn.execute("select count(*) from dino_dev.claim where verification_status<>'NOT_REQUESTED'").fetchone()[0]
+        self.assertEqual((review_count, claim_verifications), (2, 0))
+
+    def test_review_requires_ranking_write_and_rejects_a_stale_candidate_binding(self):
+        with self.app_tx() as conn:
+            snapshot = operations.create_admin_ranking_snapshot(conn, {"event_id":"evt_snapshot_stale_review"}, self.admin_ctx())[1]
+            participant_id = conn.execute(
+                "select participant_id from dino_dev.ranking_snapshot_entry where snapshot_id=%s and rank=1",
+                (snapshot["id"],),
+            ).fetchone()["participant_id"]
+        with psycopg.connect(self.database.dsn) as conn:
+            readonly_id = str(uuid.uuid4())
+            conn.execute("insert into dino_dev.admin_member(auth_user_id,display_name,permissions) values(%s,'TEST read only',array['ranking:read'])",(readonly_id,))
+        review_body = {"participant_id":participant_id,"outcome":"APPROVED","reason":"TEST reviewed gameplay",
+                       "evidence_reference":"TEST_REF_rank_stale","event_id":"evt_review_permission"}
+        with self.app_tx() as conn, self.assertRaises(operations.DomainError) as wrong_campaign:
+            operations.review_admin_ranking_candidate(conn, snapshot["id"], review_body, self.admin_ctx(campaign_id="other-campaign"))
+        self.assertEqual(wrong_campaign.exception.code, "CAMPAIGN_NOT_CONFIGURED")
+        with self.app_tx() as conn, self.assertRaises(operations.DomainError) as forbidden:
+            operations.review_admin_ranking_candidate(conn, snapshot["id"], review_body, self.admin_ctx(admin_user_id=readonly_id))
+        self.assertEqual(forbidden.exception.code, "ADMIN_FORBIDDEN")
+
+        with self.app_tx() as conn:
+            self.review_top3(conn, snapshot, event_prefix="evt_stale_approved")
+        with psycopg.connect(self.database.dsn) as conn:
+            achieved = self.closes_at-dt.timedelta(minutes=1)
+            conn.execute(
+                """insert into dino_dev.game_session
+                (id,participant_id,campaign_id,idempotency_key,seed,version,status,ticket_kind,ticket_refund_status,
+                 expires_at,score,valid_ticks,verification_result,finished_at,environment)
+                values('session_rank_b_new',%s,%s,'key_rank_b_new',2,'1.2.0','FINISHED','INITIAL','NOT_DUE',%s,600,120,'VERIFIED',%s,'test')""",
+                (participant_id,CAMPAIGN_ID,achieved+dt.timedelta(minutes=1),achieved),
+            )
+            conn.execute("update dino_dev.best_score set session_id='session_rank_b_new',score=600,achieved_at=%s where participant_id=%s",(achieved,participant_id))
+        with self.app_tx() as conn, self.assertRaises(operations.DomainError) as stale:
+            operations.finalize_admin_ranking_snapshot(conn, snapshot["id"], {"event_id":"evt_finalize_stale_review"}, self.admin_ctx())
+        self.assertEqual(stale.exception.code, "RANKING_CANDIDATE_STALE")
+
+    def test_blocked_candidate_cannot_be_finalized_or_auto_replaced(self):
+        with self.app_tx() as conn:
+            snapshot = operations.create_admin_ranking_snapshot(conn, {"event_id":"evt_snapshot_blocked"}, self.admin_ctx())[1]
+            self.review_top3(conn, snapshot, event_prefix="evt_blocked_approved")
+            blocked_id = conn.execute(
+                "select participant_id from dino_dev.ranking_snapshot_entry where snapshot_id=%s and rank=2",
+                (snapshot["id"],),
+            ).fetchone()["participant_id"]
+        with psycopg.connect(self.database.dsn) as conn:
+            conn.execute("update dino_dev.participant set status='BLOCKED' where id=%s",(blocked_id,))
+        with self.app_tx() as conn:
+            with self.assertRaises(operations.DomainError) as approval:
+                operations.review_admin_ranking_candidate(conn, snapshot["id"], {
+                    "participant_id":blocked_id,"outcome":"APPROVED","reason":"TEST cannot approve blocked",
+                    "evidence_reference":"TEST_REF_blocked_reapproval","event_id":"evt_blocked_reapproval",
+                }, self.admin_ctx())
+            rank_four = conn.execute(
+                "select participant_id from dino_dev.ranking_snapshot_entry where snapshot_id=%s and rank=4",
+                (snapshot["id"],),
+            ).fetchone()["participant_id"]
+            with self.assertRaises(operations.DomainError) as blocked:
+                operations.finalize_admin_ranking_snapshot(conn, snapshot["id"], {"event_id":"evt_finalize_blocked_candidate"}, self.admin_ctx())
+        self.assertEqual(approval.exception.code, "RANKING_PARTICIPANT_BLOCKED")
+        self.assertEqual(blocked.exception.code, "RANKING_PARTICIPANT_BLOCKED")
+        with psycopg.connect(self.database.dsn) as conn:
+            auto_award = conn.execute("select count(*) from dino_dev.ranking_award where participant_id=%s",(rank_four,)).fetchone()[0]
+        self.assertEqual(auto_award, 0)
+
+    def test_finalization_waits_for_concurrent_participant_status_change(self):
+        with self.app_tx() as conn:
+            snapshot = operations.create_admin_ranking_snapshot(conn, {"event_id":"evt_snapshot_concurrent_block"}, self.admin_ctx())[1]
+            self.review_top3(conn, snapshot, event_prefix="evt_concurrent_approved")
+            blocked_id = conn.execute(
+                "select participant_id from dino_dev.ranking_snapshot_entry where snapshot_id=%s and rank=2",
+                (snapshot["id"],),
+            ).fetchone()["participant_id"]
+
+        result = []
+        def finalize():
+            try:
+                with self.app_tx() as conn:
+                    operations.finalize_admin_ranking_snapshot(
+                        conn, snapshot["id"], {"event_id":"evt_finalize_concurrent_block"}, self.admin_ctx()
+                    )
+            except operations.DomainError as error:
+                result.append(error.code)
+
+        with psycopg.connect(self.database.dsn) as blocker:
+            blocker.execute("select id from dino_dev.participant where id=%s for update",(blocked_id,))
+            thread = threading.Thread(target=finalize)
+            thread.start()
+            time.sleep(0.2)
+            self.assertTrue(thread.is_alive(), "finalization should wait for the candidate participant lock")
+            blocker.execute("update dino_dev.participant set status='BLOCKED' where id=%s",(blocked_id,))
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result, ["RANKING_PARTICIPANT_BLOCKED"])
 
     def test_finalization_is_fail_closed_until_approved_cutoff_settled_and_fresh_snapshot_exists(self):
         with self.app_tx() as conn:

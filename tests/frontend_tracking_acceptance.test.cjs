@@ -52,6 +52,7 @@ test('loading ready remains attached to the loading view after the first screen 
   context.globalThis = context;
   let source = read('public/js/analytics.js')
     .replace("import { api } from './api.js';", 'const api = globalThis.__api;')
+    .replace("import { ga4Analytics } from './ga4_analytics.js';", 'const ga4Analytics = { track() {}, setEntryAttribution() {} };')
     .replace('export const analytics = new Analytics();\nexport { EVENT_ALLOWLIST, SAFE_DIMENSIONS };', 'globalThis.__analytics = new Analytics();');
   vm.runInNewContext(source, context, { filename: 'analytics.js' });
   const analytics = context.__analytics;

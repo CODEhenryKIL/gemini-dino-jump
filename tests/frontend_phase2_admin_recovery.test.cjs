@@ -39,6 +39,8 @@ const privateSelectors = ['#admin-claims', '#admin-ranking-contacts', '#admin-ra
 const selectors = [
   '#admin-login', '#admin-app', '#admin-name', '#admin-permissions', '#admin-login-message',
   '#admin-email', '#admin-password', '#btn-admin-login', '#btn-admin-logout', '#analytics-filter',
+  '#btn-admin-password-reset', '#admin-password-reset-message', '#admin-password-recovery',
+  '#admin-new-password', '#admin-new-password-confirm', '#btn-admin-password-update', '#btn-admin-password-recovery-cancel', '#admin-password-recovery-message',
   '#claim-operations-section', '#ranking-contact-section', '#ranking-finalization-section', '#fault-review-section',
   '#btn-refresh-claims', '#btn-refresh-ranking-contacts', '#btn-refresh-ranking-snapshots', '#btn-create-ranking-snapshot', '#btn-refresh-faults',
   '#btn-campaign-update', '#campaign-status', '#campaign-reason',
@@ -89,11 +91,22 @@ function makeRuntime(fetchImpl) {
     constructor() {}
     *[Symbol.iterator]() {}
   }
+  const historyCalls = [];
+  const location = {
+    href: 'https://candidate.example/admin.html', origin: 'https://candidate.example',
+    pathname: '/admin.html', search: '', hash: '', reload() {},
+  };
   const context = {
-    console, document, sessionStorage, fetch: fetchImpl, Headers, URLSearchParams,
+    console, document, sessionStorage, fetch: fetchImpl, Headers, URL, URLSearchParams,
     FormData: FormDataMock, Date, setTimeout, clearTimeout,
-    window: { location: { reload() {} } },
-    api: { createRequestId: () => 'admin-request-id' },
+    window: { location, history: { replaceState(...args) { historyCalls.push(args); } } },
+    api: {
+      createRequestId: () => 'admin-request-id',
+      getConfig: async () => ({
+        environment: 'production',
+        auth: { supabase_url: 'https://project.supabase.co', publishable_key: 'public-key' },
+      }),
+    },
     ui: {
       text(target, value) { target.textContent = String(value); },
       showToast() {},
@@ -109,12 +122,16 @@ function makeRuntime(fetchImpl) {
         adminRequest,
         loadMetrics,
         loadRankingSnapshots,
+        requestPasswordRecovery,
+        initializePasswordRecovery,
+        updateRecoveredPassword,
         setAccessToken(value) { accessToken = value; sessionSet(value); },
         getAccessToken() { return accessToken; },
+        getRecoveryAccessToken() { return recoveryAccessToken; },
       };
     `);
   vm.runInNewContext(source, context, { filename: 'public/js/admin.js' });
-  return { api: context.__adminTest, nodes, stored };
+  return { api: context.__adminTest, nodes, stored, location, historyCalls };
 }
 
 function pathOf(input) {
@@ -124,6 +141,83 @@ function pathOf(input) {
 function visibleText(target) {
   return [target.textContent, ...target.children.map(visibleText)].filter(Boolean).join(' ');
 }
+
+test('password reset request uses the current admin URL and keeps account existence private', async () => {
+  const requests = [];
+  const runtime = makeRuntime(async (input, options = {}) => {
+    requests.push({ url: String(input), options });
+    return response(400, { message: 'User not found' });
+  });
+  runtime.nodes.get('#admin-email').value = 'operator@example.com';
+
+  await runtime.api.requestPasswordRecovery();
+
+  assert.equal(requests.length, 1);
+  const requestUrl = new URL(requests[0].url);
+  assert.equal(requestUrl.pathname, '/auth/v1/recover');
+  assert.equal(requestUrl.searchParams.get('redirect_to'), 'https://candidate.example/admin.html');
+  assert.deepEqual(JSON.parse(requests[0].options.body), { email: 'operator@example.com' });
+  assert.match(runtime.nodes.get('#admin-password-reset-message').textContent, /등록된 관리자 이메일이라면/);
+  assert.doesNotMatch(runtime.nodes.get('#admin-password-reset-message').textContent, /User not found/);
+});
+
+test('recovery callback clears the URL token and requires a server-confirmed administrator', async () => {
+  const runtime = makeRuntime(async (input, options = {}) => {
+    assert.equal(pathOf(input), '/api/admin/session');
+    assert.equal(new Headers(options.headers).get('Authorization'), 'Bearer recovery-secret');
+    return response(200, sessionPayload());
+  });
+  runtime.location.hash = '#access_token=recovery-secret&refresh_token=other-secret&type=recovery';
+  runtime.location.href += runtime.location.hash;
+
+  const recoveryMode = await runtime.api.initializePasswordRecovery();
+
+  assert.equal(recoveryMode, true);
+  assert.equal(runtime.historyCalls[0][2], '/admin.html');
+  assert.equal(runtime.api.getRecoveryAccessToken(), 'recovery-secret');
+  assert.equal(runtime.stored.has('dino_admin_access_token'), false);
+  assert.equal(runtime.nodes.get('#admin-password-recovery').hidden, false);
+  assert.equal(runtime.nodes.get('#admin-login').hidden, true);
+  assert.equal(runtime.nodes.get('#admin-password-recovery-message').textContent, '');
+});
+
+test('recovery callback rejects a valid auth user who is not an authorized administrator', async () => {
+  const runtime = makeRuntime(async () => response(403, { message: '관리자 권한이 없습니다.' }));
+  runtime.location.hash = '#access_token=ordinary-user-token&type=recovery';
+
+  await runtime.api.initializePasswordRecovery();
+
+  assert.equal(runtime.api.getRecoveryAccessToken(), '');
+  assert.equal(runtime.stored.has('dino_admin_access_token'), false);
+  assert.match(runtime.nodes.get('#admin-password-recovery-message').textContent, /관리자 권한/);
+});
+
+test('verified recovery updates the password then opens the existing admin session', async () => {
+  const calls = [];
+  const runtime = makeRuntime(async (input, options = {}) => {
+    const requestPath = pathOf(input);
+    calls.push({ requestPath, options });
+    if (requestPath === '/api/admin/session') return response(200, sessionPayload());
+    if (requestPath === '/auth/v1/user') return response(200, { id: 'admin-user' });
+    throw new Error(`unexpected request: ${requestPath}`);
+  });
+  runtime.location.hash = '#access_token=recovery-secret&type=recovery';
+  await runtime.api.initializePasswordRecovery();
+  runtime.nodes.get('#admin-new-password').value = 'A-strong-admin-password-2026';
+  runtime.nodes.get('#admin-new-password-confirm').value = 'A-strong-admin-password-2026';
+
+  await runtime.api.updateRecoveredPassword();
+
+  const update = calls.find((call) => call.requestPath === '/auth/v1/user');
+  assert.ok(update);
+  assert.equal(new Headers(update.options.headers).get('Authorization'), 'Bearer recovery-secret');
+  assert.deepEqual(JSON.parse(update.options.body), { password: 'A-strong-admin-password-2026' });
+  assert.equal(runtime.stored.get('dino_admin_access_token'), 'recovery-secret');
+  assert.equal(runtime.api.getRecoveryAccessToken(), '');
+  assert.equal(runtime.nodes.get('#admin-password-recovery').hidden, true);
+  assert.equal(runtime.nodes.get('#admin-app').hidden, false);
+  assert.equal(runtime.historyCalls.at(-1)[2], '/admin.html');
+});
 
 test('a metrics failure keeps the authenticated operations available and retry clears the notice', async () => {
   let overviewAttempts = 0;
@@ -300,6 +394,16 @@ test('an older metrics response cannot overwrite the latest filter result or res
 test('ranking writers can finalize a settled snapshot and then process its claims manually', async () => {
   const requests = [];
   let finalized = false;
+  const reviews = new Map([
+    ['rank-a', null],
+    ['rank-b', { outcome: 'APPROVED', evidence_reference: 'TEST_REF_existing_2', binding_current: true }],
+    ['rank-c', { outcome: 'APPROVED', evidence_reference: 'TEST_REF_existing_3', binding_current: true }],
+  ]);
+  const candidates = () => [...reviews.entries()].map(([participant_id, review], index) => ({
+    participant_id, rank: index + 1, score: 500 - index * 10, elapsed_seconds: 75.8,
+    session_id: `session-${index + 1}`, achieved_at: '2026-10-02T14:50:00Z', end_reason: 'COLLISION',
+    verification: 'VERIFIED', summary: { coins: 2, hearts: 1 }, participant_status: 'ACTIVE', binding_current: true, review,
+  }));
   const runtime = makeRuntime(async (input, options = {}) => {
     const requestPath = pathOf(input); requests.push({ path: requestPath, options });
     if (requestPath === '/api/admin/session') return response(200, { admin: { display_name: '랭킹 운영자', permissions: ['ranking:read', 'ranking:write', 'claims:read'] } });
@@ -308,8 +412,15 @@ test('ranking writers can finalize a settled snapshot and then process its claim
     if (requestPath === '/api/admin/ranking-snapshots' && (!options.method || options.method === 'GET')) return response(200, { snapshots: [{
       id: 'snapshot-1', status: finalized ? 'FINAL' : 'DRAFT', tie_policy: 'EARLIEST_ACHIEVED_AT', entry_count: 12,
       captured_at: '2026-10-02T15:00:31Z', finalized_at: finalized ? '2026-10-02T15:01:00Z' : null,
+      candidates: candidates(),
     }] });
     if (requestPath === '/api/admin/ranking-snapshots' && options.method === 'POST') return response(201, { id: 'snapshot-1', status: 'DRAFT' });
+    if (requestPath === '/api/admin/ranking-snapshots/snapshot-1/reviews') {
+      const body = JSON.parse(options.body); reviews.set(body.participant_id, {
+        outcome: body.outcome, evidence_reference: body.evidence_reference, binding_current: true,
+      });
+      return response(200, body);
+    }
     if (requestPath === '/api/admin/ranking-snapshots/snapshot-1/finalize') { finalized = true; return response(200, { id: 'snapshot-1', status: 'FINAL', final_awards_created: true }); }
     throw new Error(`unexpected request: ${requestPath}`);
   });
@@ -320,11 +431,25 @@ test('ranking writers can finalize a settled snapshot and then process its claim
   await runtime.nodes.get('#btn-create-ranking-snapshot').onclick();
   const creation = requests.find(({ path, options }) => path === '/api/admin/ranking-snapshots' && options.method === 'POST');
   assert.deepEqual(JSON.parse(creation.options.body), { event_id: 'admin-request-id' });
-  const editor = runtime.nodes.get('#admin-ranking-snapshots').children[0];
+  let editor = runtime.nodes.get('#admin-ranking-snapshots').children[0];
   assert.match(visibleText(editor), /확정 전 스냅샷/);
   assert.match(visibleText(editor), /먼저 달성 우선/);
+  assert.match(visibleText(editor), /플레이 기록 미검토/);
+  assert.match(visibleText(editor), /게임 요약: coins 2 · hearts 1/);
+  const reviewControls = editor.children[3].children.at(-1);
+  const [evidence, reviewReason, approve] = reviewControls.children;
+  evidence.value = 'TEST_REF_manual_1'; reviewReason.value = '입력 패턴과 세션 기록 수동 확인';
+  await approve.onclick();
+  const reviewMutation = requests.find(({ path, options }) => path.endsWith('/reviews') && options.method === 'POST');
+  assert.deepEqual(JSON.parse(reviewMutation.options.body), {
+    participant_id: 'rank-a', outcome: 'APPROVED', evidence_reference: 'TEST_REF_manual_1',
+    reason: '입력 패턴과 세션 기록 수동 확인', event_id: 'admin-request-id',
+  });
+  editor = runtime.nodes.get('#admin-ranking-snapshots').children[0];
+  assert.match(visibleText(editor), /플레이 검토 승인/);
   const controls = editor.children.at(-1);
   const [reason, finalize] = controls.children;
+  assert.equal(finalize.disabled, false);
   reason.value = '행사 종료 후 최종 순위 확정';
   await finalize.onclick();
   const mutation = requests.find(({ path, options }) => path.endsWith('/finalize') && options.method === 'POST');

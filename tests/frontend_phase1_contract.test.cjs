@@ -23,6 +23,9 @@ function loadApi(fetchImpl) {
     crypto: { randomUUID: () => 'uuid' },
     Math,
     Date,
+    AbortController,
+    setTimeout,
+    clearTimeout,
   };
   vm.runInNewContext(`${source}\nglobalThis.loadedApi = api; globalThis.ApiError = ApiError;`, context);
   return context.loadedApi;
@@ -68,6 +71,34 @@ test('analytics batch transport retries a lost request with the exact generated 
   assert.equal(calls[1].options.headers.get('Idempotency-Key'), calls[0].options.headers.get('Idempotency-Key'));
 });
 
+test('a permanently pending API request times out after one safe retry', async () => {
+  const calls = [];
+  const api = loadApi((url, options) => {
+    calls.push({ url, options });
+    return new Promise(() => {});
+  });
+  await assert.rejects(
+    api.request('/api/config', { timeoutMs: 5 }),
+    (error) => error.status === 408 && error.data?.error === 'CLIENT_TIMEOUT',
+  );
+  assert.equal(calls.length, 2);
+});
+
+test('response body reading is bounded and mutation retry keeps one idempotency key', async () => {
+  const calls = [];
+  const api = loadApi(async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 202, json: () => new Promise(() => {}) };
+  });
+  await assert.rejects(
+    api.request('/api/test-mutation', { method: 'POST', idempotent: true, timeoutMs: 5, body: '{}' }),
+    (error) => error.status === 408,
+  );
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].options.headers.get('Idempotency-Key'), calls[0].options.headers.get('Idempotency-Key'));
+  assert.equal(calls[0].options.timeoutMs, undefined);
+});
+
 test('rebatching the same first event gets a fresh request key and relies on event IDs for deduplication', async () => {
   const calls = [];
   let uuid = 0;
@@ -82,6 +113,7 @@ test('rebatching the same first event gets a fresh request key and relies on eve
   const context = {
     fetch: async (url, options) => { calls.push({ url, options }); return { ok: true, status: 202, json: async () => ({ accepted: 1, duplicates: 0, rejected: 0 }) }; },
     Headers: HeadersMock, FormData: class {}, crypto: { randomUUID: () => `uuid-${++uuid}` }, Math, Date,
+    AbortController, setTimeout, clearTimeout,
   };
   vm.runInNewContext(`${source}\nglobalThis.loadedApi = api;`, context);
   const event = { event_id: 'evt_same_first_12345678', name: 'entry_viewed' };
@@ -216,6 +248,16 @@ test('blocked web storage cannot crash participant or game bootstrap', () => {
   assert.match(game, /function storageSet\(key, value\) \{ try/);
   assert.match(analytics, /sessionGet\(key\) \{ try/);
   assert.match(read('public/js/app.js'), /navigator\.locks\?\.request/);
+});
+
+test('public viewport allows zoom while app chrome reserves device safe areas', () => {
+  const html = read('public/index.html');
+  const css = read('public/css/style.css');
+  assert.doesNotMatch(html, /user-scalable\s*=\s*no|maximum-scale\s*=\s*1(?:\.0)?/i);
+  assert.match(html, /viewport-fit=cover/);
+  assert.match(css, /\.app-header[\s\S]*safe-area-inset-top/);
+  assert.match(css, /\.bottom-nav[\s\S]*safe-area-inset-bottom/);
+  assert.match(css, /\.view-content[\s\S]*safe-area-inset-bottom/);
 });
 
 test('a consumed ticket does not block access to an existing game or fault recovery', () => {

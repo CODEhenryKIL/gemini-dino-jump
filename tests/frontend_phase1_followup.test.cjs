@@ -60,6 +60,26 @@ test('unsubmitted winner sees information waiting and the administrator cannot p
   assert.ok(options.filter((option) => option.value !== 'AWAITING_INFORMATION').every((option) => option.disabled));
 });
 
+test('deadline-expired unsubmitted claim exposes only a reasoned no-response close', async () => {
+  const { admin, toasts } = loadUi();
+  admin.setPermissions(['claims:write']);
+  const claim = { id:'unsubmitted',claim_type:'DRAW',status:'AWAITING_INFORMATION',version:1,can_close_no_response:true };
+  const editor = admin.claimEditor(claim);
+  const [state, verification] = descendants(editor, 'select');
+  const save = descendants(editor, 'button')[0];
+  assert.equal(state.disabled, false);
+  assert.equal(save.disabled, false);
+  assert.equal(verification.disabled, true);
+  assert.deepEqual(descendants(state,'option').filter(option => !option.disabled).map(option=>option.value), ['AWAITING_INFORMATION','NO_RESPONSE']);
+  await save.onclick();
+  assert.match(toasts[0], /미응답을 선택/);
+  state.value='NO_RESPONSE';
+  await save.onclick();
+  assert.match(toasts[1], /사유를 3자/);
+  admin.setPermissions(['claims:read']);
+  assert.equal(descendants(admin.claimEditor(claim),'button')[0].disabled,true);
+});
+
 test('submitted claims remove the entry form and preserve ranking and read-only restrictions', () => {
   const { admin, prize } = loadUi();
   const claim = { claim_type: 'RANKING', status: 'INFORMATION_RECEIVED', contact_submitted: true, contact_submitted_at: '2026-09-25T00:00:00Z', recipient_name: 'TEST', contact: '01000000000', version: 2 };

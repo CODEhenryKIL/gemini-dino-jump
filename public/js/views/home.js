@@ -35,6 +35,7 @@ export const HomeView = {
       this.showGuideModal(router, true);
     };
     container.querySelector('#btn-home-draw').onclick = () => {
+      if (container.querySelector('#btn-home-draw').disabled) return;
       const status = router.state.draw?.status;
       if (!['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(status)) return;
       analytics.track('draw_cta_clicked', { source: 'home', draw_status: status });
@@ -57,7 +58,11 @@ export const HomeView = {
     const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus) || Boolean(router.state.draw?.draw && router.state.draw.draw.scratch_completed !== true);
     drawButton.hidden = !['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus);
     drawButton.textContent = hasDrawResult ? '내 복주머니 결과 보기' : '복주머니 열기';
-    const campaignStatus = router.config?.campaign?.status || 'ACTIVE';
+    const campaignStatus = router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+    drawButton.disabled = !hasDrawResult && drawStatus === 'AVAILABLE' && campaignStatus !== 'ACTIVE';
+    if (drawButton.disabled) {
+      drawButton.textContent = campaignStatus === 'NOT_OPEN' ? '행사 시작 후 복주머니 열기' : campaignStatus === 'ENDED' ? '복주머니 행사가 종료됐어요' : '복주머니가 잠시 중단됐어요';
+    }
     const note = container.querySelector('#home-ticket-note');
     note.hidden = true;
     note.textContent = '';
@@ -75,9 +80,13 @@ export const HomeView = {
     start.textContent = '게임 시작';
     if (pendingSession) start.textContent = '게임 시작';
     else if (campaignStatus !== 'ACTIVE') {
-      start.textContent = campaignStatus === 'ENDED' ? '행사가 종료됐어요' : '행사가 잠시 중단됐어요';
+      start.textContent = campaignStatus === 'ENDED' ? '행사가 종료됐어요' : campaignStatus === 'NOT_OPEN' ? '행사 시작 전이에요' : '행사가 잠시 중단됐어요';
       note.hidden = false;
-      note.textContent = campaignStatus === 'ENDED' ? '행사가 종료되어 새 게임을 시작할 수 없어요. 기존 기록과 수령 상태는 확인할 수 있어요.' : '운영자가 행사를 다시 시작하면 게임에 참여할 수 있어요.';
+      note.textContent = campaignStatus === 'ENDED'
+        ? '행사가 종료되어 새 게임을 시작할 수 없어요. 기존 기록과 수령 상태는 확인할 수 있어요.'
+        : campaignStatus === 'NOT_OPEN'
+          ? '행사 시작 시간이 되면 게임에 참여할 수 있어요.'
+          : '운영자가 행사를 다시 시작하면 게임에 참여할 수 있어요.';
     }
     else if (!unlimited && available < 1) start.textContent = '친구에게 공유하고 게임권 받기';
   },

@@ -21,16 +21,21 @@ PRODUCTION_BASE={
 }
 
 def approved_manifest(event_enabled=False):
-    return {
+    manifest={
       "version":"phase3-production-test","status":"APPROVED","event_enabled":event_enabled,
       "campaign":{"id":"gemini_dino_2026","opens_at":"2026-09-29T19:00:00+09:00","closes_at":"2026-10-03T00:00:00+09:00","claim_closes_at":"2026-10-04T00:00:00+09:00"},
       "draw_pool":{"total_slots":5000,"benefit_slots":4923,"max_draws_per_participant":10,"mode":"WITHOUT_REPLACEMENT"},
       "draw_prizes":[{"id":"all-draw-prizes","quantity":77}],
       "ranking_prizes":[{"rank":1,"quantity":1},{"rank":2,"quantity":1},{"rank":3,"quantity":1}],
       "approvals":{"environment":"approved","inventory":"approved","privacy":"approved","benefit_and_brand":"approved","public_launch":"approved"},
-      "policies":{"ranking_ties":"EARLIER_ACHIEVEMENT_FIRST","finish_after_close":"RECEIVED_BEFORE_CLOSE","claim_deadline_and_no_response":"MANUAL_REVIEW_AFTER_DEADLINE","beta_data_migration":"PRESERVE_BETA_START_NEW"},
+      "policies":{key:"approved" for key in config.PRODUCTION_POLICY_KEYS} | {"ranking_ties":"EARLIER_ACHIEVEMENT_FIRST","finish_after_close":"RECEIVED_BEFORE_CLOSE","claim_deadline_and_no_response":"MANUAL_REVIEW_AFTER_DEADLINE"},
+      "evidence":{key:"verified" for key in config.PRODUCTION_EVIDENCE_KEYS},
       "production_flags":{"unlimited_play":False,"synthetic_inventory":False,"shortened_clock":False},
     }
+    if event_enabled:
+        manifest["approvals"]={key:{"status":"APPROVED","detail":"reviewed","reference":"test://approval"} for key in config.PRODUCTION_APPROVAL_KEYS}
+        manifest["evidence"]={key:{"status":"VERIFIED","detail":"checked","reference":"test://evidence"} for key in config.PRODUCTION_EVIDENCE_KEYS}
+    return manifest
 
 class FakeResult:
     def __init__(self,row):self.row=row
@@ -64,7 +69,6 @@ class ProductionConfigTest(unittest.TestCase):
         cases=(
           ({"DATABASE_URL":f"postgres://dino_dev_app.{PROJECT}:pw@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres"},approved_manifest(),"SCOPED_TRANSACTION_POOLER_REQUIRED"),
           ({"PREVIEW_UNLIMITED_PLAY":"true"},approved_manifest(),"PRODUCTION_UNLIMITED_PLAY_FORBIDDEN"),
-          ({},dict(approved_manifest(),status="DRAFT"),"PRODUCTION_MANIFEST_NOT_APPROVED"),
         )
         for env,manifest,error in cases:
             with self.subTest(error=error),self.assertRaisesRegex(config.ConfigurationError,error):self.settings(manifest,env)
@@ -73,6 +77,67 @@ class ProductionConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(config.ConfigurationError,"VERCEL_ENV_REQUIRED"):self.settings(env={"VERCEL_ENV":""})
         with self.assertRaisesRegex(config.ConfigurationError,"PRODUCTION_MANIFEST_HASH_MISMATCH"):
             self.settings(env={"PRODUCTION_MANIFEST_SHA256":"0"*64})
+
+    def test_paused_draft_accepts_preparation_gates_but_active_requires_launch_gates(self):
+        paused=approved_manifest()
+        paused["status"]="DRAFT"
+        paused["approvals"]["privacy"]=None
+        paused["approvals"]["benefit_and_brand"]=None
+        paused["approvals"]["public_launch"]=None
+        paused["evidence"]["physical_device_qa"]=None
+        self.assertFalse(self.settings(paused).event_enabled)
+        paused["event_enabled"]=True
+        with self.assertRaisesRegex(config.ConfigurationError,"PRODUCTION_MANIFEST_NOT_APPROVED"):
+            self.settings(paused)
+
+    def test_active_manifest_with_all_launch_gates_is_accepted(self):
+        settings=self.settings(approved_manifest(event_enabled=True))
+        self.assertTrue(settings.event_enabled)
+
+    def test_active_manifest_rejects_free_text_and_failed_structured_gates(self):
+        for group,key,value in (
+          ("approvals","environment","APPROVED"),
+          ("approvals","environment",{"status":"FAILED","detail":"failed","reference":"test://failure"}),
+          ("evidence","target_db_and_backup","VERIFIED"),
+          ("evidence","target_db_and_backup",{"status":"NOT_RUN","detail":"not run","reference":"test://failure"}),
+        ):
+            with self.subTest(group=group,key=key,value=value):
+                manifest=approved_manifest(event_enabled=True);manifest[group][key]=value
+                with self.assertRaisesRegex(config.ConfigurationError,"PRODUCTION_MANIFEST_NOT_APPROVED"):
+                    self.settings(manifest)
+
+    def test_active_manifest_allows_only_user_accepted_test_limitations(self):
+        manifest=approved_manifest(event_enabled=True)
+        limitation={"status":"ACCEPTED_LIMIT","accepted_by":"user","detail":"known test gap","reference":"test://acceptance"}
+        manifest["evidence"]["physical_device_qa"]=limitation
+        manifest["evidence"]["final_load_test"]=limitation
+        self.assertTrue(self.settings(manifest).event_enabled)
+        for key,value in (
+          ("rollback_rehearsal",limitation),
+          ("final_load_test",{**limitation,"accepted_by":"operator"}),
+        ):
+            with self.subTest(key=key):
+                invalid=approved_manifest(event_enabled=True);invalid["evidence"][key]=value
+                with self.assertRaisesRegex(config.ConfigurationError,"PRODUCTION_MANIFEST_NOT_APPROVED"):
+                    self.settings(invalid)
+
+    def test_paused_manifest_still_requires_exact_preparation_evidence(self):
+        for group,key,value in (("approvals","environment",None),("evidence","target_db_and_backup",None),("evidence","inventory_reconciliation","PENDING"),("evidence","runtime_production_guard","check FAILED"),("evidence","runtime_production_guard","미실행")):
+            with self.subTest(group=group,key=key):
+                manifest=approved_manifest()
+                manifest[group][key]=value
+                with self.assertRaisesRegex(config.ConfigurationError,"PRODUCTION_MANIFEST_NOT_APPROVED"):
+                    self.settings(manifest)
+
+    def test_manifest_quantities_require_positive_json_integers(self):
+        for collection,index,value in (("draw_prizes",0,True),("draw_prizes",0,"77"),("ranking_prizes",0,1.0)):
+            with self.subTest(collection=collection,value=value):
+                manifest=approved_manifest();manifest[collection][index]["quantity"]=value
+                with self.assertRaisesRegex(config.ConfigurationError,"PRODUCTION_MANIFEST_INVALID"):
+                    self.settings(manifest)
+        manifest=approved_manifest();manifest["draw_pool"]["total_slots"]=True
+        with self.assertRaisesRegex(config.ConfigurationError,"PRODUCTION_MANIFEST_INVALID"):
+            self.settings(manifest)
 
 class ProductionDatabaseGuardTest(unittest.TestCase):
     def settings(self):

@@ -5,7 +5,7 @@ from urllib.parse import parse_qs,urlencode,urlparse
 import datetime as dt
 import hashlib,hmac,json,os,re,secrets,sys,time,uuid
 sys.path.insert(0,os.path.dirname(__file__))
-import auth,db,game_verifier,share_page
+import auth,db,game_verifier,observability,share_page
 from config import CONSTANTS,ROOT,ConfigurationError,Settings,database_schema
 from operations import DomainError,dispatch
 import psycopg
@@ -112,22 +112,23 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             raw=secrets.token_urlsafe(32);ctx.update(new_share_callback_token=raw,new_share_callback_token_hash=auth.token_hash(raw,settings.token_pepper))
         return ctx
     def _api(self):
-        started=time.monotonic();route_template="/api/unknown";error_code=None;deployment="unknown";database_failure=None
+        started=time.monotonic();route_template="/api/unknown";error_code=None;deployment="unknown";database_failure=None;environment="unknown";campaign_id="unknown";method=self.command;log_method=self.command;operation_outcome=None
         try:
-            settings=Settings.from_env();deployment=settings.deployment;parsed=urlparse(self.path)
+            parsed=urlparse(self.path)
             if len(self.path)>2048:raise DomainError("URL_TOO_LONG","요청 주소가 너무 깁니다.",414)
-            path=parsed.path;route_template=re.sub(r"(/api/(?:game-sessions|draws|claims|admin/claims|admin/game-faults|admin/participants))/(?!me(?:/|$))[^/]+",r"\1/{id}",path);method="GET" if self.command=="HEAD" else self.command;query={k:v[-1] for k,v in parse_query(parsed.query).items()};body=self.parse_body() if method in {"POST","PATCH"} else {}
+            path=parsed.path;route_template=observability.normalize_route(path);method="GET" if self.command=="HEAD" else self.command;query={k:v[-1] for k,v in parse_query(parsed.query).items()};body=self.parse_body() if method in {"POST","PATCH"} else {}
             # Accept a completion only after the full request body has arrived.
             received_at=dt.datetime.now(dt.timezone.utc)
+            if method=="GET" and path=="/api/shared/game_constants.json":self.send_json(200,CONSTANTS);return
+            settings=Settings.from_env();deployment=settings.deployment;environment=settings.environment;campaign_id=settings.campaign_id
             is_kakao_webhook=path==KAKAO_WEBHOOK_PATH
             if not is_kakao_webhook:self._origin(settings)
             elif method not in {"GET","POST"}:raise DomainError("NOT_FOUND","요청한 API를 찾을 수 없습니다.",404)
             if is_kakao_webhook and method=="GET":body=query
             if method=="OPTIONS":
-                self.send_response(204);self.send_header("Access-Control-Allow-Methods","GET, POST, PATCH, OPTIONS");self.send_header("Access-Control-Allow-Headers","Content-Type, Authorization, Idempotency-Key");self.send_header("Access-Control-Max-Age","600")
+                self.response_status=204;self.send_response(204);self.send_header("Access-Control-Allow-Methods","GET, POST, PATCH, OPTIONS");self.send_header("Access-Control-Allow-Headers","Content-Type, Authorization, Idempotency-Key");self.send_header("Access-Control-Max-Age","600")
                 if self.cors_origin:self.send_header("Access-Control-Allow-Origin",self.cors_origin);self.send_header("Access-Control-Allow-Credentials","true")
                 self.end_headers();return
-            if method=="GET" and path=="/api/shared/game_constants.json":self.send_json(200,CONSTANTS);return
             if is_kakao_webhook:
                 resource_id=verify_kakao_webhook_headers(self.headers,settings);callback_token=str(body.get("callback_token") or "")
                 ctx={"environment":settings.environment,"deployment":settings.deployment,"event_version":"phase2-v1","game_version":settings.game_version,"base_url":settings.base_url,"project_ref":settings.project_ref,"request_id":self.request_id,"preview_unlimited_play":settings.preview_unlimited_play,"kakao_webhook_verified":True,"kakao_resource_id":resource_id,"share_callback_token_hash":auth.token_hash(callback_token,settings.token_pepper),"kakao_app_id":settings.kakao_app_id}
@@ -143,12 +144,11 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
                 ctx["admin_user_id"]=auth.verify_admin_identity(token,settings)
             with db.connection(settings) as conn:
                 with db.transaction(conn):guard=db.check_environment(conn,settings)
-                ctx["campaign_id"]=guard["campaign_id"]
+                ctx["campaign_id"]=guard["campaign_id"];campaign_id=guard["campaign_id"]
                 if method=="GET" and path=="/api/health":
-                    campaign=conn.execute(f"select status,game_version from {database_schema()}.campaign where id=%s",(guard["campaign_id"],)).fetchone();remaining=conn.execute(f"select count(*)::int n from {database_schema()}.inventory_item where status='AVAILABLE'").fetchone()["n"]
-                    self.send_json(200,{"ok":True,"service":"gemini-dino-jump","environment":settings.environment,"deployment":settings.deployment,"database":"ready","project_ref":settings.project_ref,"schema":settings.schema_name,"synthetic_only":False,"gameplay_synthetic_only":settings.synthetic_only,"top3_contact_collection_enabled":True,"test_seed":guard["test_seed"],"inventory_remaining":remaining,"test_inventory_remaining":remaining if settings.synthetic_only else None,"campaign_status":campaign["status"] if campaign else None});return
+                    self.send_json(200,observability.health_snapshot(conn,settings,guard,database_schema()));return
                 if method=="GET" and path=="/api/config":
-                    campaign=conn.execute(f"select id,title,status,game_version,opens_at,closes_at from {database_schema()}.campaign where id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();data["campaign"].update(dict(campaign) if campaign else {});data["campaign"]["game_version"]=settings.game_version;self.send_json(200,data);return
+                    config_row=conn.execute(f"select campaign.id,campaign.title,campaign.status,campaign.game_version,campaign.opens_at,campaign.closes_at,clock_timestamp() server_time from (select 1) clock left join {database_schema()}.campaign on campaign.id=%s",(guard["campaign_id"],)).fetchone();data=settings.public();campaign=dict(config_row);data["server_time"]=campaign.pop("server_time");data["campaign"].update(campaign if campaign.get("id") else {});data["campaign"]["game_version"]=settings.game_version;self.send_json(200,data);return
                 if not is_admin and not is_kakao_webhook:
                     with db.transaction(conn):self._rate(conn,settings,path,ctx.get("participant_token_hash",""))
                 if method=="POST" and re.fullmatch(r"/api/game-sessions/[^/]+/finish",path):
@@ -163,17 +163,18 @@ class DinoJumpHandler(SimpleHTTPRequestHandler):
             cookie=response.pop("_set_cookie_token",None)
             if cookie:self._set_participant_cookie(cookie,settings)
             if status>=400 and isinstance(response,dict):error_code=response.get("error")
+            operation_outcome=observability.operation_outcome(route_template,status,response)
             self.send_json(status,response)
         except DomainError as error:error_code=error.code;self.fail(error)
         except auth.AuthenticationError:error_code="ADMIN_AUTH_REQUIRED";self.fail(DomainError(error_code,"관리자 로그인이 필요합니다.",401))
         except auth.AuthenticationUnavailable:error_code="AUTH_UNAVAILABLE";self.fail(DomainError(error_code,"관리자 인증 연결을 확인해 주세요.",503,True))
-        except (ConfigurationError,db.DatabaseBusy,psycopg.Error) as error:
-            database_failure="pool_wait" if isinstance(error,db.DatabaseBusy) else "configuration" if isinstance(error,ConfigurationError) else (error.sqlstate or "connection")
+        except (ConfigurationError,db.DatabaseBusy,observability.HealthCheckFailed,psycopg.Error) as error:
+            database_failure="pool_wait" if isinstance(error,db.DatabaseBusy) else "configuration" if isinstance(error,ConfigurationError) else "health_check" if isinstance(error,observability.HealthCheckFailed) else (error.sqlstate or "connection")
             error_code="SERVICE_UNAVAILABLE";self.fail(DomainError(error_code,"서비스 연결을 확인하고 있습니다.",503,True))
         except (BrokenPipeError,ConnectionResetError):pass
         except Exception:error_code="INTERNAL_ERROR";self.fail(DomainError(error_code,"요청을 처리하지 못했습니다.",500,True))
         finally:
-            sys.stderr.write(json.dumps({"event":"api_request","status":self.response_status,"method":self.command,"route":route_template,"duration_ms":round((time.monotonic()-started)*1000),"request_id":self.request_id,"deployment":deployment,"error_code":error_code,"database_failure":database_failure},separators=(",",":"))+"\n")
+            sys.stderr.write(observability.serialize(observability.request_log(environment=environment,campaign=campaign_id,deployment=deployment,route=route_template,method=log_method,status=self.response_status,duration_ms=(time.monotonic()-started)*1000,request_id=self.request_id,error_code=error_code,database_failure=database_failure,operation=operation_outcome)))
     def _share(self):
         try:
             parsed=urlparse(self.path)

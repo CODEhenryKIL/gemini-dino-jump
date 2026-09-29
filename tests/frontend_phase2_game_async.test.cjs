@@ -133,6 +133,77 @@ test('late pending-result failure cannot delete durable recovery data', async ()
   assert.equal(JSON.parse(loaded.stored.get('dino_pending_result')).key, 'finish_old');
 });
 
+test('current recovery keeps a pending finish after a 408 or 429 session read and succeeds on retry', async () => {
+  for (const status of [408, 429]) {
+    let reads = 0;
+    const loaded = loadGameView({
+      getSession: async () => {
+        reads += 1;
+        if (reads === 1) throw Object.assign(new Error(`temporary ${status}`), { status });
+        return { status: 'ACTIVE' };
+      },
+      finishSession: async () => finishResult,
+    });
+    loaded.stored.set('dino_pending_result', JSON.stringify({ sessionId: 'old', key: 'finish_old', payload: { score: 10 } }));
+    const appRouter = router();
+    await assert.rejects(loaded.view.recoverPendingResult(appRouter, 1), new RegExp(String(status)));
+    assert.equal(JSON.parse(loaded.stored.get('dino_pending_result')).key, 'finish_old');
+    assert.equal(await loaded.view.recoverPendingResult(appRouter, 1), true);
+    assert.equal(loaded.stored.has('dino_pending_result'), false);
+    assert.deepEqual(appRouter.navigations, ['result']);
+  }
+});
+
+test('current recovery keeps the exact finish payload after a 408 or 429 finish and reuses it', async () => {
+  for (const status of [408, 429]) {
+    let finishes = 0;
+    const payloads = [];
+    const loaded = loadGameView({
+      getSession: async () => ({ status: 'ACTIVE' }),
+      finishSession: async (_sessionId, payload, key) => {
+        payloads.push({ payload, key });
+        finishes += 1;
+        if (finishes === 1) throw Object.assign(new Error(`temporary ${status}`), { status });
+        return finishResult;
+      },
+    });
+    const pending = { sessionId: 'old', key: 'finish_old', payload: { score: 10, ticks: 100 } };
+    loaded.stored.set('dino_pending_result', JSON.stringify(pending));
+    const appRouter = router();
+    await assert.rejects(loaded.view.recoverPendingResult(appRouter, 1), new RegExp(String(status)));
+    assert.deepEqual(JSON.parse(loaded.stored.get('dino_pending_result')), pending);
+    assert.equal(await loaded.view.recoverPendingResult(appRouter, 1), true);
+    assert.deepEqual(JSON.parse(JSON.stringify(payloads)), [
+      { payload: pending.payload, key: pending.key },
+      { payload: pending.payload, key: pending.key },
+    ]);
+  }
+});
+
+test('finished-session and finish-retry recovery emit the same server-confirmed completion event', async () => {
+  const payload = {
+    version: '2.0.0', end_reason: 'COLLISION', score: 10, ticks: 180,
+    summary: { coins: 2, coin_score: 20, revives: 1 },
+  };
+  for (const mode of ['already-finished', 'finish-retry']) {
+    const loaded = loadGameView({
+      getSession: async () => mode === 'already-finished'
+        ? { status: 'FINISHED', result: finishResult }
+        : { status: 'ACTIVE' },
+      finishSession: async () => finishResult,
+    });
+    loaded.stored.set('dino_pending_result', JSON.stringify({ sessionId: 'old', key: 'finish_old', payload }));
+    assert.equal(await loaded.view.recoverPendingResult(router(), 1), true);
+    const completion = loaded.events.find(([name]) => name === 'game_completed');
+    assert.ok(completion, `${mode} must preserve game completion measurement`);
+    assert.deepEqual(JSON.parse(JSON.stringify(completion[1])), {
+      game_version: '2.0.0', end_reason: 'COLLISION', score: 10, rank: 1,
+      status: 'VERIFIED', duration_seconds: 3, coin_count: 2, coin_score: 20, revive_count: 1,
+    });
+    assert.equal(completion[2].gameSessionId, 'old');
+  }
+});
+
 test('checkpoint completions cannot regress storage or resurrect an old session', async () => {
   const first = deferred();
   const second = deferred();

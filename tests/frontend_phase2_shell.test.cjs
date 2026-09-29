@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
-function loadRouter(href) {
+function loadRouter(href, globals = {}) {
   const historyCalls = [];
   const windowListeners = {};
   const analyticsCalls = [];
@@ -24,13 +24,14 @@ function loadRouter(href) {
   };
   const blankView = { render(target) { target.childElementCount = 1; }, cleanup() {} };
   const context = {
-    api: { createRequestId: (prefix) => `${prefix}_12345678` },
+    api: { createRequestId: (prefix) => `${prefix}_12345678`, getConfig: async () => null },
     analytics: {
       observationId: 'obs_12345678',
       setEntryAttribution: (value) => analyticsCalls.push(value),
       enterScreen() {},
     },
     startVercelAnalytics() {},
+    configureAnalyticsConsent() {},
     ui: { hideModal() {} },
     HomeView: blankView, GameView: blankView, ResultView: blankView, DrawView: blankView,
     PrizeView: blankView, RankingView: blankView, InviteView: blankView, BenefitView: blankView,
@@ -60,12 +61,13 @@ function loadRouter(href) {
     clearInterval,
     Date,
     console,
+    ...globals,
   };
   context.globalThis = context;
   const source = read('public/js/app.js')
     .replace(/^import .*;\s*$/gm, '')
     .replace(/document\.addEventListener\('DOMContentLoaded',[\s\S]*$/, '')
-    .concat('\nglobalThis.AppRouter = AppRouter;');
+    .concat('\nglobalThis.AppRouter = AppRouter; globalThis.resolveCampaignStatus = resolveCampaignStatus;');
   vm.runInNewContext(source, context, { filename: 'app.js' });
   return { router: new context.AppRouter(), historyCalls, analyticsCalls, windowListeners, context };
 }
@@ -123,6 +125,87 @@ test('five-second intro completion stays separate from data readiness, including
     assert.equal(milestones[0].reduced_motion, reduced);
     assert.equal(context.document.getElementById('splash-screen').dataset.state, 'intro-complete');
   }
+});
+
+test('campaign lifecycle honors scheduled opening and closing boundaries', () => {
+  const { router } = loadRouter('https://example.test/');
+  router.config = { campaign: { status: 'ACTIVE', opens_at: '2026-09-29T10:00:00Z', closes_at: '2026-10-03T00:00:00Z' } };
+  assert.equal(router.campaignStatus(Date.parse('2026-09-29T09:59:59Z')), 'NOT_OPEN');
+  assert.equal(router.campaignStatus(Date.parse('2026-09-29T10:00:00Z')), 'ACTIVE');
+  assert.equal(router.campaignStatus(Date.parse('2026-10-03T00:00:00Z')), 'ENDED');
+  router.config.campaign.status = 'PAUSED';
+  assert.equal(router.campaignStatus(Date.parse('2026-09-30T00:00:00Z')), 'PAUSED');
+});
+
+test('campaign clock follows server time and monotonic elapsed time despite fast and slow device clocks', () => {
+  const deviceClock = { now: Date.parse('2026-10-03T00:05:00Z') };
+  const monotonicClock = { now: 5000 };
+  class ClientDate extends Date { static now() { return deviceClock.now; } }
+  const timers = [];
+  const { router } = loadRouter('https://example.test/', {
+    Date: ClientDate,
+    performance: { now: () => monotonicClock.now },
+    setTimeout: (callback, delay) => { timers.push({ callback, delay }); return timers.length; },
+    clearTimeout() {},
+  });
+  router.setConfig({
+    server_time: '2026-10-02T23:59:59.000Z',
+    campaign: { status: 'ACTIVE', opens_at: '2026-09-29T10:00:00Z', closes_at: '2026-10-03T00:00:00Z' },
+  });
+  assert.equal(router.campaignStatus(), 'ACTIVE');
+  assert.equal(timers[0].delay, 1025);
+
+  deviceClock.now = Date.parse('2026-10-02T23:55:00Z');
+  monotonicClock.now += 1000;
+  assert.equal(router.campaignStatus(), 'ENDED');
+});
+
+test('legacy config without server time falls back to the client date', () => {
+  class ClientDate extends Date { static now() { return Date.parse('2026-10-03T00:00:00Z'); } }
+  const { router } = loadRouter('https://example.test/', { Date: ClientDate });
+  router.config = { campaign: { status: 'ACTIVE', closes_at: '2026-10-03T00:00:00Z' } };
+  assert.equal(router.campaignStatus(), 'ENDED');
+});
+
+test('server clock includes time elapsed after config arrived before it is applied', () => {
+  const monotonicClock = { now: 2000 };
+  const { router } = loadRouter('https://example.test/', {
+    performance: { now: () => monotonicClock.now },
+    setTimeout() { return 1; },
+    clearTimeout() {},
+  });
+  const receivedMonotonic = monotonicClock.now;
+  monotonicClock.now += 1500;
+  router.setConfig({
+    server_time: '2026-10-02T23:59:59.000Z',
+    campaign: { status: 'ACTIVE', closes_at: '2026-10-03T00:00:00Z' },
+  }, receivedMonotonic);
+  assert.equal(router.campaignStatus(), 'ENDED');
+});
+
+test('optional assets do not block entry after the required game image loads', async () => {
+  const { router, context } = loadRouter('https://example.test/');
+  context.Image = class {
+    set src(value) {
+      this.value = value;
+      if (value.includes('Dino-Dark')) queueMicrotask(() => this.onload());
+    }
+  };
+  await router.prepareAssets();
+});
+
+test('required asset loading has a bounded wait', async () => {
+  const { router, context } = loadRouter('https://example.test/');
+  const timers = [];
+  context.Image = class { set src(value) { this.value = value; } };
+  context.setTimeout = (callback, delay) => { timers.push({ callback, delay }); return timers.length; };
+  context.clearTimeout = () => {};
+  const preparing = router.prepareAssets();
+  await Promise.resolve();
+  const requiredTimer = timers.find(({ delay }) => delay === 8000);
+  assert.ok(requiredTimer);
+  requiredTimer.callback();
+  await assert.rejects(preparing, /필수 게임 자산/);
 });
 
 test('router writes public screen-only history and popstate renders without creating a duplicate entry', () => {
@@ -232,6 +315,34 @@ test('retry keeps focus on the loading status, then the page or the retry button
   }
 });
 
+test('a late initial load cannot replace a newer successful retry', async () => {
+  const { router, context } = loadRouter('https://example.test/');
+  let resolveOld;
+  let resolveNew;
+  let calls = 0;
+  const installed = [];
+  router.initialRequest = { requestedView: 'home', inviteCode: null };
+  router.introPromise = Promise.resolve();
+  router.loadInitialData = () => {
+    calls += 1;
+    return new Promise((resolve) => { if (calls === 1) resolveOld = resolve; else resolveNew = resolve; });
+  };
+  router.installInviteState = (initialized) => installed.push(initialized.id);
+  router.hideSplash = () => {};
+  context.analytics.setLoadingReady = () => {};
+  const oldInit = router.init();
+  await new Promise((resolve) => setImmediate(resolve));
+  const newInit = router.init();
+  await new Promise((resolve) => setImmediate(resolve));
+  resolveNew({ id: 'new' });
+  await newInit;
+  resolveOld({ id: 'old' });
+  await oldInit;
+  assert.deepEqual(installed, ['new']);
+  assert.equal(router.initialized, true);
+  assert.equal(router.currentView, 'home');
+});
+
 test('render promises are race guarded and an older route cannot become current after a newer route', async () => {
   const loaded = loadRouter('https://example.test/');
   let releaseRanking;
@@ -283,8 +394,10 @@ test('a server refresh updates the visible view without navigation or replacing 
     render() { assert.fail('refresh must not rebuild the screen'); },
   };
   loaded.context.api.getMe = async () => ({ tickets: { initial: 0, invitation: 1 } });
+  loaded.context.api.getConfig = async () => ({ campaign: { status: 'PAUSED' } });
   await loaded.router.refreshState({ quiet: true });
   assert.equal(updates, 1);
+  assert.equal(loaded.router.config.campaign.status, 'PAUSED');
   assert.equal(loaded.historyCalls.length, 0);
 });
 
@@ -331,6 +444,7 @@ test('loading milestones are independently deduplicated and remain attributed to
   context.globalThis = context;
   const source = read('public/js/analytics.js')
     .replace("import { api } from './api.js';", 'const api = globalThis.__api;')
+    .replace("import { ga4Analytics } from './ga4_analytics.js';", 'const ga4Analytics = { track() {}, setEntryAttribution() {} };')
     .replace('export const analytics = new Analytics();\nexport { EVENT_ALLOWLIST, SAFE_DIMENSIONS };', 'globalThis.analytics = new Analytics();');
   vm.runInNewContext(source, context, { filename: 'analytics.js' });
   context.analytics.setLoadingDataReady();
@@ -356,6 +470,7 @@ test('view exposure, draw CTA, and scratch accessibility events survive client f
   context.globalThis = context;
   const source = read('public/js/analytics.js')
     .replace("import { api } from './api.js';", 'const api = globalThis.__api;')
+    .replace("import { ga4Analytics } from './ga4_analytics.js';", 'const ga4Analytics = { track() {}, setEntryAttribution() {} };')
     .replace('export const analytics = new Analytics();\nexport { EVENT_ALLOWLIST, SAFE_DIMENSIONS };', 'globalThis.analytics = new Analytics();');
   vm.runInNewContext(source, context, { filename: 'analytics.js' });
   context.analytics.track('content_viewed', { content: 'study_note', position: 'benefit_guides' });
@@ -376,6 +491,7 @@ test('view exposure, draw CTA, and scratch accessibility events survive client f
 
 test('game completion forwards verifier version, terminal reason, and item summary', async () => {
   const finishCalls = [];
+  const tracked = [];
   const navigations = [];
   const sessionStorage = new Map();
   const context = {
@@ -383,7 +499,7 @@ test('game completion forwards verifier version, terminal reason, and item summa
       finishSession: async (...args) => { finishCalls.push(args); return { score: 130, best_score: 130, rank: 4, verification: 'VERIFIED' }; },
       createRequestId: () => 'evt_12345678',
     },
-    analytics: { track() {} },
+    analytics: { track: (...args) => tracked.push(args) },
     ui: { showToast() {} },
     audio: {},
     DinoGameEngine: class {},
@@ -411,6 +527,9 @@ test('game completion forwards verifier version, terminal reason, and item summa
     summary: { coins: 3, coin_score: 30, hearts: 2, revives: 2 },
   });
   assert.deepEqual(navigations, ['result']);
+  const completion = tracked.find(([name]) => name === 'game_completed');
+  assert.equal(completion[1].duration_seconds, 600);
+  assert.equal(completion[2].gameSessionId, 'session-1');
 });
 
 test('leaving during countdown resolves the pending start and clears timers', async () => {

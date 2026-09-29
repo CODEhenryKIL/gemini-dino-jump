@@ -3,6 +3,10 @@ import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 import { prepareResultReferralShare } from '../referral_share.js';
 
+const campaignStatus = (router) => router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+const shareRewardTypes = new WeakMap();
+const sharePrepareStates = new WeakMap();
+
 export const InviteView = {
   renderGeneration: 0,
   async render(container, router, renderToken) {
@@ -23,19 +27,25 @@ export const InviteView = {
       this.updateSummary(container, data);
       this.updateDrawAction(container, router);
       const button = container.querySelector('#btn-share-native');
+      shareRewardTypes.set(button, shareKind === 'prize_share' ? 'NONE' : 'GAME');
       button.disabled = true;
+      if (shareRewardTypes.get(button) !== 'NONE' && campaignStatus(router) !== 'ACTIVE') {
+        sharePrepareStates.set(button, 'campaign-blocked');
+        this.updateShareAction(container, router);
+        return;
+      }
       const prepared = await prepareResultReferralShare(router, { kind: shareKind, referral: data });
       if (!isActiveRender()) return;
-      button.disabled = false;
       button.onclick = async () => {
-        if (button.disabled) return;
+        if (button.disabled || (shareRewardTypes.get(button) !== 'NONE' && campaignStatus(router) !== 'ACTIVE')) return;
         button.disabled = true;
         try {
           const outcome = await prepared.share();
           if (isActiveRender() && outcome?.shareId) { const note = container.querySelector('#share-fallback'); note.hidden = false; ui.text(note, '카카오톡 전송을 확인하고 있어요.'); }
           if (isActiveRender() && outcome?.status === 'failed') ui.showToast('공유를 열지 못했어요. 다시 시도해 주세요.');
-        } finally { if (isActiveRender()) button.disabled = false; }
+        } finally { if (isActiveRender()) this.updateShareAction(container, router); }
       };
+      this.updateShareAction(container, router);
     } catch (error) {
       if (!isActiveRender()) return;
       container.replaceChildren();
@@ -71,6 +81,11 @@ export const InviteView = {
   },
   async updateState(container, router, renderToken) {
     if (!router.isCurrent(renderToken)) return;
+    const share = container.querySelector?.('#btn-share-native');
+    if (sharePrepareStates.get(share) === 'campaign-blocked' && campaignStatus(router) === 'ACTIVE') {
+      return this.render(container, router, renderToken);
+    }
+    this.updateShareAction(container, router);
     this.updateDrawAction(container, router);
     void this.loadGap(container, () => router.isCurrent(renderToken));
     if (!container.querySelector('#invite-balance')) return;
@@ -80,8 +95,20 @@ export const InviteView = {
       this.updateSummary(container, data);
       const note = container.querySelector('#share-fallback');
       if (note) note.hidden = true;
+      this.updateShareAction(container, router);
     } catch (_) {
       if (router.isCurrent(renderToken)) ui.text(container.querySelector('#invite-cooldown'), '최신 초대 현황을 불러오지 못했어요. 다시 접속하면 재확인하며, 적립된 게임권은 그대로 보존돼요.');
+    }
+  },
+  updateShareAction(container, router) {
+    const button = container.querySelector?.('#btn-share-native');
+    if (!button) return;
+    const blocked = shareRewardTypes.get(button) !== 'NONE' && campaignStatus(router) !== 'ACTIVE';
+    button.disabled = blocked || !button.onclick;
+    const note = container.querySelector?.('#share-fallback');
+    if (blocked && note) {
+      note.hidden = false;
+      ui.text(note, campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 게임권 공유를 이용할 수 있어요.' : '현재 게임권 공유를 이용할 수 없어요.');
     }
   },
   updateDrawAction(container, router) {
@@ -91,9 +118,14 @@ export const InviteView = {
     const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(status) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
     button.hidden = !['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(status);
     button.textContent = hasDrawResult ? '내 복주머니 결과 보기' : '친구를 기다리지 않고 복주머니 열기';
+    button.disabled = !hasDrawResult && status === 'AVAILABLE' && campaignStatus(router) !== 'ACTIVE';
+    if (button.disabled) button.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 복주머니 열기'
+      : campaignStatus(router) === 'ENDED' ? '복주머니 행사가 종료됐어요' : '복주머니 행사가 잠시 중단됐어요';
     button.onclick = () => {
       const latest = router.state?.draw?.status;
       if (!['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(latest)) return;
+      const saved = ['DRAWN', 'WON', 'EXHAUSTED'].includes(latest) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+      if (!saved && campaignStatus(router) !== 'ACTIVE') return;
       analytics.track('draw_cta_clicked', { source: 'invite', draw_status: latest });
       router.navigate('draw');
     };

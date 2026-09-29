@@ -14,19 +14,65 @@ export class ApiError extends Error {
   }
 }
 
-async function request(endpoint, options = {}) {
-  const headers = new Headers(options.headers || {});
-  if (options.body != null && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-  if (options.idempotent) headers.set('Idempotency-Key', options.idempotencyKey || createRequestId('idem'));
-  const fetchOptions = { ...options, credentials: 'same-origin', headers };
-  let response;
+const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+
+function timeoutError() {
+  return new ApiError('서버 응답이 늦어지고 있어요. 다시 시도해 주세요.', 408, { error: 'CLIENT_TIMEOUT', retryable: true });
+}
+
+async function fetchJson(endpoint, fetchOptions, timeoutMs) {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  let timedOut = false;
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller?.abort();
+      reject(timeoutError());
+    }, timeoutMs);
+  });
   try {
-    response = await fetch(endpoint, fetchOptions);
+    const response = await Promise.race([
+      fetch(endpoint, { ...fetchOptions, ...(controller ? { signal: controller.signal } : {}) }),
+      timeout,
+    ]);
+    let data;
+    try {
+      data = await Promise.race([response.json(), timeout]);
+    } catch (error) {
+      if (timedOut) throw timeoutError();
+      data = {};
+    }
+    return { response, data };
   } catch (error) {
-    if (!options.idempotent) throw error;
-    response = await fetch(endpoint, fetchOptions);
+    if (timedOut) throw timeoutError();
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  const data = await response.json().catch(() => ({}));
+}
+
+async function request(endpoint, options = {}) {
+  const {
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    idempotent = false,
+    idempotencyKey = null,
+    ...requestOptions
+  } = options;
+  const headers = new Headers(requestOptions.headers || {});
+  if (requestOptions.body != null && !(requestOptions.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+  if (idempotent) headers.set('Idempotency-Key', idempotencyKey || createRequestId('idem'));
+  const fetchOptions = { ...requestOptions, credentials: 'same-origin', headers };
+  const method = String(fetchOptions.method || 'GET').toUpperCase();
+  const retryableRequest = idempotent || method === 'GET' || method === 'HEAD';
+  let result;
+  try {
+    result = await fetchJson(endpoint, fetchOptions, timeoutMs);
+  } catch (error) {
+    if (!retryableRequest) throw error;
+    result = await fetchJson(endpoint, fetchOptions, timeoutMs);
+  }
+  const { response, data } = result;
   if (!response.ok) throw new ApiError(data.message || data.error || '요청을 처리하지 못했습니다.', response.status, data);
   return data;
 }

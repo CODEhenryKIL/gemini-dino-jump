@@ -74,6 +74,24 @@ test('home distinguishes expired cooldown from current waiting and explains an e
   assert.doesNotMatch(nodes.get('#home-ticket-note').textContent, /다시 시작/);
 });
 
+test('home disables a new game at wall-clock boundaries but keeps recovery reachable', () => {
+  const nodes = new Map();
+  const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
+  const view = loadView('public/js/views/home.js', 'HomeView');
+  const router = {
+    state: { tickets: { initial: 1, invitation: 0 } },
+    campaignStatus: () => 'NOT_OPEN',
+  };
+  view.render(container, router);
+  assert.equal(nodes.get('#btn-start-jump').disabled, true);
+  assert.match(nodes.get('#btn-start-jump').textContent, /시작 전/);
+  assert.match(nodes.get('#home-ticket-note').textContent, /시작 시간/);
+  router.state.pendingGameSession = { id: 'existing', status: 'ACTIVE' };
+  router.campaignStatus = () => 'ENDED';
+  view.updateState(container, router);
+  assert.equal(nodes.get('#btn-start-jump').disabled, false);
+});
+
 test('unlimited home omits the test explanation without hiding event closure or requiring tickets', () => {
   const nodes = new Map();
   const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
@@ -112,8 +130,15 @@ test('home restores a draw route without requiring another ticket or another gam
   assert.equal(draw.hidden, false);
   assert.equal(draw.textContent, '복주머니 열기');
   draw.onclick();
+  router.campaignStatus = () => 'ENDED';
+  view.updateState(container, router);
+  assert.equal(draw.disabled, true);
+  assert.match(draw.textContent, /종료/);
+  draw.onclick();
+  assert.deepEqual(routes, ['draw']);
   router.state.draw.status = 'DRAWN';
   view.updateState(container, router);
+  assert.equal(draw.disabled, false);
   assert.equal(draw.textContent, '내 복주머니 결과 보기');
   draw.onclick();
   assert.deepEqual(routes, ['draw', 'draw']);
@@ -121,6 +146,54 @@ test('home restores a draw route without requiring another ticket or another gam
     { name: 'draw_cta_clicked', source: 'home', draw_status: 'AVAILABLE' },
     { name: 'draw_cta_clicked', source: 'home', draw_status: 'DRAWN' },
   ]);
+  router.state.draw = { status: 'AVAILABLE', draw: { scratch_completed: false } };
+  view.updateState(container, router);
+  assert.equal(draw.disabled, false);
+  assert.equal(draw.textContent, '내 복주머니 결과 보기');
+});
+
+test('result keeps async share and a new draw disabled after campaign closure while saved draw results stay reachable', async () => {
+  const events = [], routes = [];
+  const nodes = new Map();
+  const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
+  let resolvePrepared;
+  const prepared = new Promise((resolve) => { resolvePrepared = resolve; });
+  const result = loadView('public/js/views/result_view.js', 'ResultView', {
+    analytics: { track: (name, dimensions) => events.push({ name, ...dimensions }) },
+    ui: { text: (target, value) => { target.textContent = String(value); } },
+    document: { createElement: () => node() },
+    prepareResultReferralShare: () => prepared,
+  });
+  const router = {
+    state: {
+      lastResult: { score: 32, bestScore: 32, top3_gap: { status: 'TOO_FEW' } },
+      draw: { status: 'AVAILABLE' },
+      tickets: { initial: 1, invitation: 0 },
+    },
+    campaignStatus: () => 'ACTIVE',
+    navigate: (route) => routes.push(route),
+  };
+  result.render(container, router, 1);
+  router.campaignStatus = () => 'ENDED';
+  result.updateState(container, router, 1);
+  resolvePrepared({ mode: 'native', share: async () => events.push({ name: 'shared' }) });
+  await prepared;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.get('#btn-play-again').disabled, true);
+  assert.equal(nodes.get('#btn-share-record').disabled, true);
+  assert.equal(nodes.get('#btn-go-pouch').disabled, true);
+  assert.match(nodes.get('#result-share-status').textContent, /이용할 수 없/);
+  nodes.get('#btn-go-pouch').onclick();
+  assert.deepEqual(routes, []);
+  router.state.draw.status = 'DRAWN';
+  result.updateState(container, router, 1);
+  assert.equal(nodes.get('#btn-go-pouch').disabled, false);
+  assert.match(nodes.get('#btn-go-pouch').textContent, /결과 보기/);
+  nodes.get('#btn-go-pouch').onclick();
+  assert.deepEqual(routes, ['draw']);
+  router.state.draw = { status: 'AVAILABLE', draw: { scratch_completed: false } };
+  result.updateState(container, router, 1);
+  assert.equal(nodes.get('#btn-go-pouch').disabled, false);
 });
 
 test('result and empty claims draw buttons track their own source before entering the draw screen', () => {

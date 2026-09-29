@@ -63,8 +63,8 @@ body {
 
 /* Top App Bar */
 .app-header {
-  min-height: 76px;
-  padding: 0 16px;
+  min-height: calc(76px + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) 16px 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -123,7 +123,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-bottom: 90px; /* space for fixed footer if needed */
+  padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); /* fixed footer + home indicator */
 }
 
 /* Cards */
@@ -294,7 +294,9 @@ body {
   bottom: 0;
   width: 100%;
   max-width: var(--app-max-width);
-  height: 64px;
+  height: calc(64px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   border-top: 1px solid rgba(25, 103, 210, 0.08);
@@ -511,3 +513,14 @@ body {
 
 .result-card > .result-gap.is-chasing { font-size: 22px; font-weight: 800; line-height: 1.45; padding: 18px 12px; }
 .result-share-status:empty { display: none; }
+
+/* Optional analytics controls remain independent of the game and claim forms. */
+.analytics-settings { border: 0; background: transparent; color: #5f6368; font: inherit; font-size: 11px; padding: 8px 4px; cursor: pointer; }
+.analytics-consent { position: fixed; z-index: 11000; right: max(12px, env(safe-area-inset-right)); bottom: calc(84px + env(safe-area-inset-bottom)); width: min(360px, calc(100vw - 24px)); box-sizing: border-box; max-height: 65dvh; overflow-y: auto; background: #fff; color: #202124; border: 1px solid #dadce0; border-radius: 16px; padding: 16px; box-shadow: 0 6px 28px #20212426; text-align: left; }
+.analytics-consent[hidden], .analytics-settings[hidden] { display: none !important; }
+.analytics-consent strong { font-size: 16px; }
+.analytics-consent p { margin: 8px 0; font-size: 12px; line-height: 1.55; }
+.analytics-consent summary { font-size: 12px; cursor: pointer; }
+.analytics-consent-actions { display: flex; gap: 8px; margin-top: 12px; }
+.analytics-consent-actions button { flex: 1; min-height: 42px; border: 1px solid #dadce0; border-radius: 9px; background: #f8f9fa; color: #202124; font: inherit; font-size: 13px; cursor: pointer; }
+.analytics-consent-actions #analytics-accept { color: #fff; border-color: #1a73e8; background: #1a73e8; }

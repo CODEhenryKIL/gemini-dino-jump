@@ -1,4 +1,5 @@
 import copy,hashlib,json,sys,unittest
+import importlib
 from pathlib import Path
 
 import psycopg
@@ -40,6 +41,62 @@ def approved_manifest():
     manifest["production_flags"]={"unlimited_play":False,"synthetic_inventory":False,"shortened_clock":False}
     return manifest
 
+class ProductionPreparationContractTest(unittest.TestCase):
+    @staticmethod
+    def encoded(manifest):
+        payload=json.dumps(manifest,ensure_ascii=False,separators=(",",":"),sort_keys=True).encode()
+        return payload,hashlib.sha256(payload).hexdigest()
+
+    def test_provision_accepts_launch_incomplete_paused_preparation(self):
+        manifest=approved_manifest()
+        manifest["status"]="DRAFT"
+        manifest["event_enabled"]=False
+        for key in ("privacy","benefit_and_brand","public_launch"):
+            manifest["approvals"][key]=None
+        for key in ("real_kakao_game_and_draw","physical_device_qa","final_load_test","notion_and_benefit_links","rollback_rehearsal"):
+            manifest["evidence"][key]=None
+        manifest["campaign"]["id"]="INVALID!"
+        payload,digest=self.encoded(manifest)
+        with self.assertRaisesRegex(ValueError,"Invalid production campaign ID"):
+            provision(None,manifest,digest,payload)
+
+    def test_provision_rejects_active_manifest_missing_launch_evidence_before_db_access(self):
+        manifest=approved_manifest()
+        manifest["event_enabled"]=True
+        manifest["evidence"]["final_load_test"]=None
+        payload,digest=self.encoded(manifest)
+        with self.assertRaisesRegex(ValueError,"preparation-ready manifest with event_enabled=false"):
+            provision(None,manifest,digest,payload)
+
+    def test_provision_rejects_manifest_object_or_digest_drift(self):
+        manifest=approved_manifest()
+        payload,digest=self.encoded(manifest)
+        changed=copy.deepcopy(manifest)
+        changed["campaign"]["id"]="changed_after_hash"
+        with self.assertRaisesRegex(ValueError,"do not match"):
+            provision(None,changed,digest,payload)
+        with self.assertRaisesRegex(ValueError,"do not match"):
+            provision(None,manifest,"0"*64,payload)
+
+    def test_provision_rejects_bool_int_manifest_drift(self):
+        manifest=approved_manifest()
+        payload,digest=self.encoded(manifest)
+        changed=copy.deepcopy(manifest)
+        changed["draw_prizes"][0]["quantity"]=True
+        with self.assertRaisesRegex(ValueError,"do not match"):
+            provision(None,changed,digest,payload)
+        changed=copy.deepcopy(manifest)
+        changed["draw_prizes"]=tuple(changed["draw_prizes"])
+        with self.assertRaisesRegex(ValueError,"do not match"):
+            provision(None,changed,digest,payload)
+
+    def test_prepare_production_imports_as_scripts_package(self):
+        module=importlib.import_module("scripts.prepare_production")
+        manifest=approved_manifest();manifest["campaign"]["id"]="INVALID!"
+        payload,digest=self.encoded(manifest)
+        with self.assertRaisesRegex(ValueError,"Invalid production campaign ID"):
+            module.provision(None,manifest,digest,payload)
+
 @unittest.skipUnless(Path("/private/tmp/dino-phase1-v2-postgres/bin/psql").exists(),"isolated local PostgreSQL fixture is unavailable")
 class ProductionSchemaIsolationTest(unittest.TestCase):
     @classmethod
@@ -63,7 +120,7 @@ class ProductionSchemaIsolationTest(unittest.TestCase):
         payload=json.dumps(cls.manifest,ensure_ascii=False,separators=(",",":"),sort_keys=True).encode()
         cls.digest=hashlib.sha256(payload).hexdigest()
         with psycopg.connect(cls.database.dsn) as conn:
-            cls.provisioned=provision(conn,copy.deepcopy(cls.manifest),cls.digest)
+            cls.provisioned=provision(conn,copy.deepcopy(cls.manifest),cls.digest,payload)
 
     @classmethod
     def tearDownClass(cls):
@@ -121,6 +178,29 @@ class ProductionSchemaIsolationTest(unittest.TestCase):
         with self.assertRaises(psycopg.Error):
             with psycopg.connect(self.database.dsn,autocommit=True) as conn:conn.execute(render_schema(),prepare=False)
         with self.assertRaisesRegex(ValueError,"not empty"):
-            with psycopg.connect(self.database.dsn) as conn:provision(conn,copy.deepcopy(self.manifest),self.digest)
+            payload=json.dumps(self.manifest,ensure_ascii=False,separators=(",",":"),sort_keys=True).encode()
+            with psycopg.connect(self.database.dsn) as conn:provision(conn,copy.deepcopy(self.manifest),self.digest,payload)
+
+    def test_every_mutable_table_must_be_empty_before_provisioning(self):
+        inserts=(
+          "insert into dino_prod.observation(id,event_id,actor_key,idempotency_key,request_hash,environment) values('existing-observation','existing-event','actor','key','hash','production')",
+          "insert into dino_prod.idempotency_request(actor_key,route,idempotency_key,request_hash,response_status,response_body) values('actor','route','key','hash',200,'{}')",
+          "insert into dino_prod.admin_audit(admin_user_id,action,target_type,event_id) values('00000000-0000-0000-0000-000000000001','existing','campaign','existing-audit')",
+          "insert into dino_prod.rate_limit_bucket(bucket_key,window_started_at,count) values('existing',clock_timestamp(),1)",
+          "insert into dino_prod.admin_member(auth_user_id,display_name) values('00000000-0000-0000-0000-000000000001','existing admin')",
+        )
+        payload=json.dumps(self.manifest,ensure_ascii=False,separators=(",",":"),sort_keys=True).encode()
+        with psycopg.connect(self.database.dsn) as conn:
+            tables=[row[0] for row in conn.execute("select tablename from pg_tables where schemaname='dino_prod' and tablename<>'schema_version'")]
+            truncate=psycopg.sql.SQL("truncate {} restart identity cascade").format(
+                psycopg.sql.SQL(",").join(psycopg.sql.Identifier("dino_prod",table) for table in tables)
+            )
+            for statement in inserts:
+                with self.subTest(statement=statement):
+                    conn.execute(truncate)
+                    conn.execute(statement)
+                    with self.assertRaisesRegex(ValueError,"not empty"):
+                        provision(conn,copy.deepcopy(self.manifest),self.digest,payload)
+                    conn.rollback()
 
 if __name__=="__main__":unittest.main()
