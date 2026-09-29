@@ -143,3 +143,10 @@
 - 5,000은 사람 수가 아닌 누적 뽑기 횟수다. 5,000자리 소진 이후에도 뽑기는 계속 열고 Gemini 혜택만 반환한다. 뽑기권 차감, 최대 10회, 실상품 당첨자 추가 중단, 행사 마감은 유지한다. 추가 실물 배정·수령 요청을 만들지 않으며 혜택 설정이 없으면 오류로 차단한다.
 - 최신 격리 로컬 검증: 서버 388개 중 386통과·2조건부생략, JavaScript 299/299통과. 별도 5,000회 소진 검증 1개 통과: 상품 63/혜택 4,937/중복 0/5,001번째 BENEFIT. [추첨 증거](evidence/phase3-final-pool-proof-20260929.json). 이 검사는 원격 부하 재실행이 아니다.
 - 실제 운영 manifest는 phase3-20260929-v6-preparation, SHA256 5326e40f39189b9a91e4fe0fdfbc77a788c1526c71af4f26e4eaf9517b2886f9. 운영 캠페인 version 3, PAUSED/OFF, 무제한 false. 공개 별칭은 베타이며 베타 데이터 삭제·본행사 ON은 최종 전환 단계에 남아 있다.
+
+### 수정본 배포
+
+- 코드 커밋 `0d7732a`, 기존 PR #9의 `codex/final-launch-preflight` 브랜치에 push.
+- 운영 후보 `dpl_7av2c4RnYvfsPWfh8fZNTq7MAqh7` / `https://dino-nanobanana-rmq0as5wz-henry-kils-projects.vercel.app`: Production READY, 홈·health·config HTTP 200, DB ready, manifest hash 일치, 21시·PAUSED/OFF 확인.
+- 공개 베타 `dpl_F4VNVLSmTmcKJWHZ7NNd4zygzHt4` / `https://dino-nanobanana-ic1hh37xi-henry-kils-projects.vercel.app`: 기존 공개 주소 `https://google-korea-team-gemini.vercel.app`에 연결. Preview/DB ready 및 GA4 테스트 속성 확인. 베타 무제한 설정은 유지한다.
+- 기존 `dino-nanobanana.vercel.app` 및 보조 프로젝트 별칭은 기존 배포로 보존한다. 운영 ON·베타 초기화는 이번 변경에 포함하지 않는다.
