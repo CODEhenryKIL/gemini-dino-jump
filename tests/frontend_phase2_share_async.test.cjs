@@ -28,7 +28,7 @@ function node(tag = 'div', textContent = '') {
 }
 
 function loadView(file, exportName, globals) {
-  const context = { console, URL, ...globals };
+  const context = { console, URL, api: {}, prepareResultReferralShare: async () => ({ share: async () => ({ status: 'cancelled' }) }), ...globals };
   context.globalThis = context;
   const source = fs.readFileSync(path.join(root, file), 'utf8')
     .replace(/^import .*;$/gm, '')
@@ -69,8 +69,30 @@ function createInviteHarness(navigatorMock) {
     },
     createRequestId() { requestIndex += 1; return `share_${requestIndex}`; },
   };
+  const prepareResultReferralShare = async (_router, { kind }) => {
+    const trackingContext = { screen: analytics.screen, screenViewId: analytics.screenViewId, activeMs: analytics.currentActiveMs() };
+    let pending = false;
+    return { async share() {
+      if (pending) return { status: 'pending' };
+      pending = true;
+      const shareId = api.createRequestId();
+      const url = `https://example.test/invite/abcdefghijkl?link=${kind}&share=${shareId}`;
+      const method = typeof navigatorMock.share === 'function' ? 'native' : 'copy';
+      const track = (status) => analytics.track('share_attempted', { share_method: method, share_id: shareId, link_kind: kind, status }, trackingContext);
+      track('attempted');
+      try {
+        if (method === 'native') await navigatorMock.share({ url });
+        else await navigatorMock.clipboard.writeText(url);
+        track(method === 'native' ? 'share_sheet_closed' : 'copied');
+        return { method, status: method === 'native' ? 'share_sheet_closed' : 'copied' };
+      } catch (error) {
+        const status = error?.name === 'AbortError' ? 'cancelled' : 'failed';
+        track(status); return { method, status };
+      } finally { pending = false; }
+    } };
+  };
   const view = loadView('public/js/views/invite_view.js', 'InviteView', {
-    api, analytics, navigator: navigatorMock,
+    api, analytics, navigator: navigatorMock, prepareResultReferralShare,
     ui: { text(target, value) { target.textContent = String(value); }, showToast(message) { toasts.push(message); } },
     window: { location: { origin: 'https://example.test' } },
     document: { createElement: (tag) => node(tag) },
@@ -85,11 +107,13 @@ function createInviteHarness(navigatorMock) {
 function benefitNodes() {
   return new Map([
     ['#btn-go-benefit', node('a')], ['#btn-copy-benefit', node('button')], ['#btn-share-benefit', node('button')],
+    ['#btn-kakao-benefit', node('button')],
+    ['#benefit-official-url', node('p')],
     ['#benefit-fallback', node('p', 'fresh benefit help')], ['#content-guide-list', node('div')],
   ]);
 }
 
-function createBenefitHarness(navigatorMock) {
+function createBenefitHarness(navigatorMock, sdk = null, wonPrizeName = null) {
   const events = [];
   const toasts = [];
   let nodes = new Map();
@@ -106,7 +130,11 @@ function createBenefitHarness(navigatorMock) {
   };
   const document = { hidden: false, createElement: (tag) => node(tag), addEventListener() {}, removeEventListener() {} };
   const view = loadView('public/js/views/benefit_view.js', 'BenefitView', {
-    analytics, document, navigator: navigatorMock, IntersectionObserver: undefined,
+    api: {}, analytics, document, navigator: navigatorMock, IntersectionObserver: undefined,
+    prepareResultReferralShare: async (_router, { kind }) => ({ mode: sdk ? 'kakao' : 'native', share: async () => {
+      if (sdk) sdk.Share.sendDefault({ objectType: 'feed', content: { title: '삼탠바이미 그냥 뿌립니다. 🎁', description: '게임 한 판 하고 꽝 없는 상품 받아가자!', imageUrl: 'https://k.kakaocdn.net/prize.png', link: { webUrl: 'https://example.test/invite/code' } }, buttons: [{ link: { webUrl: 'https://example.test/invite/code' } }] });
+      return { method: sdk ? 'kakao' : 'native', status: 'pending', kind, wonPrizeName };
+    } }),
     ui: { text(target, value) { target.textContent = String(value); }, showToast(message) { toasts.push(message); } },
   });
   const router = { config: { official_url: 'https://gemini.google.com/students' } };
@@ -122,9 +150,9 @@ test('invite deferred copy keeps its originating context, ignores duplicates, an
   let copyCalls = 0;
   const harness = createInviteHarness({ clipboard: { writeText() { copyCalls += 1; return copy.promise; } } });
   await harness.view.render(harness.container, harness.router, 'same-token');
-  const oldCopyButton = harness.getNodes().get('#btn-copy-link');
-  const first = oldCopyButton.onclick();
-  const duplicate = oldCopyButton.onclick();
+  const oldShareButton = harness.getNodes().get('#btn-share-native');
+  const first = oldShareButton.onclick();
+  const duplicate = oldShareButton.onclick();
   assert.equal(copyCalls, 1);
 
   harness.analytics.screen = 'home';
@@ -218,4 +246,20 @@ test('benefit deferred native success invokes once and keeps share_sheet_closed 
   assert.deepEqual(outcomes.map(({ dimensions }) => dimensions.status), ['attempted', 'share_sheet_closed']);
   assert.ok(outcomes.every(({ extra }) => extra.screenViewId === 'screen_benefit_origin' && extra.activeMs === 923));
   assert.equal(freshFallback.textContent, 'fresh benefit help');
+});
+
+
+test('benefit bottom Kakao share promotes the game with the prize image and game destination', async () => {
+  const sent = [];
+  const harness = createBenefitHarness({}, { Share: { sendDefault(payload) { sent.push(payload); } } }, '소니 ULT WEAR 헤드셋');
+  harness.view.render(harness.container, harness.router);
+  await new Promise(setImmediate);
+  await harness.getNodes().get('#btn-kakao-benefit').onclick();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].objectType, 'feed');
+  assert.equal(sent[0].content.imageUrl, 'https://k.kakaocdn.net/prize.png');
+  assert.equal(sent[0].content.title, '삼탠바이미 그냥 뿌립니다. 🎁');
+  assert.equal(sent[0].content.description, '게임 한 판 하고 꽝 없는 상품 받아가자!');
+  assert.equal(sent[0].content.link.webUrl, 'https://example.test/invite/code');
+  assert.equal(sent[0].buttons[0].link.webUrl, sent[0].content.link.webUrl);
 });

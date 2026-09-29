@@ -52,6 +52,7 @@ test('loading ready remains attached to the loading view after the first screen 
   context.globalThis = context;
   let source = read('public/js/analytics.js')
     .replace("import { api } from './api.js';", 'const api = globalThis.__api;')
+    .replace("import { ga4Analytics } from './ga4_analytics.js';", 'const ga4Analytics = { track() {}, setEntryAttribution() {} };')
     .replace('export const analytics = new Analytics();\nexport { EVENT_ALLOWLIST, SAFE_DIMENSIONS };', 'globalThis.__analytics = new Analytics();');
   vm.runInNewContext(source, context, { filename: 'analytics.js' });
   const analytics = context.__analytics;
@@ -76,13 +77,13 @@ test('Gemini benefit copy and native share record observable outcomes only', asy
   const events = [];
   const toasts = [];
   const nodes = new Map();
-  const node = () => ({ onclick: null, href: '', disabled: false });
-  for (const selector of ['#btn-go-benefit', '#btn-copy-benefit', '#btn-share-benefit']) nodes.set(selector, node());
+  const node = () => ({ onclick: null, href: '', disabled: false, hidden: false, textContent: '', children: [], classList: { add() {} }, append(...children) { this.children.push(...children); }, appendChild(child) { this.children.push(child); }, removeAttribute() {}, setAttribute() {} });
+  for (const selector of ['#btn-go-benefit', '#btn-copy-benefit', '#btn-share-benefit', '#btn-kakao-benefit', '#benefit-official-url', '#benefit-fallback', '#content-guide-list']) nodes.set(selector, node());
   const container = { innerHTML: '', querySelector: (selector) => nodes.get(selector) };
   const context = {
     __analytics: { track: (name, dimensions = {}) => events.push({ name, dimensions }) },
-    __ui: { showToast: (message) => toasts.push(message) },
-    document: { hidden: false },
+    __ui: { text: (target, value) => { target.textContent = String(value); }, showToast: (message) => toasts.push(message) },
+    document: { hidden: false, createElement: () => node(), addEventListener() {}, removeEventListener() {} },
     navigator: {
       clipboard: { writeText: async (value) => { assert.equal(value, 'https://gemini.google.com/students'); } },
       share: async ({ url }) => { assert.equal(url, 'https://gemini.google.com/students'); },
@@ -92,8 +93,10 @@ test('Gemini benefit copy and native share record observable outcomes only', asy
   };
   context.globalThis = context;
   const source = read('public/js/views/benefit_view.js')
+    .replace("import { api } from '../api.js';", 'const api = {};')
     .replace("import { analytics } from '../analytics.js';", 'const analytics = globalThis.__analytics;')
     .replace("import { ui } from '../ui.js';", 'const ui = globalThis.__ui;')
+    .replace("import { prepareResultReferralShare } from '../referral_share.js';", 'const prepareResultReferralShare = async () => ({ share: async () => ({ status: "cancelled" }) });')
     .replace('export const BenefitView =', 'globalThis.__BenefitView =');
   vm.runInNewContext(source, context, { filename: 'benefit_view.js' });
   context.__BenefitView.render(container, { config: { benefit_url: 'https://gemini.google.com/students' } });

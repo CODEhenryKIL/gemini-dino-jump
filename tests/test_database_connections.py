@@ -23,7 +23,7 @@ class FakeConnection:
 class ConnectionTest(unittest.TestCase):
     def setUp(self):
         db.close_idle_connections()
-        self.settings=SimpleNamespace(database_url="test-dsn",environment="test")
+        self.settings=SimpleNamespace(database_url="test-dsn",environment="test",schema_name="dino_dev",app_role="dino_dev_app")
     def tearDown(self): db.close_idle_connections()
 
     def test_sequential_connections_close_at_quiescence_and_reopen_tls(self):
@@ -129,7 +129,7 @@ class ConnectionTest(unittest.TestCase):
     def test_different_database_or_environment_never_reuses_connection(self):
         with patch.object(db.psycopg,"connect",side_effect=lambda *a,**k:FakeConnection()):
             with db.connection(self.settings) as first: pass
-            with db.connection(SimpleNamespace(database_url="other-dsn",environment="test")) as second: pass
+            with db.connection(SimpleNamespace(database_url="other-dsn",environment="test",schema_name="dino_dev",app_role="dino_dev_app")) as second: pass
         self.assertTrue(first.closed)
         self.assertIsNot(first,second)
 

@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
+function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} }), initialStatus = 'ACTIVE') {
   class Node {
     constructor(tag = 'div') {
       this.tagName = tag.toUpperCase(); this.children = []; this.attrs = {}; this.className = '';
@@ -38,11 +38,13 @@ function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
   const confirm = new Node('button');
   const close = new Node('button');
   const card = new Node(); card.scrollTop = 0;
+  const body = new Node(); body.scrollTop = 47;
   card.insertBefore = (node) => { card.inserted = node; };
   const overlay = new Node();
   overlay.querySelector = (selector) => ({
     '.modal-actions .btn-primary': confirm,
     '.modal-card': card,
+    '.modal-body': body,
     '.modal-actions .btn-secondary': close,
   }[selector]);
 
@@ -61,7 +63,7 @@ function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
     hideModal() { hidden++; content.isConnected = false; overlay.isConnected = false; },
   };
   const context = {
-    api: { getLeaderboard }, ui, document, Node,
+    api: { getLeaderboard }, analytics: { trackGa4() {} }, ui, document, Node,
     localStorage: { setItem: (key, value) => writes.push([key, value]) },
     Intl, Number, console,
   };
@@ -70,9 +72,11 @@ function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
     .replace('export function showGameGuide', 'function showGameGuide')
     .concat('\nglobalThis.showGameGuide = showGameGuide;');
   vm.runInNewContext(source, context, { filename: 'game_guide.js' });
-  const router = { navigate: (view) => navigations.push(view) };
+  let campaignStatus = initialStatus;
+  const router = { navigate: (view) => navigations.push(view), campaignStatus: () => campaignStatus };
   context.showGameGuide(router, true);
-  return { content, title, rankHost, confirm, close, card, overlay, modal: () => modal, writes, navigations, hidden: () => hidden };
+  return { content, title, rankHost, confirm, close, card, body, overlay, modal: () => modal, writes, navigations, hidden: () => hidden,
+    setCampaignStatus: (value) => { campaignStatus = value; } };
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -89,6 +93,7 @@ test('guide uses concise touch instructions, previous navigation, and a top X cl
   h.modal().onConfirm();
   assert.match(h.content.innerHTML, /웃음 코인을 먹으면 \+10점/);
   assert.equal(h.confirm.beforeNode.disabled, false);
+  assert.equal(h.body.scrollTop, 0, '슬라이드가 바뀌면 가이드 본문만 처음으로 올라야 한다');
   h.confirm.beforeNode.onclick();
   assert.match(h.content.innerHTML, /화면을 터치하면 점프!/);
   h.close.onclick();
@@ -96,14 +101,38 @@ test('guide uses concise touch instructions, previous navigation, and a top X cl
   assert.deepEqual(h.writes, []);
 });
 
-test('skip records completion and starts the game exactly once', () => {
+test('guide-only modal layout keeps actions outside the scrolling body', () => {
+  const css = fs.readFileSync(path.join(root, 'public/css/phase2-views.css'), 'utf8');
+  assert.match(css, /\.game-guide-dialog \.modal-card \{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto auto;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.game-guide-dialog \.modal-body \{[^}]*overflow-y:\s*auto;/s);
+  assert.match(css, /\.game-guide-dialog \.modal-actions \{[^}]*flex:\s*0 0 auto;/s);
+});
+
+test('skip starts the game without suppressing future tutorials', () => {
   const h = harness();
   const skip = h.card.children.at(-1);
   assert.equal(skip.textContent, '건너뛰고 게임 시작');
   skip.onclick();
-  assert.deepEqual(h.writes, [['gemini_dino_guide_seen', 'true']]);
+  assert.deepEqual(h.writes, []);
   assert.deepEqual(h.navigations, ['game']);
   assert.equal(h.hidden(), 1);
+});
+
+test('guide start actions recheck the live campaign boundary before navigation', () => {
+  const ended = harness(undefined, 'ENDED');
+  const endedSkip = ended.card.children.at(-1);
+  assert.equal(endedSkip.disabled, true);
+  endedSkip.onclick();
+  assert.deepEqual(ended.navigations, []);
+  assert.equal(ended.hidden(), 0);
+
+  const boundary = harness();
+  const skip = boundary.card.children.at(-1);
+  boundary.setCampaignStatus('PAUSED');
+  skip.onclick();
+  assert.deepEqual(boundary.navigations, []);
+  assert.equal(boundary.hidden(), 0);
+  assert.equal(skip.disabled, true);
 });
 
 test('final slide shows rewards and safely renders live ranking data', async () => {
@@ -113,7 +142,7 @@ test('final slide shows rewards and safely renders live ranking data', async () 
     me: { rank: 1, best_score: 12345 },
   }));
   h.modal().onConfirm(); h.modal().onConfirm(); h.modal().onConfirm();
-  assert.match(h.content.innerHTML, /1위[\s\S]*5만원[\s\S]*2위[\s\S]*3만원[\s\S]*3위[\s\S]*1만원/);
+  assert.match(h.content.innerHTML, /🥇[\s\S]*5만원[\s\S]*🥈[\s\S]*2만원[\s\S]*🥉[\s\S]*1만원/);
   assert.match(h.rankHost.children[0].textContent, /불러오는 중/);
   await settle();
   const list = h.rankHost.children[0];

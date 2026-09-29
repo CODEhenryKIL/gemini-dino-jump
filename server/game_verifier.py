@@ -13,28 +13,35 @@ import game_verifier_v2
 
 CONSTANTS_PATH = os.path.join(os.path.dirname(__file__), '..', 'shared', 'game_constants.json')
 V2_CONSTANTS_PATH = os.path.join(os.path.dirname(__file__), '..', 'shared', 'game_constants_v2.json')
+V21_CONSTANTS_PATH = os.path.join(os.path.dirname(__file__), '..', 'shared', 'game_constants_v21.json')
 with open(CONSTANTS_PATH, 'r', encoding='utf-8') as f:
     CONSTANTS = json.load(f)
 with open(V2_CONSTANTS_PATH, 'r', encoding='utf-8') as f:
     V2_CONSTANTS = json.load(f)
+with open(V21_CONSTANTS_PATH, 'r', encoding='utf-8') as f:
+    V21_CONSTANTS = json.load(f)
 
-TICK_RATE = CONSTANTS['physics']['tickRate'] # 60
+# Legacy 1.2 replays previously used the 2.0 values from game_constants.json.
+# Keep that effective ruleset frozen now that game_constants.json advances.
+LEGACY_CONSTANTS = V2_CONSTANTS
+
+TICK_RATE = LEGACY_CONSTANTS['physics']['tickRate'] # 60
 DT = 1.0 / TICK_RATE
-GROUND_Y = CONSTANTS['canvas']['groundY'] # 490
-GRAVITY = CONSTANTS['physics']['gravity'] # 2200
+GROUND_Y = LEGACY_CONSTANTS['canvas']['groundY'] # 490
+GRAVITY = LEGACY_CONSTANTS['physics']['gravity'] # 2200
 
-JUMP_VELOCITY_LOW = CONSTANTS['physics']['jumpVelocityLow'] # -680
-JUMP_VELOCITY_HIGH_BOOST = CONSTANTS['physics']['jumpVelocityHighBoost'] # -720
-HOLD_TICKS = CONSTANTS['physics'].get('jumpHoldTicks', 6) # 6 ticks (100ms)
+JUMP_VELOCITY_LOW = LEGACY_CONSTANTS['physics']['jumpVelocityLow'] # -680
+JUMP_VELOCITY_HIGH_BOOST = LEGACY_CONSTANTS['physics']['jumpVelocityHighBoost'] # -720
+HOLD_TICKS = LEGACY_CONSTANTS['physics'].get('jumpHoldTicks', 6) # 6 ticks (100ms)
 
-DINO_X = CONSTANTS['physics']['dino']['x'] # 120
-DINO_W = CONSTANTS['physics']['dino']['width'] # 64
-DINO_H = CONSTANTS['physics']['dino']['height'] # 72
-DINO_HB = CONSTANTS['physics']['dino']['hitbox']
+DINO_X = LEGACY_CONSTANTS['physics']['dino']['x'] # 120
+DINO_W = LEGACY_CONSTANTS['physics']['dino']['width'] # 64
+DINO_H = LEGACY_CONSTANTS['physics']['dino']['height'] # 72
+DINO_HB = LEGACY_CONSTANTS['physics']['dino']['hitbox']
 
-OBSTACLE_TYPES = CONSTANTS['obstacleTypes']
-STAGES = CONSTANTS['stages']
-SAFE_TIME_SEC = CONSTANTS['rules']['initialSafeTimeSec'] # 1.2
+OBSTACLE_TYPES = LEGACY_CONSTANTS['obstacleTypes']
+STAGES = LEGACY_CONSTANTS['stages']
+SAFE_TIME_SEC = LEGACY_CONSTANTS['rules']['initialSafeTimeSec'] # 1.2
 
 class PRNG:
     def __init__(self, seed: int):
@@ -171,7 +178,7 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
                 rand_pick = len(allowed_indices) - 1
             obs_type = OBSTACLE_TYPES[allowed_indices[rand_pick]]
 
-            obs_x = CONSTANTS['canvas']['logicalWidth'] + 20
+            obs_x = LEGACY_CONSTANTS['canvas']['logicalWidth'] + 20
             if obs_type.get('altitude') == 'ground':
                 obs_y = GROUND_Y - obs_type['height']
             else:
@@ -245,7 +252,7 @@ def simulate_and_verify(seed: int, jump_ticks: list, submitted_score: int, submi
         # An unfinished replay cannot prove a game-over or award ranking/draw rights.
         return False, 0, 0, 'NO_COLLISION'
 
-    calculated_score = int(math.floor((collision_tick / TICK_RATE) * CONSTANTS['rules']['pointsPerSecond']))
+    calculated_score = int(math.floor((collision_tick / TICK_RATE) * LEGACY_CONSTANTS['rules']['pointsPerSecond']))
 
     tick_diff = abs(collision_tick - submitted_ticks)
     score_diff = abs(calculated_score - submitted_score)
@@ -259,6 +266,8 @@ def verify_game(version: str, seed: int, jumps: list, score: int, ticks: int):
     """Versioned verifier contract. Legacy callers keep using simulate_and_verify()."""
     if version == "2.0.0":
         return game_verifier_v2.verify(V2_CONSTANTS, seed, jumps, score, ticks)
+    if version == "2.1.0":
+        return game_verifier_v2.verify(V21_CONSTANTS, seed, jumps, score, ticks)
     if version in (None, "", "1.2.0"):
         valid, verified_score, verified_ticks, reason = simulate_and_verify(seed, jumps, score, ticks)
         return {

@@ -49,7 +49,8 @@ class GameVerifierV2Test(unittest.TestCase):
     def test_v2_dispatch_uses_frozen_constants_even_if_current_constants_change(self):
         current = json.loads((ROOT / "shared/game_constants.json").read_text())
         frozen = json.loads((ROOT / "shared/game_constants_v2.json").read_text())
-        self.assertEqual(current, frozen)
+        self.assertEqual((current["version"], frozen["version"]), ("2.1.0", "2.0.0"))
+        self.assertNotEqual(current, frozen)
         replacement = {**current, "rules": {**current["rules"], "coinScore": 999}}
         with mock.patch.object(game_verifier, "CONSTANTS", replacement):
             result = game_verifier.verify_game(

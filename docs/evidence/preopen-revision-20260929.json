@@ -1,0 +1,68 @@
+{
+  "verified_at": "2026-09-29",
+  "state": {
+    "pool": {
+      "prize": 63,
+      "total": 5000,
+      "benefit": 4937,
+      "allocated": 0
+    },
+    "draws": 0,
+    "guard": {
+      "event_enabled": false,
+      "unlimited_play": false,
+      "manifest_sha256": "5326e40f39189b9a91e4fe0fdfbc77a788c1526c71af4f26e4eaf9517b2886f9",
+      "draw_prize_quantity": 63
+    },
+    "claims": 0,
+    "campaign": {
+      "status": "PAUSED",
+      "version": 3,
+      "opens_at": "2026-09-29T12:00:00+00:00",
+      "settings": {
+        "draw_max_rounds": 10,
+        "initial_tickets": 1,
+        "pool_exhaustion": "BENEFIT_ONLY_AFTER_POOL_EXHAUSTION",
+        "finish_after_close": "RECEIVED_BEFORE_CLOSE",
+        "phase3_manifest_hash": "5326e40f39189b9a91e4fe0fdfbc77a788c1526c71af4f26e4eaf9517b2886f9",
+        "invitation_balance_max": 3,
+        "claim_submission_cutoff": "2026-10-04T00:00:00+09:00",
+        "invitation_cooldown_hours": 10,
+        "phase3_draw_prize_quantity": 63,
+        "ranking_inventory_separate": [
+          {
+            "id": "musinsa_50000",
+            "name": "무신사 5만원권",
+            "rank": 1,
+            "quantity": 1,
+            "unit_price_krw": 50000
+          },
+          {
+            "id": "baemin_20000",
+            "name": "배민 2만원권",
+            "rank": 2,
+            "quantity": 1,
+            "unit_price_krw": 20000
+          },
+          {
+            "id": "starbucks_10000",
+            "name": "스타벅스 1만원권",
+            "rank": 3,
+            "quantity": 1,
+            "unit_price_krw": 10000
+          }
+        ],
+        "ranking_finalization_approved": true,
+        "ranking_finish_acceptance_cutoff": "2026-10-03T00:00:00+09:00"
+      },
+      "probability_version": "phase3-20260929-v6-preparation"
+    },
+    "gs_total": 10,
+    "void_total": 0,
+    "participants": 0,
+    "inventory_total": 66
+  },
+  "local_revision_test": "PASS",
+  "repeat_revision_test": "REJECTED",
+  "actual_purchase_completed": false
+}

@@ -1,4 +1,8 @@
+> **2026-09-29 최신 정책:** 이 문서는 작성 당시의 차수별 기록을 보존합니다. 현재 구현 기준은 [3차 공통 정책](phase3-policy-decisions.md)과 [통합 3차 지시서](phase3-work-instructions.md)입니다. 복주머니 최대 10회·카카오 전송 성공에 따른 게임권/뽑기권 분리·실제 상품 당첨 후 종료·랭킹 5만/2만/1만원이 이전 규칙을 대체합니다.
+
 # Phase 2 Dino Jump v2 game rules
+
+> Historical `2.0.0` replay contract. New games use [2.1.0 rules](game-rules-v21.md); existing 2.0.0 sessions retain the rules below.
 
 Effective 2026-09-25 for the local Preview/test implementation. The values below are the adopted and tested `2.0.0` replay contract. They are not approval of final event prizes, dates, eligibility, publicity, or production launch. The frozen machine-readable gameplay source is `shared/game_constants_v2.json`; the browser and server verifier must remain equivalent to its deterministic rules. Server lifecycle timing is defined by `server/operations.py`.
 

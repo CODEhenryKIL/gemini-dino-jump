@@ -23,29 +23,24 @@ def _overlaps(a, b):
     )
 
 
-def _speed_at(time_sec):
-    stages = (
-        (0, 15, 390, 450), (15, 30, 450, 530), (30, 45, 530, 620),
-        (45, 60, 620, 710), (60, 75, 710, 800),
-    )
-    for start, end, low, high in stages:
-        if start <= time_sec < end:
-            return low + ((time_sec - start) / (end - start)) * (high - low)
-    return min(800 + max(0, time_sec - 75) * 4, 880)
+def _speed_at(constants, time_sec):
+    for stage in constants["stages"]:
+        if stage["startTime"] <= time_sec < stage["endTime"]:
+            if "endSpeed" in stage:
+                duration = stage["endTime"] - stage["startTime"]
+                ratio = min(1.0, max(0.0, (time_sec - stage["startTime"]) / duration))
+                return stage["startSpeed"] + ratio * (stage["endSpeed"] - stage["startSpeed"])
+            speed = stage["startSpeed"] + (time_sec - stage["startTime"]) * stage.get("speedIncreasePerSec", 0)
+            return min(speed, stage.get("maxSpeed", speed))
+    last = constants["stages"][-1]
+    return last.get("maxSpeed", last.get("endSpeed", last["startSpeed"]))
 
 
-def _min_gap_at(time_sec):
-    if time_sec < 15:
-        return 0.95
-    if time_sec < 30:
-        return 0.88
-    if time_sec < 45:
-        return 0.80
-    if time_sec < 60:
-        return 0.74
-    if time_sec < 75:
-        return 0.68
-    return 0.62
+def _min_gap_at(constants, time_sec):
+    for stage in constants["stages"]:
+        if stage["startTime"] <= time_sec < stage["endTime"]:
+            return stage["minIntervalSec"]
+    return constants["stages"][-1]["minIntervalSec"]
 
 
 def _available_indices(time_sec):
@@ -135,7 +130,7 @@ def simulate(constants, seed, jumps, submitted_ticks):
 
     while tick < max_ticks and end_reason is None:
         time_sec = tick / tick_rate
-        speed = _speed_at(time_sec)
+        speed = _speed_at(constants, time_sec)
 
         if tick in jump_map:
             high = jump_map[tick]
@@ -184,7 +179,7 @@ def simulate(constants, seed, jumps, submitted_ticks):
             if combo:
                 gap = (0.88 if definition["type"] in ("cactus_tall", "cactus_double") else 0.68) + extra * 0.12
             else:
-                base = _min_gap_at(time_sec)
+                base = _min_gap_at(constants, time_sec)
                 if last_was_combo:
                     base = max(base, 1.15)
                 gap = base + extra * 0.45
@@ -239,11 +234,13 @@ def simulate(constants, seed, jumps, submitted_ticks):
     if end_reason is None and tick >= max_ticks:
         end_reason = "TIME_LIMIT"
         end_tick = max_ticks
-    score = math.floor((end_tick / tick_rate) * rules["pointsPerSecond"]) + coins * rules["coinScore"]
+    revive_penalty = revives * rules.get("revivePenaltyPoints", 0)
+    score = max(0, math.floor((end_tick / tick_rate) * rules["pointsPerSecond"]) + coins * rules["coinScore"] - revive_penalty)
     return {
         "score": score,
         "ticks": end_tick,
-        "summary": {"coins": coins, "coin_score": coins * rules["coinScore"], "hearts": hearts, "revives": revives},
+        "summary": {"coins": coins, "coin_score": coins * rules["coinScore"], "hearts": hearts, "revives": revives,
+                    **({"revive_penalty": revive_penalty} if rules.get("revivePenaltyPoints") else {})},
         "end_reason": end_reason,
     }
 

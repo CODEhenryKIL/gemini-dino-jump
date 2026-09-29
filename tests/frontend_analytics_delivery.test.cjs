@@ -20,6 +20,7 @@ function harness() {
     },
   };
   const context = {
+    ga4Analytics: { track() {}, setAttribution() {} },
     api, performance: { now: () => 100 },
     document: { hidden: false, addEventListener() {} },
     window: { addEventListener() {} },

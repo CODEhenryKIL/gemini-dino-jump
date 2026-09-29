@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>구글 코리아 팀 제미나이 | 공룡 점프</title>
   
   <!-- Favicon and Meta -->
@@ -14,13 +14,17 @@
   <meta property="og:site_name" content="구글 코리아 팀 제미나이">
   <meta property="og:title" content="구글 코리아 팀 제미나이 | 공룡 점프">
   <meta property="og:description" content="장애물을 넘고 최고 기록과 복주머니에 도전하세요.">
-  <meta property="og:image" content="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png">
+  <meta property="og:image" content="https://google-korea-team-gemini.vercel.app/assets/prizes/prize-lineup-cutout-v2.png">
+  <meta property="og:image:width" content="1254">
+  <meta property="og:image:height" content="1254">
+  <meta property="og:image:alt" content="삼텐바이미, 소니 헤드셋, 오쏘몰과 간식 경품">
+  <meta name="twitter:card" content="summary_large_image">
 
   <!-- Stylesheets -->
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/game.css">
   <link rel="stylesheet" href="/css/scratch.css">
-  <link rel="stylesheet" href="/css/phase2-views.css">
+  <link rel="stylesheet" href="/css/phase2-views.css?v=20260926-benefit">
 </head>
 <body>
 
@@ -53,14 +57,14 @@
           </div>
           <div class="splash-frame splash-frame-scratch">
             <div class="splash-demo splash-demo-scratch"><div class="scratch-ticket">
-              <div class="ticket-header"><span>Team Gemini Lucky Ticket</span><span>행사당 1회</span></div>
+              <div class="ticket-header"><span>Team Gemini Lucky Ticket</span><span>최대 10회</span></div>
               <div class="ticket-scratch-area"><div class="ticket-result-underlay"><img src="/assets/icons/Smile-Light.png" alt=""></div><span class="splash-scratch-cover">✨ 살살 긁어서 행운 확인 ✨</span><span class="splash-scratch-sweep"></span></div>
             </div></div>
             <strong>복권을 긁어 결과 확인!</strong><span>어떤 행운이 기다리고 있을까요?</span>
           </div>
           <div class="splash-frame splash-frame-prizes">
             <div class="splash-demo splash-demo-prizes">
-              <img class="splash-prize-lineup" src="/assets/prizes/prize-lineup-cutout-v2.webp" alt="" width="1280" height="1280">
+              <img class="splash-prize-lineup" src="/assets/prizes/prize-lineup-cutout-v2.webp" alt="" width="1254" height="1254">
             </div>
             <strong>삼텐바이미부터 상품권까지</strong><span>다양한 경품에 도전해 보세요.</span>
           </div>
@@ -73,9 +77,9 @@
     
     <!-- Top Fixed App Bar -->
     <header class="app-header" data-splash-inert inert>
-      <div class="brand-logo-area">
+      <a class="brand-logo-area" data-view="home" href="/" aria-label="홈으로 이동">
         <img src="/assets/logos/03_TeamGemini_Logo_Ambassador_Coloured.png" alt="Team Gemini Ambassador Logo" onerror="this.src='/assets/logos/01_TeamGemini_Logo.png'">
-      </div>
+      </a>
       <div class="header-actions">
         <div id="header-ticket-pill" class="ticket-pill">
           🎟️ 1장
@@ -87,6 +91,10 @@
     <main id="view-container" class="view-content" data-splash-inert inert>
       <!-- Views will be mounted here dynamically by Router -->
     </main>
+
+    <footer class="site-privacy-footer" data-splash-inert inert>
+      <a href="/privacy.html">개인정보 처리 안내</a>
+    </footer>
 
     <!-- Fixed Bottom Navigation Bar -->
     <nav class="bottom-nav" aria-label="주요 메뉴" data-splash-inert inert>
@@ -114,7 +122,8 @@
 
   </div>
 
+
   <!-- Main Application Script (ES Module) -->
-  <script type="module" src="/js/app.js"></script>
+  <script type="module" src="/js/app.js?v=20260926-benefit"></script>
 </body>
 </html>

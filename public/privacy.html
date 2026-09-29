@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>분석·개인정보 안내 | 공룡 점프</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/assets/icons/Dino-Dark.png" type="image/png">
+  <style>
+    :root { color-scheme: light; font-family: Arial, "Apple SD Gothic Neo", sans-serif; color: #202124; background: #f5f8ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { width: min(680px, calc(100% - 32px)); margin: 24px auto; padding: 28px; background: #fff; border: 1px solid #dfe7f6; border-radius: 20px; box-shadow: 0 8px 30px #1a73e812; }
+    h1 { margin: 0 0 20px; font-size: 26px; }
+    h2 { margin: 28px 0 8px; font-size: 18px; }
+    p, li { font-size: 15px; line-height: 1.65; }
+    ul { padding-left: 20px; }
+    a { color: #1967d2; }
+    .privacy-actions { display: grid; gap: 10px; margin-top: 24px; }
+    .privacy-actions button, .privacy-back { min-height: 48px; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; }
+    .privacy-actions button { border: 1px solid #1a73e8; background: #1a73e8; color: #fff; }
+    .privacy-actions button.secondary { background: #fff; color: #1a73e8; }
+    .privacy-status { min-height: 24px; margin: 12px 0 0; color: #3c4043; font-weight: 700; }
+    .privacy-back { display: grid; place-items: center; margin-top: 20px; border: 1px solid #dadce0; color: #202124; text-decoration: none; }
+    @media (max-width: 480px) { main { width: 100%; margin: 0; min-height: 100dvh; border: 0; border-radius: 0; padding: 24px 20px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>분석·개인정보 안내</h1>
+    <p>운영 설정에서 Google Analytics 4(GA4)가 활성화된 경우, 이 사이트는 별도 팝업 없이 방문 경로와 화면·버튼 이용을 분석합니다.</p>
+
+    <h2>Google로 전송되는 분석 정보</h2>
+    <ul>
+      <li>가상 화면 이동, 게임 시작·완료, 복주머니 이용, 공유 및 혜택 버튼 이용 이벤트</li>
+      <li>기기·브라우저 정보, 대략적인 지역, 유입 경로와 Google이 생성한 분석 식별자</li>
+    </ul>
+    <p>수령 정보에 입력한 이름·연락처·학교, 초대 코드와 내부 참가자 ID는 GA4에 보내지 않습니다. 광고 개인화와 Google 신호는 사용하지 않습니다.</p>
+
+    <h2>보관과 처리</h2>
+    <p>GA4 사용자 단위·이벤트 단위 데이터 보관 설정은 2개월이며, 이 사이트가 설정하는 GA 분석 쿠키의 최대 만료 기간은 60일입니다. 지역 설정에 따라 분석 쿠키를 저장하지 않는 측정 요청도 Google로 전송될 수 있으며, 분석 정보는 국외의 Google 시스템에서 처리될 수 있습니다.</p>
+    <p><a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener noreferrer">Google이 파트너 사이트의 정보를 사용하는 방법</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a></p>
+
+    <h2>분석 사용 중지</h2>
+    <p>아래 버튼으로 이 브라우저의 GA4 수집을 중지할 수 있습니다. 중지하면 기존 GA 쿠키와 이 사이트의 분석 중복 방지 기록을 삭제하고, 이후 게임 기능은 그대로 이용할 수 있습니다.</p>
+    <div class="privacy-actions">
+      <button id="analytics-optout" type="button">이 브라우저에서 분석 사용 중지</button>
+      <button id="analytics-reenable" class="secondary" type="button">자동 분석 다시 사용</button>
+    </div>
+    <p id="privacy-status" class="privacy-status" role="status" aria-live="polite"></p>
+    <p id="privacy-storage-help" hidden>브라우저에서 설정을 저장하지 못했습니다. 아래 Google Analytics 차단 도구나 브라우저의 추적 방지 기능을 사용해 주세요.</p>
+    <p>브라우저 전체에서 Google Analytics를 차단하려면 <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener noreferrer">Google Analytics 차단 브라우저 부가기능</a>을 사용할 수 있습니다.</p>
+
+    <h2>문의</h2>
+    <p><a href="mailto:sea42471@naver.com">sea42471@naver.com</a></p>
+    <a class="privacy-back" href="/">게임으로 돌아가기</a>
+  </main>
+  <script type="module" src="/js/privacy.js"></script>
+</body>
+</html>

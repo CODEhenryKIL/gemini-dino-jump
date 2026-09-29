@@ -43,6 +43,13 @@ def _application_connection(_settings):
 class BackendSecurityRegressionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        migration = ROOT / "supabase/migrations/20260926215000_claim_contact_draft.sql"
+        with psycopg.connect(DSN, autocommit=True) as conn:
+            present = conn.execute(
+                "select 1 from dino_dev.schema_version where version='20260926215000'"
+            ).fetchone()
+            if not present:
+                conn.execute(migration.read_text(encoding="utf-8"), prepare=False)
         cls.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.DinoJumpHandler)
         host, port = cls.server.server_address
         cls.base_url = f"http://{host}:{port}"
@@ -167,6 +174,16 @@ class BackendSecurityRegressionTest(unittest.TestCase):
         )
         self.assertEqual(status, 200, started)
         return session_id
+
+    def test_public_config_includes_database_server_time(self):
+        before = dt.datetime.now(dt.timezone.utc)
+        status, config, _ = self.request("GET", "/api/config")
+        after = dt.datetime.now(dt.timezone.utc)
+        server_time = dt.datetime.fromisoformat(config["server_time"])
+        self.assertEqual(status, 200, config)
+        self.assertLessEqual(before, server_time)
+        self.assertLessEqual(server_time, after)
+        self.assertNotIn("server_time", config["campaign"])
 
     def test_no_collision_cannot_finish_rank_or_unlock_draw(self):
         participant, cookie = self.participant()

@@ -1,26 +1,11 @@
 import { api } from '../api.js';
 import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
+import { prepareResultReferralShare } from '../referral_share.js';
 
-const SHARE_COPY = {
-  record_share: { title: '내 기록에 도전해 봐!', description: '친구가 유효 방문하면 재도전권이 적립돼요.' },
-  prize_share: { title: '내 복주머니 결과를 확인해 봐!', description: '경품 결과 공유 링크도 같은 초대 보상 규칙을 적용해요.' },
-  retry_invite: { title: '친구 초대하고 재도전하기', description: '친구가 유효 방문하면 재도전권이 적립돼요.' },
-};
-
-function copyFallback(text) {
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
-  return Promise.reject(new Error('CLIPBOARD_UNSUPPORTED'));
-}
-
-function captureAnalyticsContext() {
-  const context = {};
-  if (typeof analytics.screen === 'string' && analytics.screen) context.screen = analytics.screen;
-  if (typeof analytics.screenViewId === 'string' && analytics.screenViewId) context.screenViewId = analytics.screenViewId;
-  const activeMs = typeof analytics.currentActiveMs === 'function' ? analytics.currentActiveMs() : null;
-  if (Number.isFinite(activeMs)) context.activeMs = activeMs;
-  return context;
-}
+const campaignStatus = (router) => router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+const shareRewardTypes = new WeakMap();
+const sharePrepareStates = new WeakMap();
 
 export const InviteView = {
   renderGeneration: 0,
@@ -33,64 +18,34 @@ export const InviteView = {
       const data = await api.getReferralInfo();
       if (!isActiveRender()) return;
       const shareKind = ['record_share', 'prize_share', 'retry_invite'].includes(router.shareContext) ? router.shareContext : 'retry_invite';
-      const copy = SHARE_COPY[shareKind];
       router.shareContext = null;
       container.innerHTML = `
-        <section class="card compact-card"><span class="sticker-badge badge-blue">최대 3장 보유</span><h1 id="invite-title"></h1><p id="invite-description"></p><p>친구가 링크를 열고 화면이 보이는 상태에서 3초 이상 머문 뒤 한 번 누르면 방문을 확인해요.</p><button id="btn-invite-draw" class="btn btn-secondary" hidden>친구를 기다리지 않고 복주머니 열기</button></section>
-        <section class="card share-card"><h2 id="invite-score"></h2><p class="public-share-note">공개 카드에는 닉네임·점수·공개 경품명만 사용할 수 있어요. 연락처와 수령 정보는 포함하지 않아요.</p><button id="btn-share-native" class="btn btn-primary">공유 창 열기</button><button id="btn-copy-link" class="btn btn-outline">초대 링크 복사</button><p id="share-fallback" class="status-note">공유 창이 열리지 않으면 링크 복사를 이용해 주세요.</p></section>
-        <section class="card"><div class="stat-grid"><div><small>현재 초대권</small><strong id="invite-balance"></strong></div><div><small>누적 지급</small><strong id="ticket-granted"></strong></div><div><small>유효 방문</small><strong id="valid-visits"></strong></div></div><div class="ticket-ledger"><span id="ticket-used"></span><span id="ticket-refunded"></span></div><p id="invite-cooldown" class="status-note" role="status"></p><p class="status-note">먼저 복주머니를 열고 나중에 재도전해도 돼요. 추가 추첨은 없으며, 같은 브라우저와 쿠키를 유지할 때 참여 기록을 복원해요.</p></section>`;
-      const setText = (selector, value) => { const node = container.querySelector(selector); if (node) ui.text(node, value); };
-      setText('#invite-title', copy.title);
-      setText('#invite-description', copy.description);
-      setText('#invite-score', shareKind === 'prize_share' ? '복주머니 결과 공유' : `내 최고 기록 ${router.state.bestScore || 0}점`);
+        <section class="ranking-prizes"><h1>랭킹 TOP3 선물</h1><div class="ranking-rewards"><div class="ranking-reward ranking-reward-1"><span class="ranking-reward-medal" role="img" aria-label="1위">🥇</span><strong>5만원</strong></div><div class="ranking-reward ranking-reward-2"><span class="ranking-reward-medal" role="img" aria-label="2위">🥈</span><strong>2만원</strong></div><div class="ranking-reward ranking-reward-3"><span class="ranking-reward-medal" role="img" aria-label="3위">🥉</span><strong>1만원</strong></div></div></section>
+        <section class="card compact-card invite-hero"><h1>친구 초대하고 재도전하기</h1><p id="invite-gap" class="result-gap" role="status">3위 기록을 확인하고 있어요.</p><button id="btn-share-native" class="btn invite-kakao-share" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.58 2 11c0 2.79 1.79 5.25 4.5 6.68L5.36 21l4.22-2.25c.78.16 1.59.25 2.42.25 5.52 0 10-3.58 10-8S17.52 3 12 3Z"/></svg><span>카카오톡으로 친구 초대하기</span></button><p id="share-fallback" class="status-note" hidden></p><button id="btn-invite-draw" class="btn btn-secondary" hidden>친구를 기다리지 않고 복주머니 열기</button></section>
+        <section class="card invite-stats"><div class="stat-grid"><div><small>현재 초대권</small><strong id="invite-balance"></strong></div><div><small>누적 지급</small><strong id="ticket-granted"></strong></div><div><small>카카오 전송</small><strong id="valid-visits"></strong></div></div><div class="ticket-ledger"><span id="ticket-used"></span><span id="ticket-refunded"></span></div><p id="invite-cooldown" class="status-note" role="status"></p></section>`;
+      void this.loadGap(container, isActiveRender);
       this.updateSummary(container, data);
       this.updateDrawAction(container, router);
-      const buildInviteUrl = (shareId) => {
-        const url = new URL(data.invite_url, window.location.origin);
-        url.searchParams.set('link', shareKind);
-        url.searchParams.set('share', shareId);
-        return url.toString();
-      };
-      const trackShare = (method, shareId, outcome, trackingContext) => analytics.track(
-        'share_attempted',
-        { share_method: method, share_id: shareId, link_kind: shareKind, ...outcome },
-        trackingContext,
-      );
-      const copyLink = async (inviteUrl, shareId, trackingContext) => {
-        trackShare('copy', shareId, { status: 'attempted' }, trackingContext);
+      const button = container.querySelector('#btn-share-native');
+      shareRewardTypes.set(button, shareKind === 'prize_share' ? 'NONE' : 'GAME');
+      button.disabled = true;
+      if (shareRewardTypes.get(button) !== 'NONE' && campaignStatus(router) !== 'ACTIVE') {
+        sharePrepareStates.set(button, 'campaign-blocked');
+        this.updateShareAction(container, router);
+        return;
+      }
+      const prepared = await prepareResultReferralShare(router, { kind: shareKind, referral: data });
+      if (!isActiveRender()) return;
+      button.onclick = async () => {
+        if (button.disabled || (shareRewardTypes.get(button) !== 'NONE' && campaignStatus(router) !== 'ACTIVE')) return;
+        button.disabled = true;
         try {
-          await copyFallback(inviteUrl);
-          trackShare('copy', shareId, { status: 'copied' }, trackingContext);
-          if (isActiveRender()) ui.showToast('초대 링크를 복사했어요.');
-        } catch (_) {
-          trackShare('copy', shareId, { status: 'failed' }, trackingContext);
-          if (isActiveRender()) setText('#share-fallback', `복사가 지원되지 않아요. 주소창에서 이 링크를 길게 눌러 복사해 주세요: ${inviteUrl}`);
-        }
+          const outcome = await prepared.share();
+          if (isActiveRender() && outcome?.shareId) { const note = container.querySelector('#share-fallback'); note.hidden = false; ui.text(note, '카카오톡 전송을 확인하고 있어요.'); }
+          if (isActiveRender() && outcome?.status === 'failed') ui.showToast('공유를 열지 못했어요. 다시 시도해 주세요.');
+        } finally { if (isActiveRender()) this.updateShareAction(container, router); }
       };
-      let sharePending = false;
-      const share = async (method) => {
-        if (sharePending) return;
-        sharePending = true;
-        const trackingContext = captureAnalyticsContext();
-        const shareId = api.createRequestId('share');
-        const inviteUrl = buildInviteUrl(shareId);
-        try {
-          if (method !== 'native' || typeof navigator.share !== 'function') {
-            await copyLink(inviteUrl, shareId, trackingContext);
-            return;
-          }
-          trackShare('native', shareId, { status: 'attempted' }, trackingContext);
-          await navigator.share({ title: '공룡 점프 챌린지', text: shareKind === 'prize_share' ? '내 복주머니 결과를 확인해 봐!' : `내 기록 ${router.state.bestScore || 0}점에 도전해 봐!`, url: inviteUrl });
-          trackShare('native', shareId, { status: 'share_sheet_closed' }, trackingContext);
-          if (isActiveRender()) ui.showToast('공유 창을 닫았어요. 실제 전송 여부는 기기에서 확인해 주세요.');
-        } catch (error) {
-          trackShare('native', shareId, { status: error?.name === 'AbortError' ? 'cancelled' : 'failed' }, trackingContext);
-        } finally {
-          sharePending = false;
-        }
-      };
-      container.querySelector('#btn-share-native').onclick = () => share('native');
-      container.querySelector('#btn-copy-link').onclick = () => share('copy');
+      this.updateShareAction(container, router);
     } catch (error) {
       if (!isActiveRender()) return;
       container.replaceChildren();
@@ -102,27 +57,75 @@ export const InviteView = {
       this.updateDrawAction(container, router);
     }
   },
+  async loadGap(container, isActiveRender) {
+    try {
+      const data = await api.getLeaderboard();
+      if (!isActiveRender()) return;
+      const gap = data.top3_gap ?? data.me?.top3_gap ?? {};
+      let message = '첫 게임을 마치면 3위까지 남은 시간을 볼 수 있어요.';
+      if (gap.status === 'IN_TOP3') message = `현재 ${gap.rank ?? data.me?.rank}위로 TOP3예요!`;
+      else if (gap.status === 'TOO_FEW') message = '먼저 TOP3에 도전해 보세요!';
+      else if (gap.status === 'CHASING' && Number.isFinite(gap.score_needed) && gap.score_needed > 0) message = `3위까지 약 ${Math.ceil(gap.score_needed / 10)}초 더!`;
+      else if (gap.status === 'CHASING') message = '3위 기록을 다시 확인하고 있어요.';
+      const node = container.querySelector('#invite-gap');
+      if (node) {
+        ui.text(node, message);
+        node.classList.toggle('is-chasing', gap.status === 'CHASING');
+      }
+    } catch (_) {
+      if (isActiveRender()) {
+        const node = container.querySelector('#invite-gap');
+        if (node) ui.text(node, '친구와 함께 TOP3에 도전해 보세요!');
+      }
+    }
+  },
   async updateState(container, router, renderToken) {
     if (!router.isCurrent(renderToken)) return;
+    const share = container.querySelector?.('#btn-share-native');
+    if (sharePrepareStates.get(share) === 'campaign-blocked' && campaignStatus(router) === 'ACTIVE') {
+      return this.render(container, router, renderToken);
+    }
+    this.updateShareAction(container, router);
     this.updateDrawAction(container, router);
+    void this.loadGap(container, () => router.isCurrent(renderToken));
     if (!container.querySelector('#invite-balance')) return;
     try {
       const data = await api.getReferralInfo();
       if (!router.isCurrent(renderToken)) return;
       this.updateSummary(container, data);
+      const note = container.querySelector('#share-fallback');
+      if (note) note.hidden = true;
+      this.updateShareAction(container, router);
     } catch (_) {
       if (router.isCurrent(renderToken)) ui.text(container.querySelector('#invite-cooldown'), '최신 초대 현황을 불러오지 못했어요. 다시 접속하면 재확인하며, 적립된 게임권은 그대로 보존돼요.');
+    }
+  },
+  updateShareAction(container, router) {
+    const button = container.querySelector?.('#btn-share-native');
+    if (!button) return;
+    const blocked = shareRewardTypes.get(button) !== 'NONE' && campaignStatus(router) !== 'ACTIVE';
+    button.disabled = blocked || !button.onclick;
+    const note = container.querySelector?.('#share-fallback');
+    if (blocked && note) {
+      note.hidden = false;
+      ui.text(note, campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 게임권 공유를 이용할 수 있어요.' : '현재 게임권 공유를 이용할 수 없어요.');
     }
   },
   updateDrawAction(container, router) {
     const button = container.querySelector?.('#btn-invite-draw');
     if (!button) return;
     const status = router.state?.draw?.status;
-    button.hidden = !['AVAILABLE', 'DRAWN'].includes(status);
-    button.textContent = status === 'DRAWN' ? '내 복주머니 결과 보기' : '친구를 기다리지 않고 복주머니 열기';
+    const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(status) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+    button.hidden = !['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(status);
+    button.textContent = hasDrawResult ? '내 복주머니 결과 보기' : '친구를 기다리지 않고 복주머니 열기';
+    button.disabled = !hasDrawResult && status === 'AVAILABLE' && campaignStatus(router) !== 'ACTIVE';
+    if (button.disabled) button.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 복주머니 열기'
+      : campaignStatus(router) === 'ENDED' ? '복주머니 행사가 종료됐어요' : '복주머니 행사가 잠시 중단됐어요';
     button.onclick = () => {
       const latest = router.state?.draw?.status;
-      if (!['AVAILABLE', 'DRAWN'].includes(latest)) return;
+      if (!['AVAILABLE', 'DRAWN', 'WON', 'EXHAUSTED'].includes(latest)) return;
+      const saved = ['DRAWN', 'WON', 'EXHAUSTED'].includes(latest) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+      if (!saved && campaignStatus(router) !== 'ACTIVE') return;
       analytics.track('draw_cta_clicked', { source: 'invite', draw_status: latest });
       router.navigate('draw');
     };
@@ -134,12 +137,12 @@ export const InviteView = {
     setText('#ticket-granted', `${totals.granted ?? data.rewarded_pairs ?? 0}장`);
     setText('#ticket-used', `사용 ${totals.used || 0}장`);
     setText('#ticket-refunded', `환급 ${totals.refunded || 0}장`);
-    setText('#valid-visits', `${data.valid_visits || 0}회`);
+    setText('#valid-visits', `${data.confirmed_shares || 0}회`);
     const waiting = new Date(data.cooldown_until).getTime() > Date.now();
     setText('#invite-cooldown', waiting
-      ? `${new Date(data.cooldown_until).toLocaleString('ko-KR')}까지 새 초대권 적립 대기 중이에요. 가진 초대권은 사용할 수 있고 대기 중 방문은 이월되지 않아요.`
+      ? `${new Date(data.cooldown_until).toLocaleString('ko-KR')}까지 새 초대권 적립 대기 중이에요. 가진 초대권은 사용할 수 있고 대기 중 공유는 이월되지 않아요.`
       : data.invitation_balance >= 3
-        ? '초대권 3장을 보유 중이에요. 사용해 빈자리가 생기면 친구의 새로운 유효 방문으로 다시 적립할 수 있어요.'
-        : '친구의 새로운 유효 방문으로 초대권을 받을 수 있어요. 잔액이 3장이 되면 10시간 추가 적립 대기가 시작돼요.');
+        ? '초대권 3장을 보유 중이에요. 사용해 빈자리가 생기면 친구에게 카카오톡으로 공유해 다시 적립할 수 있어요.'
+        : '친구에게 카카오톡 전송이 확인되면 초대권을 받아요.\n잔액이 3장이 되면 10시간 추가 적립 대기가 시작돼요.');
   },
 };

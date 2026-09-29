@@ -48,7 +48,7 @@ export const GameView = {
       const recovered = await this.recoverPendingResult(router, renderToken);
       if (recovered || !router.isCurrent(renderToken)) return;
       if (router.state.pendingGameSession) {
-        this.renderInterruptedSession(container, router, renderToken, router.state.pendingGameSession);
+        await this.renderInterruptedSession(container, router, renderToken, router.state.pendingGameSession);
         return;
       }
       if (!router.isCurrent(renderToken)) return;
@@ -66,18 +66,47 @@ export const GameView = {
           <div class="game-viewport-container">
             <canvas id="game-canvas"></canvas>
             <div class="game-hud">
-              <div class="hud-left"><span id="hud-stage-badge" class="stage-tag">STAGE 1</span><span class="hud-item hud-coin" aria-label="획득 코인"><img src="/assets/icons/Smile-Light.png" alt=""><strong id="hud-coin-count">0</strong></span><span class="hud-item hud-heart" aria-label="보유 부활권"><img src="/assets/icons/Heart-Light.png" alt=""><strong id="hud-heart-count">0</strong></span><span class="hud-item hud-revive" aria-label="이번 판 부활 횟수">↻ <strong id="hud-revive-count">0</strong></span></div>
-              <div class="hud-right"><strong id="hud-current-score" class="current-score">0</strong><button id="btn-toggle-sound" class="sound-toggle-btn" aria-label="소리 켜기 또는 끄기">🔊</button></div>
+              <div class="hud-left"><span id="hud-stage-badge" class="stage-tag">STAGE 1</span><span class="hud-items"><span class="hud-item hud-coin" aria-label="획득 코인"><img src="/assets/icons/Smile-Light.png" alt=""><strong id="hud-coin-count">0</strong></span><span class="hud-item hud-heart" aria-label="보유 부활권"><img src="/assets/icons/Heart-Light.png" alt=""><strong id="hud-heart-count">0</strong></span><span class="hud-item hud-revive" aria-label="이번 판 부활 횟수">↻ <strong id="hud-revive-count">0</strong></span></span></div>
+              <div class="hud-right"><strong id="hud-current-score" class="current-score">0</strong><span id="hud-rank-target" class="hud-rank-target" title="게임 시작 시 랭킹 기준 · 최종 순위는 종료 후 확정" hidden></span><button id="btn-toggle-sound" class="sound-toggle-btn" aria-label="소리 켜기 또는 끄기">🔊</button></div>
             </div>
             <div id="stage-flash-badge"><div class="stage-name">STAGE 1</div><div class="stage-sub">가볍게 시작!</div></div>
-            <div id="revive-flash" class="revive-flash" role="status" aria-live="polite"><img src="/assets/icons/Heart-Light.png" alt=""><strong>부활!</strong><span>보호막이 잠시 유지돼요</span></div>
+            <div id="revive-flash" class="revive-flash" role="status" aria-live="polite"><img src="/assets/icons/Heart-Light.png" alt=""><strong>부활!</strong><span id="revive-penalty-note">보호막이 잠시 유지돼요</span></div>
             <div id="countdown-overlay" class="countdown-overlay active"><div id="countdown-num" class="countdown-number">3</div><div>탭하여 점프하세요!</div></div>
           </div>
-          <div class="jump-hint-box">탭: 낮게 점프 · 꾹 누르기: 높게 점프 · 높은 새: 점프 금지</div>
+          <div class="game-built-with"><span>Built with</span><img src="/assets/logos/antigravity-icon-full-color.png" alt="" width="18" height="18"><strong>Google Antigravity</strong></div>
+          <div class="jump-hint-box" aria-label="점프 조작 안내"><div class="jump-control-guide"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 17V7a2 2 0 0 1 4 0v7l1-1a2 2 0 0 1 3 1 2 2 0 0 1 3 1 2 2 0 0 1 3 2v4c0 5-3 8-8 8h-2c-3 0-5-2-7-5l-3-5a2 2 0 0 1 3-3l3 3"/><path class="gesture-ring" d="M7 7a7 7 0 0 1 14 0"/></svg><div><span>탭</span><strong>점프 <b aria-hidden="true">↑</b></strong></div></div><div class="jump-control-guide jump-control-super"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 17V7a2 2 0 0 1 4 0v7l1-1a2 2 0 0 1 3 1 2 2 0 0 1 3 1 2 2 0 0 1 3 2v4c0 5-3 8-8 8h-2c-3 0-5-2-7-5l-3-5a2 2 0 0 1 3-3l3 3"/><path class="gesture-ring" d="M7 7a7 7 0 0 1 14 0"/></svg><div><span>꾹 누르기</span><strong>수퍼 점프 <b aria-hidden="true">↑↑</b></strong></div></div></div>
           <div id="game-session-notice" class="game-session-notice" role="status" hidden></div>
         </div>
-        <div class="jump-bottom-dock"><button id="btn-jump" class="big-jump-btn">🚀 점프</button></div>
+        <div class="jump-bottom-dock"><button id="btn-jump" class="big-jump-btn" aria-label="점프. 짧게 누르면 점프, 길게 누르면 수퍼 점프"><span aria-hidden="true">🚀 점프</span></button></div>
       </section>`;
+  },
+
+  updateRankTarget(container, score) {
+    const label = container.querySelector('#hud-rank-target');
+    if (!label || !this.rankTargets) return;
+    label.hidden = false;
+    const value = Math.max(0, Number(score) || 0);
+    const target = [...this.rankTargets].reverse().find((entry) => value < entry.score);
+    const text = target
+      ? `${['', '🥇', '🥈', '🥉'][target.rank]}까지 ${(target.score - value).toLocaleString('ko-KR')}점`
+      : this.rankTargets.length ? '🥇 목표 달성!' : '첫 기록에 도전!';
+    if (label.textContent !== text) ui.text(label, text);
+  },
+
+  async loadRankTargets(container, router, renderToken) {
+    const lifecycleId = this.lifecycleId;
+    const sessionId = this.sessionId;
+    try {
+      const data = await api.getLeaderboard();
+      if (!router.isCurrent(renderToken) || !this.isOperationCurrent(lifecycleId, sessionId)) return;
+      if (data.game_version !== this.gameVersion || !Array.isArray(data.rank_targets)) return;
+      this.rankTargets = data.rank_targets
+        .filter((entry) => Number.isInteger(entry.rank) && entry.rank >= 1 && entry.rank <= 3 && Number.isInteger(entry.score) && entry.score >= 0)
+        .sort((a, b) => a.rank - b.rank);
+      this.updateRankTarget(container, this.engine?.score || 0);
+    } catch (_) {
+      // Ranking is optional; a failed request must never interrupt play.
+    }
   },
 
   async recoverPendingResult(router, renderToken) {
@@ -90,92 +119,80 @@ export const GameView = {
       const state = await api.getSession(pending.sessionId);
       if (!router.isCurrent(renderToken)) return true;
       if (state.status === 'FINISHED') {
+        const result = state.result || state;
         this.removePendingResult(pending.sessionId, pending.key);
         storageRemove(`${SNAPSHOT_PREFIX}${pending.sessionId}`);
-        this.acceptResult(state.result || state, router);
+        this.acceptResult(result, router);
+        this.trackCompletedResult(pending.payload, result, pending.sessionId);
         analytics.track('game_recovered', { status: 'FINISHED' }, { gameSessionId: pending.sessionId });
         router.navigate('result');
         return true;
+      }
+      if (['ABORTED', 'EXPIRED', 'REJECTED'].includes(state.status)) {
+        this.removePendingResult(pending.sessionId, pending.key);
+        this.clearSessionStorage(pending.sessionId);
+        await router.refreshState({ quiet: true });
+        return false;
       }
       const result = await api.finishSession(pending.sessionId, pending.payload, pending.key);
       if (!router.isCurrent(renderToken)) return true;
       this.removePendingResult(pending.sessionId, pending.key);
       storageRemove(`${SNAPSHOT_PREFIX}${pending.sessionId}`);
       this.acceptResult(result, router);
+      this.trackCompletedResult(pending.payload, result, pending.sessionId);
       router.navigate('result');
       return true;
     } catch (error) {
-      if (router.isCurrent(renderToken) && error.status && error.status < 500) this.removePendingResult(pending.sessionId, pending.key);
+      const terminalClientError = error.status && error.status < 500 && error.status !== 408 && error.status !== 429;
+      if (router.isCurrent(renderToken) && terminalClientError) {
+        this.removePendingResult(pending.sessionId, pending.key);
+        await router.refreshState({ quiet: true });
+        return false;
+      }
       throw error;
     }
   },
 
-  renderInterruptedSession(container, router, renderToken, pending) {
+  async renderInterruptedSession(container, router, renderToken, pending) {
     const id = pending.id || pending.session_id;
-    const faultMarker = this.readFaultMarker(id);
-    const snapshot = this.readResumeSnapshot(id);
+    const lifecycleId = this.lifecycleId;
+    const isCurrent = () => router.isCurrent(renderToken) && this.lifecycleId === lifecycleId;
     container.replaceChildren();
     const card = document.createElement('section'); card.className = 'card empty-state';
-    const title = document.createElement('h2'); title.textContent = '완료되지 않은 게임이 있어요';
-    const detail = document.createElement('p'); detail.textContent = pending.status === 'FAULT_REPORTED' ? '장애 기록을 확인하고 사용한 게임권을 복구하는 중입니다. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.' : faultMarker ? '이 브라우저에 저장된 장애 시점과 서버 체크포인트를 확인해 복구를 요청합니다. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.' : snapshot ? '저장된 진행 시점과 서버 체크포인트를 확인한 뒤 같은 게임을 이어갑니다.' : '이 브라우저에 이어하기 데이터가 없어 게임을 처음부터 다시 시작할 수 없습니다. 세션 만료 또는 복구 상태를 확인해 주세요. 정상 종료나 자발적 이탈은 환급 대상이 아닙니다.';
-    const check = document.createElement('button'); check.className = 'btn btn-primary'; check.textContent = pending.status === 'FAULT_REPORTED' ? '복구 상태 확인' : faultMarker ? '장애 복구 요청' : snapshot ? '같은 게임 이어하기' : '복구 상태 확인';
-    check.onclick = async () => {
-      const operationLifecycle = this.lifecycleId;
-      const operationIsCurrent = () => router.isCurrent(renderToken) && this.lifecycleId === operationLifecycle;
-      check.disabled = true;
-      try {
-        if (pending.status !== 'FAULT_REPORTED' && faultMarker) {
-          this.sessionId = id;
-          await this.reportFault(faultMarker.reason, faultMarker.tick, faultMarker.key, operationIsCurrent);
-          if (!operationIsCurrent()) return;
-          pending.status = 'FAULT_REPORTED';
-          router.state.pendingGameSession = { ...pending, status: 'FAULT_REPORTED' };
-          detail.textContent = '장애 기록이 접수됐습니다. 서버 확인 뒤 게임권 복구 상태를 확인할 수 있어요.';
-          check.textContent = '복구 상태 확인';
-          check.disabled = false;
-          return;
-        }
-        if (pending.status !== 'FAULT_REPORTED') {
-          const state = await api.getSession(id);
-          if (!operationIsCurrent()) return;
-          if (state.status === 'FINISHED') { storageRemove(`${SNAPSHOT_PREFIX}${id}`); this.acceptResult(state.result || state, router); router.navigate('result'); return; }
-          if (state.status === 'ABORTED' || state.status === 'EXPIRED') {
-            this.clearSessionStorage(id);
-            await router.refreshState();
-            if (!operationIsCurrent()) return;
-            analytics.track('game_recovered', { status: state.status }, { gameSessionId: id });
-            router.navigate('home');
-            return;
-          }
-          const currentSnapshot = this.readResumeSnapshot(id);
-          const invalidReason = this.validateResumeSnapshot(currentSnapshot, state);
-          if (invalidReason) {
-            storageRemove(`${SNAPSHOT_PREFIX}${id}`);
-            detail.textContent = `${invalidReason} 게임을 처음부터 다시 시작하지 않습니다. 세션 만료 또는 장애 복구 상태를 다시 확인해 주세요.`;
-            check.textContent = '복구 상태 확인';
-            check.disabled = false;
-            return;
-          }
-          await this.resumeActiveSession(container, router, renderToken, state, currentSnapshot);
-          return;
-        }
-        const state = await api.getSession(id);
-        if (!operationIsCurrent()) return;
-        if (state.status === 'FINISHED') { this.acceptResult(state.result || state, router); router.navigate('result'); return; }
-        if (state.status === 'ABORTED') {
-          this.clearSessionStorage(id);
-          await router.refreshState();
-          if (!operationIsCurrent()) return;
-          analytics.track('game_recovered', { status: 'ABORTED' }, { gameSessionId: id });
-          router.navigate('home');
-          return;
-        }
-        detail.textContent = '서버가 장애 기록을 확인 중입니다. 잠시 후 다시 확인해 주세요.';
-      } catch (error) { if (operationIsCurrent()) ui.showToast(error.message); }
-      if (operationIsCurrent()) check.disabled = false;
-    };
+    const title = document.createElement('h2'); title.textContent = '새 게임을 준비하고 있어요';
+    const detail = document.createElement('p'); detail.textContent = '미완료 게임을 무효 처리하고 사용한 게임권을 돌려드려요.';
+    const retry = document.createElement('button'); retry.className = 'btn btn-primary'; retry.textContent = '다시 시도'; retry.hidden = true;
+    retry.onclick = () => { if (!retry.disabled) router.navigate('game'); };
     const home = document.createElement('button'); home.className = 'btn btn-secondary'; home.textContent = '홈으로'; home.onclick = () => router.navigate('home');
-    card.append(title, detail, check, home); container.appendChild(card);
+    card.append(title, detail, retry, home); container.appendChild(card);
+    try {
+      const state = await api.abandonSession(id);
+      if (!isCurrent()) return;
+      this.clearSessionStorage(id);
+      const raw = storageGet(PENDING_RESULT_KEY);
+      try { if (JSON.parse(raw)?.sessionId === id) storageRemove(PENDING_RESULT_KEY); } catch (_) {}
+      if (state.status === 'FINISHED') {
+        this.acceptResult(state.result || state, router);
+        router.navigate('result');
+        return;
+      }
+      router.state.pendingGameSession = null;
+      if (state.tickets) router.state.tickets = state.tickets;
+      router.updateNav();
+      router.announceStateChange();
+      const campaignStatus = router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+      if (campaignStatus !== 'ACTIVE') {
+        router.navigate('home');
+        return;
+      }
+      this.renderGameShell(container);
+      await this.startNewSession(container, router, renderToken);
+    } catch (error) {
+      if (!isCurrent()) return;
+      title.textContent = '연결을 다시 확인해 주세요';
+      detail.textContent = error.message || '게임권 복구를 완료하지 못했어요. 다시 시도해 주세요.';
+      retry.hidden = false;
+    }
   },
 
   readResumeSnapshot(sessionId) {
@@ -187,7 +204,7 @@ export const GameView = {
   validateResumeSnapshot(snapshot, state) {
     if (!snapshot) return '이 브라우저에 저장된 진행 데이터가 없습니다.';
     if (state?.status !== 'ACTIVE' && state?.status !== 'RESERVED') return '이어갈 수 있는 활성 게임이 아닙니다.';
-    if (state.version !== '2.0.0' || snapshot.version !== state.version) return '게임 버전이 일치하지 않습니다.';
+    if (!['2.0.0', '2.1.0'].includes(state.version) || snapshot.version !== state.version) return '게임 버전이 일치하지 않습니다.';
     if (snapshot.sessionId !== (state.session_id || state.id) || Number(snapshot.seed) !== Number(state.seed)) return '게임 세션 정보가 일치하지 않습니다.';
     const tick = Number(snapshot.tick);
     const checkpoint = Number(state.last_checkpoint_tick || 0);
@@ -259,9 +276,13 @@ export const GameView = {
   async startNewSession(container, router, renderToken) {
     const session = await api.createSession();
     if (!router.isCurrent(renderToken)) return;
+    if (session.existing_session) {
+      await this.renderInterruptedSession(container, router, renderToken, session);
+      return;
+    }
     this.sessionId = session.session_id;
     this.ticketKind = session.ticket_kind || null;
-    this.gameVersion = session.version || router.config?.game_version || '2.0.0';
+    this.gameVersion = session.version || router.config?.campaign?.game_version || '2.1.0';
     storageSet(`${CHECKPOINT_PREFIX}${this.sessionId}`, '0');
     storageSet(`${SNAPSHOT_PREFIX}${this.sessionId}`, JSON.stringify({ sessionId: this.sessionId, version: this.gameVersion, seed: session.seed, tick: 0, jumpTicks: [] }));
     await router.refreshState({ quiet: true });
@@ -272,7 +293,10 @@ export const GameView = {
     const started = await api.startSession(this.sessionId);
     if (!router.isCurrent(renderToken)) return;
     this.monitorSessionExpiry(container, router, renderToken, started.expires_at);
-    analytics.track('game_start_approved', { game_version: session.version || '' }, { gameSessionId: this.sessionId });
+    analytics.track('game_start_approved', {
+      game_version: session.version || '',
+      play_type: session.ticket_kind === 'INITIAL' ? 'first' : 'retry',
+    }, { gameSessionId: this.sessionId });
     analytics.track('game_checkpoint', { stage: 'stage_1', checkpoint: 0 }, { gameSessionId: this.sessionId });
     this.engine.start(session.seed);
     this.persistResumeSnapshot();
@@ -337,7 +361,7 @@ export const GameView = {
     const flash = container.querySelector('#stage-flash-badge');
     this.engine = new DinoGameEngine(canvas, {
       version: this.gameVersion,
-      onScoreUpdate: (value) => ui.text(score, value),
+      onScoreUpdate: (value) => { ui.text(score, value); this.updateRankTarget(container, value); },
       onStageChange: (stage) => {
         const stageNumber = Number(String(stage.title || '').match(/\d+/)?.[0] || 1);
         this.currentStage = `stage_${stageNumber}`;
@@ -368,6 +392,8 @@ export const GameView = {
         const revives = Number(event.revive_count || 0);
         ui.text(heartCount, Math.max(0, Math.min(1, Number(event.hearts || 0))));
         ui.text(reviveCount, revives);
+        const penaltyNote = container.querySelector('#revive-penalty-note');
+        if (penaltyNote) ui.text(penaltyNote, event.penalty ? `−${event.penalty}점 · 이번 판 총 −${event.total_penalty}점` : '보호막이 잠시 유지돼요');
         reviveFlash.classList.remove('show');
         void reviveFlash.offsetWidth;
         reviveFlash.classList.add('show');
@@ -379,9 +405,33 @@ export const GameView = {
         if (router.isCurrent(renderToken)) this.handleGameOver(result, router, container, renderToken);
       },
     });
+    this.rankTargets = null;
+    this.loadRankTargets(container, router, renderToken);
     const press = (event) => { event?.preventDefault?.(); this.engine?.jumpPress(); };
     const release = (event) => { event?.preventDefault?.(); this.engine?.jumpRelease(); };
-    for (const element of [canvas, container.querySelector('#btn-jump')]) {
+    const jumpButton = container.querySelector('#btn-jump');
+    const suppressJumpButtonCallout = (event) => event.preventDefault();
+    const suppressedJumpButtonEvents = ['selectstart', 'dblclick'];
+    const suppressedJumpButtonTouchEvents = ['touchstart', 'touchmove', 'touchend'];
+    jumpButton.addEventListener('contextmenu', suppressJumpButtonCallout);
+    jumpButton.addEventListener('dragstart', suppressJumpButtonCallout);
+    for (const eventName of suppressedJumpButtonEvents) {
+      jumpButton.addEventListener(eventName, suppressJumpButtonCallout);
+    }
+    for (const eventName of suppressedJumpButtonTouchEvents) {
+      jumpButton.addEventListener(eventName, suppressJumpButtonCallout, { passive: false });
+    }
+    this.cleanupTasks.push(() => {
+      jumpButton.removeEventListener('contextmenu', suppressJumpButtonCallout);
+      jumpButton.removeEventListener('dragstart', suppressJumpButtonCallout);
+      for (const eventName of suppressedJumpButtonEvents) {
+        jumpButton.removeEventListener(eventName, suppressJumpButtonCallout);
+      }
+      for (const eventName of suppressedJumpButtonTouchEvents) {
+        jumpButton.removeEventListener(eventName, suppressJumpButtonCallout);
+      }
+    });
+    for (const element of [canvas, jumpButton]) {
       element.addEventListener('pointerdown', press);
       element.addEventListener('pointerup', release);
       element.addEventListener('pointercancel', release);
@@ -455,7 +505,7 @@ export const GameView = {
     const key = `finish_${sessionId}`;
     const summary = result.summary || this.engine?.getSummary?.() || {};
     const payload = {
-      version: result.version || this.gameVersion || '2.0.0',
+      version: result.version || this.gameVersion || '2.1.0',
       end_reason: result.end_reason || 'COLLISION',
       score: result.score,
       ticks: result.ticks,
@@ -477,12 +527,27 @@ export const GameView = {
       storageRemove(`${FAULT_PREFIX}${sessionId}`);
       storageRemove(`${SNAPSHOT_PREFIX}${sessionId}`);
       this.acceptResult(response, router);
-      analytics.track('game_completed', { game_version: payload.version, end_reason: payload.end_reason, score: response.score, rank: response.rank || 0, status: response.verification, coin_count: payload.summary.coins, coin_score: payload.summary.coin_score, revive_count: payload.summary.revives }, { gameSessionId: sessionId });
+      this.trackCompletedResult(payload, response, sessionId);
       router.announceStateChange();
       router.navigate('result');
     } catch (error) {
       if (router.isCurrent(renderToken) && this.isOperationCurrent(lifecycleId, sessionId)) this.renderFinishRetry(container, router, error);
     }
+  },
+
+  trackCompletedResult(payload, result, sessionId) {
+    const summary = payload?.summary || {};
+    analytics.track('game_completed', {
+      game_version: payload?.version,
+      end_reason: payload?.end_reason,
+      score: result?.score,
+      rank: result?.rank || 0,
+      status: result?.verification,
+      duration_seconds: Math.min(600, Math.max(1, Number(payload?.ticks) / 60)),
+      coin_count: Number(summary.coins || 0),
+      coin_score: Number(summary.coin_score || 0),
+      revive_count: Number(summary.revives || 0),
+    }, { gameSessionId: sessionId });
   },
 
   acceptResult(result, router) {
@@ -501,6 +566,8 @@ export const GameView = {
       bestScore: result.best_score || 0,
       rank: result.rank,
       verification: result.verification || 'VERIFIED',
+      top3_gap: result.top3_gap ?? null,
+      refund: result.refund || null,
       draw: result.draw || { status: 'AVAILABLE' },
       top3Profile: result.top3_profile || { required: false, status: 'NOT_REQUIRED' },
     };
@@ -626,6 +693,7 @@ export const GameView = {
     this.currentStage = 'stage_1';
     this.gameVersion = null;
     this.heartsCollected = 0;
+    this.rankTargets = null;
     this.cleanupTasks = [];
   },
   cleanup() {

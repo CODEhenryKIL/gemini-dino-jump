@@ -1,0 +1,63 @@
+{
+  "verified_at": "2026-09-29T20:31:00+09:00",
+  "canonical_origin": "https://google-korea-team-gemini.vercel.app",
+  "production_health_logs": {
+    "query": "service:gemini-dino-jump env:production @route:/api/health",
+    "latest_observed_at": "2026-09-29T20:24:54.631+09:00",
+    "matching_logs_in_last_15_minutes": 3,
+    "monitor_evaluation": "OK"
+  },
+  "synthetics": [
+    {
+      "id": "esa-g6x-fdq",
+      "name_before": "Dino Preview - Home availability",
+      "name_after": "Dino Production - Home availability",
+      "url": "https://google-korea-team-gemini.vercel.app/",
+      "interval_minutes": 10,
+      "location": "Seoul (AWS)",
+      "environment_tag": "production",
+      "service_tag": "service:gemini-dino-jump",
+      "scheduling": "active",
+      "status": "OK"
+    },
+    {
+      "id": "ian-4x7-2zy",
+      "name_before": "Dino Preview - API and database health",
+      "name_after": "Dino Production - API and database health",
+      "url": "https://google-korea-team-gemini.vercel.app/api/health",
+      "interval_minutes": 10,
+      "location": "Seoul (AWS)",
+      "environment_tag": "production",
+      "service_tag": "service:gemini-dino-jump",
+      "scheduling": "active",
+      "status": "OK"
+    }
+  ],
+  "monitors": {
+    "production_error": {
+      "id": "22788890",
+      "state": "published_unmuted",
+      "status": "OK"
+    },
+    "production_health_ingestion_gap": {
+      "id": "22788937",
+      "state_before": "draft",
+      "state_after": "published_unmuted",
+      "status": "OK"
+    },
+    "preview_error": {
+      "id": "22787526",
+      "state": "muted_indefinitely",
+      "status_at_cutover": "OK"
+    },
+    "preview_health_ingestion_gap": {
+      "id": "22787598",
+      "state": "muted_indefinitely",
+      "status_at_cutover": "OK"
+    }
+  },
+  "remote_mutations_performed": true,
+  "new_api_keys_created": false,
+  "messages_sent": false,
+  "secrets_or_personal_data_recorded": false
+}

@@ -1,5 +1,6 @@
 """Read-only metrics from authenticated, scoped source records and observations."""
 from __future__ import annotations
+from config import database_schema
 
 import datetime as dt
 import os
@@ -29,6 +30,16 @@ def _period(query, now):
     return start, end
 
 
+def _campaign_period_start(start, end, campaign, environment):
+    if environment != 'production':
+        return start
+    opens_at = campaign.get('opens_at')
+    if not isinstance(opens_at, dt.datetime) or opens_at.tzinfo is None:
+        from operations import DomainError
+        raise DomainError('CAMPAIGN_WINDOW_INVALID', '행사 운영 시간을 확인하고 있습니다.', 503, True)
+    return max(start, min(end, opens_at))
+
+
 def _metric(key, label, numerator, denominator=None, *, unique=None, events=None, estimated=False, definition='', window=1800):
     rate = numerator / denominator if denominator else None
     return dict(key=key, label=label, numerator=numerator, denominator=denominator,
@@ -41,17 +52,18 @@ def build_overview(conn, query, ctx):
     now = dt.datetime.now(UTC)
     start, end = _period(query, now)
     environment = query.get('environment') or ctx['environment']
-    if environment not in {'local', 'test', 'preview'}:
-        raise DomainError('VALIDATION_ERROR', '테스트 환경을 선택해 주세요.')
+    if environment not in ({'production'} if ctx['environment']=='production' else {'local','test','preview'}):
+        raise DomainError('VALIDATION_ERROR', '현재 연결된 환경을 선택해 주세요.')
     try:
         window = int(os.getenv('ANALYTICS_OBSERVATION_WINDOW_SECONDS', '1800'))
         if not 600 <= window <= 86400:
             raise ValueError()
     except ValueError:
         raise DomainError('METRICS_CONFIGURATION', '지표 관측 기간 설정을 확인해 주세요.', 503) from None
-    campaign = conn.execute('select c.* from dino_dev.campaign c join dino_dev.environment_guard g on g.campaign_id=c.id where g.singleton').fetchone()
+    campaign = conn.execute(f'select c.* from {database_schema()}.campaign c join {database_schema()}.environment_guard g on g.campaign_id=c.id where g.singleton').fetchone()
     if not campaign:
         raise DomainError('CAMPAIGN_NOT_CONFIGURED', '행사 설정이 없습니다.', 503)
+    start = _campaign_period_start(start, end, campaign, environment)
     game_version = ctx.get('game_version') or campaign['game_version']
     score_source = _score_source(game_version)
     filters = {k: str(query[k]) for k in ('link_kind', 'channel', 'content', 'won') if query.get(k)}
@@ -64,26 +76,27 @@ def build_overview(conn, query, ctx):
         if key in filters:
             clauses.append(f'p.{column}=%s'); extra.append(filters[key])
     if 'won' in filters:
-        clauses.append('exists(select 1 from dino_dev.draw d where d.participant_id=p.id and d.campaign_id=p.campaign_id and (d.inventory_item_id is not null)=%s)')
+        clauses.append(f'exists(select 1 from {database_schema()}.draw d where d.participant_id=p.id and d.campaign_id=p.campaign_id and (d.inventory_item_id is not null)=%s)')
         extra.append(filters['won'] == 'true')
     if 'content' in filters:
-        clauses.append("exists(select 1 from dino_dev.analytics_event ce where ce.participant_id=p.id and ce.environment=p.environment and ce.received_at>=%s and ce.received_at<%s and ce.dimensions->>'content'=%s)")
+        clauses.append(f"exists(select 1 from {database_schema()}.analytics_event ce where ce.participant_id=p.id and ce.environment=p.environment and ce.received_at>=%s and ce.received_at<%s and ce.dimensions->>'content'=%s)")
         extra.extend([start, end, filters['content']])
     where = (' and ' + ' and '.join(clauses)) if clauses else ''
-    scope = '''with people as (
-      select p.* from dino_dev.participant p where p.campaign_id=%s and p.environment=%s and p.synthetic''' + where + '''
+    scope = f'''with people as (
+      select p.* from {database_schema()}.participant p where p.campaign_id=%s and p.environment=%s and p.synthetic=%s''' + where + f'''
     ), observations as (
-      select o.* from dino_dev.observation o left join people p on p.id=o.participant_id
-      where o.environment=%s and o.synthetic and o.created_at>=%s and o.created_at<%s
+      select o.* from {database_schema()}.observation o left join people p on p.id=o.participant_id
+      where o.environment=%s and o.synthetic=%s and o.created_at>=%s and o.created_at<%s
         and (p.id is not null or (o.participant_id is null and %s))
     ), events as (
       select e.*,coalesce(e.participant_id,o.participant_id) person_id
-      from dino_dev.analytics_event e left join observations o on o.id=e.observation_id
+      from {database_schema()}.analytics_event e left join observations o on o.id=e.observation_id
       left join people p on p.id=coalesce(e.participant_id,o.participant_id)
-      where e.campaign_id=%s and e.environment=%s and e.synthetic and e.received_at>=%s and e.received_at<%s
+      where e.campaign_id=%s and e.environment=%s and e.synthetic=%s and e.received_at>=%s and e.received_at<%s
         and (p.id is not null or (e.participant_id is null and o.id is not null))
     ) '''
-    params = [campaign['id'], environment, *extra, environment, start, end, not bool(filters), campaign['id'], environment, start, end]
+    synthetic=environment!='production'
+    params = [campaign['id'], environment, synthetic, *extra, environment, synthetic, start, end, not bool(filters), campaign['id'], environment, synthetic, start, end]
 
     def rows(sql, args=()):
         return [dict(row) for row in conn.execute(scope + sql, [*params, *args]).fetchall()]
@@ -202,7 +215,7 @@ def build_overview(conn, query, ctx):
     for row in source_funnel:
         row['game_start_rate'] = row['game_starts'] / row['participants'] if row['participants'] else None
         row['gemini_click_rate'] = row['gemini_clicks'] / row['participants'] if row['participants'] else None
-    game = one('''select count(*)::int approved,count(distinct g.participant_id)::int approved_participants,
+    game = one(f'''select count(*)::int approved,count(distinct g.participant_id)::int approved_participants,
       count(*) filter(where g.status='FINISHED')::int finished,
       count(distinct g.participant_id) filter(where g.status='FINISHED')::int finished_participants,
       count(*) filter(where g.status='REJECTED')::int rejected,count(*) filter(where g.status='EXPIRED')::int expired,
@@ -220,26 +233,37 @@ def build_overview(conn, query, ctx):
       coalesce(sum((g.game_summary->>'revives')::int) filter(where g.status='FINISHED'),0)::bigint revives,
       count(*) filter(where g.status='FINISHED' and g.end_reason='COLLISION')::int collision_finished,
       count(*) filter(where g.status='FINISHED' and g.end_reason='TIME_LIMIT')::int time_limit_finished
-      from dino_dev.game_session g join people p on p.id=g.participant_id
+      from {database_schema()}.game_session g join people p on p.id=g.participant_id
       where g.version=%s and g.reserved_at>=%s and g.reserved_at<%s''', (end, end, game_version, start, end))
-    score_distribution = rows('''select g.version game_version,(g.score/100)*100 score_from,(g.score/100)*100+99 score_to,count(*)::int games,
-      count(distinct g.participant_id)::int participants from dino_dev.game_session g join people p on p.id=g.participant_id
+    score_distribution = rows(f'''select g.version game_version,(g.score/100)*100 score_from,(g.score/100)*100+99 score_to,count(*)::int games,
+      count(distinct g.participant_id)::int participants from {database_schema()}.game_session g join people p on p.id=g.participant_id
       where g.version=%s and g.status='FINISHED' and g.finished_at>=%s and g.finished_at<%s group by 1,2,3 order by 2''', (game_version, start, end))
     leaderboard = rows(f'''select %s game_version,b.rank,
       case when p.is_public then p.nickname else '익명 참가자' end nickname,b.score best_score,b.tied
-      from (select participant_id,score,achieved_at,dense_rank() over(order by score desc)::int rank,
+      from (select participant_id,score,achieved_at,row_number() over(order by score desc,achieved_at asc,participant_id asc)::int rank,
         count(*) over(partition by score)>1 tied
         from (select s.participant_id,s.score,s.achieved_at from {score_source} s
           join people scoped_people on scoped_people.id=s.participant_id) scoped_scores) b
       join people p on p.id=b.participant_id
-      order by b.rank,b.achieved_at asc limit 100''', (game_version,))
-    ledger = rows('''select l.source_type,l.ticket_kind,count(*)::int events,count(distinct l.participant_id)::int participants
-      from dino_dev.ticket_ledger l join people p on p.id=l.participant_id where l.created_at>=%s and l.created_at<%s group by 1,2''', (start, end))
-    claims = rows('''select c.claim_type,c.status,count(*)::int claims,count(distinct c.participant_id)::int participants
-      from dino_dev.claim c join people p on p.id=c.participant_id where c.created_at>=%s and c.created_at<%s group by 1,2''', (start, end))
-    ranking = one('''select count(*)::int requested,count(*) filter(where r.status='SUBMITTED')::int submitted
-      from dino_dev.ranking_contact r join people p on p.id=r.participant_id
-      join dino_dev.ranking_contact_version rv on rv.participant_id=r.participant_id and rv.game_version=%s''', (game_version,))
+      order by b.rank limit 100''', (game_version,))
+    ledger = rows(f'''select l.source_type,l.ticket_kind,count(*)::int events,count(distinct l.participant_id)::int participants
+      from {database_schema()}.ticket_ledger l join people p on p.id=l.participant_id where l.created_at>=%s and l.created_at<%s group by 1,2''', (start, end))
+    claims = rows(f'''select c.claim_type,c.status,count(*)::int claims,count(distinct c.participant_id)::int participants
+      from {database_schema()}.claim c join people p on p.id=c.participant_id where c.created_at>=%s and c.created_at<%s group by 1,2''', (start, end))
+    draws = one(f'''select count(*)::int total_draws,
+      count(*) filter(where d.outcome_kind='PRIZE')::int actual_prize_draws,
+      count(distinct d.participant_id) filter(where d.outcome_kind='PRIZE')::int actual_prize_winners,
+      count(*) filter(where d.outcome_kind='BENEFIT')::int benefit_results,
+      count(*) filter(where c.status='PAID')::int paid_prizes
+      from {database_schema()}.draw d join people p on p.id=d.participant_id
+      left join {database_schema()}.claim c on c.draw_id=d.id
+      where d.created_at>=%s and d.created_at<%s''', (start,end))
+    draw_credits = rows(f'''select l.source_type,count(*)::int events,count(distinct l.participant_id)::int participants,
+      coalesce(sum(l.delta),0)::int net_credits from {database_schema()}.draw_credit_ledger l join people p on p.id=l.participant_id
+      where l.created_at>=%s and l.created_at<%s group by 1 order by 1''', (start,end))
+    ranking = one(f'''select count(*)::int requested,count(*) filter(where r.status='SUBMITTED')::int submitted
+      from {database_schema()}.ranking_contact r join people p on p.id=r.participant_id
+      join {database_schema()}.ranking_contact_version rv on rv.participant_id=r.participant_id and rv.game_version=%s''', (game_version,))
     # Result exposure precedes the async completion save; both progress from
     # scratch start. A restored result has no new start or completion event.
     stages = rows(""" , stage_defs(key,label,entry_name,next_name) as (values
@@ -296,16 +320,23 @@ def build_overview(conn, query, ctx):
         from events where source='client' and screen='draw'
         group by coalesce(screen_view_id,visit_session_id,person_id)
         having bool_or(event_name='draw_result_viewed')) r group by 1""")
-    invitation = rows("""select v.status,coalesce(v.reason,'unknown') reason,count(*)::int visits,
-      count(distinct v.visitor_id)::int visitors from dino_dev.invitation_visit v join people p on p.id=v.inviter_id
+    invitation = rows(f"""select v.status,coalesce(v.reason,'unknown') reason,count(*)::int visits,
+      count(distinct v.visitor_id)::int visitors from {database_schema()}.invitation_visit v join people p on p.id=v.inviter_id
       where v.created_at>=%s and v.created_at<%s group by 1,2 order by 1,2""", (start,end))
     sharing_purpose_case = """case
-      when dimensions->>'source'='gemini' then 'gemini'
-      when dimensions->>'link_kind'='record_share' then 'record_share'
-      when dimensions->>'link_kind'='prize_share' then 'prize_share'
-      when screen='invite' or dimensions ? 'share_id'
-        or dimensions->>'link_kind' in ('invite','retry_invite') then 'retry_invite'
+      when e.dimensions->>'source'='gemini' then 'gemini'
+      when i.id is null then 'unknown'
+      when i.claim_id is not null then 'claim_share'
+      when i.kind='draw_retry' then 'draw_retry'
+      when i.kind='record_share' and i.reward_type='GAME' then 'record_share'
+      when i.kind='retry_invite' and i.reward_type='GAME' then 'retry_invite'
+      when i.kind='prize_share' then 'prize_share'
+      when i.kind='general_share' then 'general_share'
       else 'unknown' end"""
+    sharing_event_source = f"""from events e left join {database_schema()}.kakao_share_intent i
+      on i.id=e.dimensions->>'share_id' and i.participant_id=e.person_id
+      and i.campaign_id=e.campaign_id
+      where e.source='client' and e.event_name='share_attempted'"""
     sharing = rows("""select coalesce(dimensions->>'share_method','unknown') share_method,
       coalesce(dimensions->>'status','unknown') status,count(*)::int events,
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
@@ -319,25 +350,38 @@ def build_overview(conn, query, ctx):
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
       count(*) filter(where person_id is null)::int unlinked_events
       from (select {sharing_purpose_case} purpose,
-        coalesce(dimensions->>'share_method','unknown') share_method,
-        coalesce(dimensions->>'status','unknown') status,person_id
-        from events where source='client' and event_name='share_attempted') s
+        coalesce(e.dimensions->>'share_method','unknown') share_method,
+        coalesce(e.dimensions->>'status','unknown') status,e.person_id
+        {sharing_event_source}) s
       group by 1,2,3 order by 1,2,3""")
     sharing_purpose_totals = rows(f"""select purpose,
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
       count(*) filter(where person_id is null)::int unlinked_events
-      from (select {sharing_purpose_case} purpose,person_id
-        from events where source='client' and event_name='share_attempted') s
+      from (select {sharing_purpose_case} purpose,e.person_id
+        {sharing_event_source}) s
       group by 1 order by 1""")
-    invitation_purposes = ('retry_invite', 'record_share', 'prize_share')
+    verified_sharing = rows(f"""select purpose,count(*)::int intents,
+      count(distinct participant_id)::int participants from (
+        select case when i.claim_id is not null then 'claim_share'
+          when i.kind='draw_retry' then 'draw_retry'
+          when i.kind='record_share' and i.reward_type='GAME' then 'record_share'
+          when i.kind='retry_invite' and i.reward_type='GAME' then 'retry_invite'
+          when i.kind='prize_share' then 'prize_share'
+          when i.kind='general_share' then 'general_share'
+          else 'unknown' end purpose,i.participant_id
+        from {database_schema()}.kakao_share_intent i join people p on p.id=i.participant_id
+        where i.status='CONFIRMED' and i.confirmed_at>=%s and i.confirmed_at<%s
+      ) confirmed group by purpose order by purpose""", (start,end))
+    verified_by_purpose = {row['purpose']: row for row in verified_sharing}
+    invitation_purposes = ('retry_invite', 'record_share')
     invitation_sharing = [{k: v for k, v in row.items() if k != 'purpose'}
       for row in sharing_by_purpose if row['purpose'] in invitation_purposes]
     invitation_sharing_totals = one(f"""select
       count(distinct person_id) filter(where person_id is not null)::int linked_participants,
       count(*) filter(where person_id is null)::int unlinked_events
-      from (select {sharing_purpose_case} purpose,person_id
-        from events where source='client' and event_name='share_attempted') s
-      where purpose in ('retry_invite','record_share','prize_share')""")
+      from (select {sharing_purpose_case} purpose,e.person_id
+        {sharing_event_source}) s
+      where purpose in ('retry_invite','record_share')""")
 
     def sharing_summary(grouped, totals):
         return {
@@ -356,7 +400,7 @@ def build_overview(conn, query, ctx):
     sharing_summary_all = sharing_summary(sharing, sharing_totals)
     purpose_summaries = {}
     purpose_totals = {row['purpose']: row for row in sharing_purpose_totals}
-    for purpose in ('gemini', 'retry_invite', 'record_share', 'prize_share', 'unknown'):
+    for purpose in ('gemini', 'draw_retry', 'retry_invite', 'record_share', 'prize_share', 'general_share', 'claim_share', 'unknown'):
         grouped = [{k: v for k, v in row.items() if k != 'purpose'}
                    for row in sharing_by_purpose if row['purpose'] == purpose]
         purpose_total = purpose_totals.get(purpose, {'linked_participants': 0, 'unlinked_events': 0})
@@ -364,18 +408,27 @@ def build_overview(conn, query, ctx):
           'linked_participants': purpose_total['linked_participants'],
           'unlinked_events': purpose_total['unlinked_events'],
         })
+        verified = verified_by_purpose.get(purpose, {'intents': 0, 'participants': 0})
+        purpose_summaries[purpose]['server_confirmed_intents'] = verified['intents']
+        purpose_summaries[purpose]['server_confirmed_participants'] = verified['participants']
     invitation_sharing_summary = sharing_summary(invitation_sharing, invitation_sharing_totals)
-    invitation_performance = one(""", grants as (
-      select l.* from dino_dev.ticket_ledger l join people p on p.id=l.participant_id
-      where l.ticket_kind='INVITATION' and l.source_type='INVITATION_GRANT'
+    invitation_sharing_summary['server_confirmed_intents'] = sum(
+      verified_by_purpose.get(purpose, {}).get('intents', 0) for purpose in invitation_purposes)
+    invitation_sharing_summary['server_confirmed_participants'] = one(f"""select count(distinct i.participant_id)::int n
+      from {database_schema()}.kakao_share_intent i join people p on p.id=i.participant_id
+      where i.status='CONFIRMED' and i.confirmed_at>=%s and i.confirmed_at<%s
+        and i.claim_id is null and i.reward_type='GAME' and i.kind in ('retry_invite','record_share')""", (start,end))['n']
+    invitation_performance = one(f""", grants as (
+      select l.* from {database_schema()}.ticket_ledger l join people p on p.id=l.participant_id
+      where l.ticket_kind='INVITATION' and l.source_type in ('INVITATION_GRANT','SHARE_GRANT')
         and l.created_at>=%s and l.created_at<%s
     ), uses as (
-      select l.* from dino_dev.ticket_ledger l join people p on p.id=l.participant_id
+      select l.* from {database_schema()}.ticket_ledger l join people p on p.id=l.participant_id
       where l.ticket_kind='INVITATION' and l.source_type='PLAY_CONSUME'
         and l.created_at>=%s and l.created_at<%s
     ), reacquired as (
       select g.* from grants g where exists (
-        select 1 from dino_dev.ticket_ledger prior where prior.participant_id=g.participant_id
+        select 1 from {database_schema()}.ticket_ledger prior where prior.participant_id=g.participant_id
           and prior.ticket_kind='INVITATION' and prior.cooldown_until is not null
           and prior.created_at<g.created_at and prior.cooldown_until<=g.created_at)
     ) select (select count(*)::int from grants) grant_events,
@@ -393,7 +446,7 @@ def build_overview(conn, query, ctx):
       invitation_performance['use_events'] / invitation_performance['grant_events']
       if invitation_performance['grant_events'] else None)
     invitation_performance['ratio_definition'] = '조회 기간의 초대권 사용 이벤트 / 초대권 지급 이벤트. 개별 지급권의 소비 전환율은 식별 불가.'
-    game_progress_rows = rows(""", game_events as (
+    game_progress_rows = rows(f""", game_events as (
       select e.game_session_id,coalesce(
         (array_agg(e.dimensions->>'stage' order by e.occurred_at desc,e.id desc)
           filter(where e.dimensions ? 'stage'))[1],'unknown') last_stage,
@@ -407,7 +460,7 @@ def build_overview(conn, query, ctx):
       max(last_active_ms)::int max_last_observed_active_ms,
       count(*) filter(where last_active_ms is null)::int active_time_unknown
       from (select g.id,g.participant_id,game_events.last_stage,game_events.last_active_ms
-        from dino_dev.game_session g join people p on p.id=g.participant_id
+        from {database_schema()}.game_session g join people p on p.id=g.participant_id
         left join game_events on game_events.game_session_id=g.id
         where g.reserved_at>=%s and g.reserved_at<%s) observed
       group by 1 order by 1""", (start,end))
@@ -446,9 +499,9 @@ def build_overview(conn, query, ctx):
       group by e.content,c.viewed_participants,k.clicked_participants,c.converted_participants order by e.content""")
     for row in content:
         row['unique_ctr'] = row['converted_participants'] / row['viewed_participants'] if row['viewed_participants'] else None
-    claim_conversion = one("""select count(*) filter(where c.claim_type='DRAW')::int eligible_winning_claims,
+    claim_conversion = one(f"""select count(*) filter(where c.claim_type='DRAW')::int eligible_winning_claims,
       count(*) filter(where c.claim_type='DRAW' and c.contact_submitted_at is not null)::int submitted_winning_claims
-      from dino_dev.claim c join people p on p.id=c.participant_id where c.created_at>=%s and c.created_at<%s""", (start,end))
+      from {database_schema()}.claim c join people p on p.id=c.participant_id where c.created_at>=%s and c.created_at<%s""", (start,end))
     metrics = []
     for row in stages:
         metrics.append(_metric('stage.'+row['key'],row['label'],row['progressed'],row['entered'],unique=row['progressed'],events=row['entry_events'],window=window,
@@ -479,17 +532,21 @@ def build_overview(conn, query, ctx):
         metrics.append(_metric('screen.exit.'+row['screen'],row['screen']+' 추정 이탈',row['estimated_exits'],row['visits']-row['ongoing'],events=row['visits'],estimated=True,definition='관측창이 지난 화면 방문 중 후속 진행 신호 미관측. 선택 기능 건너뛰기를 전체 이탈로 해석하지 않음.',window=window))
         metrics.append(_metric('screen.active.'+row['screen'],row['screen']+' 활성 체류(ms)',int(row['active_ms'] or 0),events=row['visits'],definition='방문·화면별 누적 활성 시간의 최댓값 합계; 백그라운드 제외',window=window))
     return 200, dict(campaign={**{k:campaign[k] for k in ('id','status','version')},'game_version':game_version}, environment=environment,
-      synthetic_only=True, filters=filters, filter_attribution='first_participant_cohort', period={'from':_iso(start),'to':_iso(end)},
+      synthetic_only=synthetic, filters=filters, filter_attribution='first_participant_cohort', period={'from':_iso(start),'to':_iso(end)},
       generated_at=_iso(now), observation_window_seconds=window, totals=totals, funnel=funnel, metrics=metrics,
       loading={'buckets':loading,'milestones':loading_milestones,'estimated':True}, screens=screens, game={**game,'game_version':game_version}, score_distribution=score_distribution, leaderboard=leaderboard,
       source_funnel=source_funnel, ticket_ledger=ledger, claims=claims, ranking=ranking,
+      draws=draws,draw_credit_ledger=draw_credits,
       stages=stages,result_dwell=result_dwell,invitation=invitation,
       sharing={'by_purpose':sharing_by_purpose,
         'gemini_sharing':purpose_summaries['gemini'],
+        'draw_retry_sharing':purpose_summaries['draw_retry'],
         'invitation_sharing':invitation_sharing_summary,
         'retry_invite_sharing':purpose_summaries['retry_invite'],
         'record_share_sharing':purpose_summaries['record_share'],
         'prize_share_sharing':purpose_summaries['prize_share'],
+        'general_share_sharing':purpose_summaries['general_share'],
+        'claim_share_sharing':purpose_summaries['claim_share'],
         'unknown_sharing':purpose_summaries['unknown'],
         **sharing_summary_all}, invitation_performance=invitation_performance,
       game_progress={'by_last_stage':game_progress_rows,'unlinked_checkpoint_events':unlinked_game_progress},
@@ -506,7 +563,7 @@ def build_overview(conn, query, ctx):
         'loading':'준비 완료 전 마지막 관측 기반 추정. 관측창 진행 중은 이탈 제외. unknown은 활성 시간 미관측.',
         'active_ms':'누적 체크포인트 합산이 아닌 방문·화면별 최대값 합계',
         'stage_active_dwell':'같은 화면 진입에서 후속 단계까지 관측된 누적 활성 시간 차이. 신호가 없으면 active_dwell_unknown이며 wall clock으로 대체하지 않음.',
-        'sharing':'클라이언트가 관측한 공유 수단 호출·복사 성공·취소·실패. Gemini·재도전 초대·기록 공유·당첨 공유·근거 없는 unknown 목적을 분리하며 invitation_sharing은 세 초대 보상 공유의 합계. 실제 전송·수신·도착 여부는 unknown.',
+        'sharing':'event_count와 by_method_status는 클라이언트 공유창 관측이며 실제 전송을 뜻하지 않음. share_id가 현재 참가자·행사 소유의 서버 공유 의도와 일치할 때만 목적을 분류하고, 그 외에는 unknown. invitation_sharing은 게임권 목적 retry_invite와 claim 없는 GAME record_share만 합산. server_confirmed_intents는 카카오 서버 콜백으로 확인된 전송 건수이며 수신·열람 여부는 확인하지 않음.',
         'invitation_performance':'지급·사용은 서버 티켓 원장. 쿨다운 후 재획득은 과거 cooldown_until 종료 뒤 발생한 새 지급이며, 재참여는 그 뒤의 초대권 소비.',
         'game_progress':'서버 승인 게임별 마지막 연결된 클라이언트 체크포인트. 연결되지 않은 체크포인트와 활성 시간 미관측은 별도 unknown.',
         'content':'콘텐츠별 클라이언트 노출·클릭·승인된 Notion 이동 요청. unique_ctr은 노출과 클릭이 모두 관찰된 고유 참가자 / 노출 고유 참가자이며, 클릭을 가입 완료로 계산하지 않음.',

@@ -1,0 +1,20 @@
+{
+  "deployment_id": "dpl_HqqDscWPt5KLMxVwEX8aNGrAdY8b",
+  "cohort_window_epoch_start": 1790678668,
+  "cohort_window_seconds": 172,
+  "read_only": true,
+  "draws": 500,
+  "games": 500,
+  "prize": 5,
+  "claims": 5,
+  "benefit": 495,
+  "over100": 0,
+  "finished": 500,
+  "verified": 500,
+  "draw_debits": 500,
+  "participants": 500,
+  "allocated_slots": 500,
+  "reused_inventory": 0,
+  "low_score_refunds": 500,
+  "with_coins_and_two_revives": 0
+}

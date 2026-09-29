@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { ga4Analytics } from './ga4_analytics.js';
 
 const EVENT_ALLOWLIST = new Set([
   'entry_viewed', 'participant_ready', 'loading_data_ready', 'loading_intro_completed', 'loading_ready', 'loading_checkpoint', 'screen_entered', 'screen_left',
@@ -83,6 +84,7 @@ class Analytics {
   sessionSet(key, value) { try { sessionStorage.setItem(key, value); } catch (_) {} }
 
   track(name, dimensions = {}, extra = {}) {
+    try { ga4Analytics.track(name, dimensions, { ...extra, screen: extra.screen || this.screen || 'unknown' }); } catch (_) {}
     if (!EVENT_ALLOWLIST.has(name) || this.queue.length >= 40) return;
     const event = {
       event_id: api.createRequestId('evt'),
@@ -145,8 +147,13 @@ class Analytics {
   }
 
   setEntryAttribution(dimensions = {}) {
+    try { ga4Analytics.setAttribution(dimensions); } catch (_) {}
     const entry = this.queue.find((event) => event.name === 'entry_viewed');
     if (entry) entry.dimensions = { ...entry.dimensions, ...cleanDimensions(dimensions) };
+  }
+
+  trackGa4(name, dimensions = {}, extra = {}) {
+    try { return ga4Analytics.track(name, dimensions, { ...extra, screen: extra.screen || this.screen || 'unknown' }); } catch (_) { return false; }
   }
 
   enterScreen(screen) {

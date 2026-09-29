@@ -1,3 +1,4 @@
+import { configureAnalyticsConsent } from './analytics_consent.js';
 import { api } from './api.js';
 import { analytics } from './analytics.js';
 import { startVercelAnalytics } from './vercel_analytics.js';
@@ -9,7 +10,27 @@ import { DrawView } from './views/draw_view.js';
 import { PrizeView } from './views/prize_view.js';
 import { RankingView } from './views/ranking_view.js';
 import { InviteView } from './views/invite_view.js';
-import { BenefitView } from './views/benefit_view.js';
+import { BenefitView } from './views/benefit_view.js?v=20260926-benefit';
+
+const REQUIRED_ASSET_TIMEOUT_MS = 8000;
+
+function withTimeout(promise, timeoutMs, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function resolveCampaignStatus(campaign, now = Date.now()) {
+  const status = String(campaign?.status || 'ACTIVE').toUpperCase();
+  if (status !== 'ACTIVE') return status;
+  const opensAt = Date.parse(campaign?.opens_at || '');
+  const closesAt = Date.parse(campaign?.closes_at || '');
+  if (Number.isFinite(opensAt) && now < opensAt) return 'NOT_OPEN';
+  if (Number.isFinite(closesAt) && now >= closesAt) return 'ENDED';
+  return 'ACTIVE';
+}
 
 class AppRouter {
   constructor() {
@@ -24,6 +45,9 @@ class AppRouter {
     this.refreshInFlight = null;
     this.activeRenderPromise = null;
     this.lastResumeRefreshAt = 0;
+    this.initGeneration = 0;
+    this.campaignBoundaryTimer = null;
+    this.campaignClock = null;
     this.loadingState = { intro: false, data: false };
     this.inviteVisit = null;
     this.state = {
@@ -41,6 +65,7 @@ class AppRouter {
   }
 
   async init({ fromRetry = false } = {}) {
+    const initGeneration = ++this.initGeneration;
     this.bindNavigation();
     if (!this.initialRequest) this.initialRequest = this.parseInitialRequest();
     if (!this.introPromise) this.introPromise = this.playInitialIntro();
@@ -50,12 +75,13 @@ class AppRouter {
       if (status) { status.tabIndex = -1; status.focus({ preventScroll: true }); }
     }
     try {
-      const dataPromise = this.loadInitialData(this.initialRequest);
+      const dataPromise = this.loadInitialData(this.initialRequest, initGeneration);
       const [, initialized] = await Promise.all([this.introPromise, dataPromise]);
+      if (initGeneration !== this.initGeneration || !initialized) return;
       this.installInviteState(initialized, this.initialRequest.inviteCode);
       const requestedView = this.initialRequest.requestedView;
-      const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit'];
-      const initialView = allowed.includes(requestedView) ? requestedView : (this.state.draw.status === 'DRAWN' && !this.state.draw.draw?.scratch_completed ? 'draw' : 'home');
+      const allowed = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'];
+      const initialView = allowed.includes(requestedView) ? requestedView : 'home';
       let rendered = await this.navigate(initialView, { replace: true });
       while (!rendered.current && this.activeRenderPromise) rendered = await this.activeRenderPromise;
       if (!rendered.ok) throw rendered.error;
@@ -66,6 +92,7 @@ class AppRouter {
       if (this.state.tickets.cooldown_notice_pending && this.state.tickets.cooldown_until) this.showCooldownNotice();
     } catch (error) {
       await this.introPromise;
+      if (initGeneration !== this.initGeneration) return;
       this.renderInitError(error);
       if (fromRetry) document.getElementById('splash-retry')?.focus();
     }
@@ -76,11 +103,11 @@ class AppRouter {
     const pathInvite = url.pathname.match(/^\/invite\/([A-Za-z0-9_-]{12,64})$/);
     const inviteCode = url.searchParams.get('invite') || pathInvite?.[1] || null;
     const requestedViewValue = url.searchParams.get('view');
-    const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit'].includes(requestedViewValue) ? requestedViewValue : null;
+    const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requestedViewValue) ? requestedViewValue : null;
     const requestedLinkKind = url.searchParams.get('link');
-    const legacyLinkKind = requestedLinkKind === 'prize_share' ? 'prize_share' : 'retry_invite';
+    const attributedKinds = new Set(['retry_invite', 'record_share', 'draw_retry', 'prize_share', 'general_share']);
     const linkKind = inviteCode
-      ? (requestedLinkKind === 'record_share' ? 'record_share' : legacyLinkKind)
+      ? (attributedKinds.has(requestedLinkKind) ? requestedLinkKind : 'retry_invite')
       : (requestedLinkKind === 'initial' ? 'initial' : 'direct');
     const shareId = (url.searchParams.get('share') || '').match(/^[A-Za-z0-9:_-]{8,128}$/)?.[0] || null;
     const channelCode = (url.searchParams.get('channel') || '').match(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/)?.[0] || null;
@@ -103,18 +130,26 @@ class AppRouter {
     };
   }
 
-  async loadInitialData(request) {
+  async loadInitialData(request, initGeneration = this.initGeneration) {
       const { inviteCode, channelCode, observation } = request;
       const observationRequest = api.startObservation(observation).then((observed) => {
         analytics.setObservationReady();
         return observed;
       });
-      const [observed, config] = await Promise.all([observationRequest, api.getConfig(), this.prepareAssets()]);
+      const configRequest = api.getConfig().then((config) => {
+        const receivedMonotonic = this.monotonicNow();
+        if (initGeneration === this.initGeneration) configureAnalyticsConsent(config);
+        return { config, receivedMonotonic };
+      });
+      const [observed, configResponse] = await Promise.all([observationRequest, configRequest, this.prepareAssets()]);
+      if (initGeneration !== this.initGeneration) return null;
       const initialize = () => api.initParticipant({ inviteCode, observationId: analytics.observationId, bootstrapToken: observed.bootstrap_token || null, linkKind: observation.link_kind, channel: channelCode, shareId: observation.share_id });
       const initialized = navigator.locks?.request
         ? await navigator.locks.request('dino-participant-init', initialize)
         : await initialize();
-      this.config = config;
+      if (initGeneration !== this.initGeneration) return null;
+      const config = configResponse.config;
+      this.setConfig(config, configResponse.receivedMonotonic);
       startVercelAnalytics(config);
       this.inviteVisit = initialized.invite_visit || null;
       this.state.participant = initialized.participant;
@@ -128,7 +163,6 @@ class AppRouter {
   }
 
   async prepareAssets() {
-    const images = [...document.querySelectorAll('#splash-screen img')];
     const requiredAssets = ['/assets/icons/Dino-Dark.png'];
     const optionalAssets = ['/assets/icons/Heart-Light.png', '/assets/icons/Smile-Light.png'];
     const preload = requiredAssets.map((src) => new Promise((resolve, reject) => {
@@ -143,15 +177,56 @@ class AppRouter {
       image.onerror = resolve;
       image.src = src;
     }));
-    await Promise.all([
-      ...images.map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => {
-        image.addEventListener('load', resolve, { once: true });
-        image.addEventListener('error', resolve, { once: true });
-      })),
-      ...preload,
+    void Promise.allSettled([
       ...optionalPreload,
       document.fonts?.ready || Promise.resolve(),
     ]);
+    await withTimeout(Promise.all(preload), REQUIRED_ASSET_TIMEOUT_MS, '필수 게임 자산을 불러오는 데 시간이 오래 걸리고 있어요. 다시 시도해 주세요.');
+  }
+
+  monotonicNow() {
+    const now = globalThis.performance?.now?.();
+    return Number.isFinite(now) ? now : null;
+  }
+
+  campaignNow() {
+    const monotonicNow = this.monotonicNow();
+    if (this.campaignClock && monotonicNow !== null) {
+      return this.campaignClock.serverEpoch + Math.max(0, monotonicNow - this.campaignClock.monotonicEpoch);
+    }
+    return Date.now();
+  }
+
+  campaignStatus(now = this.campaignNow()) { return resolveCampaignStatus(this.config?.campaign, now); }
+
+  setConfig(config, monotonicEpoch = this.monotonicNow()) {
+    if (!config) return;
+    this.config = config;
+    configureAnalyticsConsent(config);
+    const serverEpoch = Date.parse(config.server_time || '');
+    this.campaignClock = Number.isFinite(serverEpoch) && Number.isFinite(monotonicEpoch)
+      ? { serverEpoch, monotonicEpoch }
+      : null;
+    this.scheduleCampaignBoundary();
+  }
+
+  scheduleCampaignBoundary() {
+    clearTimeout(this.campaignBoundaryTimer);
+    this.campaignBoundaryTimer = null;
+    const campaign = this.config?.campaign;
+    const now = this.campaignNow();
+    const boundaries = [Date.parse(campaign?.opens_at || ''), Date.parse(campaign?.closes_at || '')]
+      .filter((value) => Number.isFinite(value) && value > now)
+      .sort((a, b) => a - b);
+    if (!boundaries.length) return;
+    const delay = Math.min(boundaries[0] - now + 25, 2147483647);
+    this.campaignBoundaryTimer = setTimeout(() => {
+      this.campaignBoundaryTimer = null;
+      if (this.initialized) {
+        void this.views[this.currentView]?.updateState?.(this.container, this, this.renderToken);
+        this.refreshState({ quiet: true }).catch(() => this.scheduleCampaignBoundary());
+      } else this.scheduleCampaignBoundary();
+    }, delay);
   }
 
   playInitialIntro() {
@@ -176,7 +251,7 @@ class AppRouter {
   bindNavigation() {
     if (this.navigationBound) return;
     this.navigationBound = true;
-    document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => {
+    document.querySelectorAll('.bottom-nav .nav-item, .brand-logo-area[data-view]').forEach((item) => {
       item.addEventListener('click', (event) => {
         if (event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
@@ -186,7 +261,7 @@ class AppRouter {
     window.addEventListener('popstate', (event) => {
       if (!this.initialized) return;
       const requested = event.state?.view || new URL(window.location.href).searchParams.get('view') || 'home';
-      const view = ['home', 'ranking', 'claims', 'invite', 'benefit'].includes(requested) ? requested : 'home';
+      const view = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requested) ? requested : 'home';
       if (view !== requested) history.replaceState({ view: 'home' }, '', '/');
       this.navigate(view, { history: false });
     });
@@ -207,7 +282,9 @@ class AppRouter {
 
   async fetchState(quiet) {
     try {
-      const me = await api.getMe();
+      const configRequest = api.getConfig().then((config) => ({ config, receivedMonotonic: this.monotonicNow() }));
+      const [me, configResponse] = await Promise.all([api.getMe(), configRequest]);
+      this.setConfig(configResponse.config, configResponse.receivedMonotonic);
       this.state.participant = me.participant || this.state.participant;
       api.participant = this.state.participant;
       this.state.tickets = me.tickets || this.state.tickets;
@@ -232,7 +309,7 @@ class AppRouter {
     const tickets = this.state.tickets;
     const available = Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0)));
     this.ticketPill.textContent = tickets.unlimited_play === true ? '🎟️ 무제한' : `🎟️ ${available}장`;
-    this.ticketPill.title = tickets.unlimited_play === true ? '이 브라우저의 테스트 플레이는 게임권을 차감하지 않습니다.' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
+    this.ticketPill.title = tickets.unlimited_play === true ? '게임권 무제한' : `기본권 ${tickets.initial || 0}장, 초대권 ${tickets.invitation || 0}장`;
   }
 
   navigate(viewName, { history: writeHistory = true, replace = false } = {}) {
@@ -303,11 +380,27 @@ class AppRouter {
   renderInitError(error) {
     this.setSplashState('error');
     const status = document.getElementById('splash-status-text');
-    if (status) status.textContent = error.status === 401
+    const code = error.data?.error;
+    const eventMessages = {
+      EVENT_NOT_ENABLED: '행사 오픈을 준비하고 있어요. 시작 후 다시 방문해 주세요.',
+      CAMPAIGN_NOT_OPEN: '아직 행사 시작 전이에요. 시작 시각에 다시 방문해 주세요.',
+      CAMPAIGN_CLOSED: '행사가 종료됐어요. 참여해 주셔서 감사합니다.',
+      CAMPAIGN_UNAVAILABLE: '행사가 잠시 중단됐어요. 잠시 후 다시 확인해 주세요.',
+    };
+    if (status) status.textContent = eventMessages[code] || (error.status === 401
       ? '이 브라우저의 참여 기록을 확인할 수 없어요. 운영팀에 문의해 주세요.'
-      : '연결이 잠시 끊겼어요. 잠시 후 다시 연결해 주세요.';
+      : '연결이 잠시 끊겼어요. 잠시 후 다시 연결해 주세요.');
     const retry = document.getElementById('splash-retry');
-    if (retry) retry.onclick = () => this.init({ fromRetry: true });
+    if (retry) {
+      retry.disabled = false;
+      retry.hidden = code === 'CAMPAIGN_CLOSED';
+      retry.textContent = eventMessages[code] ? '다시 확인' : '다시 연결';
+      retry.onclick = () => {
+        if (retry.disabled) return Promise.resolve();
+        retry.disabled = true;
+        return this.init({ fromRetry: true });
+      };
+    }
   }
 
   showCooldownNotice() {
@@ -352,8 +445,7 @@ class AppRouter {
       try {
         const result = await api.qualifyReferral({ code, visit_nonce: this.inviteVisit.visit_nonce, active_ms: Math.round(currentVisible()), interacted: true, event_id: eventId });
         cleanup();
-        analytics.track(result.status === 'REWARDED' ? 'invite_visit_qualified' : 'invite_visit_rejected', { status: result.status, reason: result.reason || '' });
-        if (result.status === 'REWARDED') ui.showToast('초대 방문이 확인되어 친구에게 게임권이 지급됐어요.');
+        analytics.track(result.status === 'QUALIFIED' ? 'invite_visit_qualified' : 'invite_visit_rejected', { status: result.status, reason: result.reason || '' });
         await this.refreshState({ quiet: true });
       } catch (error) {
         const retryable = !error.status || error.status === 408 || error.status === 429 || error.status >= 500;

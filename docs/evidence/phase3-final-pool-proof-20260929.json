@@ -1,0 +1,47 @@
+{
+  "database_owned": true,
+  "loopback_port": 55433,
+  "campaign_id": "phase3_inventory_test",
+  "migration_versions": [
+    "20260925083548",
+    "20260925092759",
+    "20260925125939",
+    "20260925140902",
+    "20260926093414",
+    "20260926103809",
+    "20260926215000",
+    "20260927090000",
+    "20260927091037",
+    "20260927140000",
+    "20260928151903",
+    "20260929021923"
+  ],
+  "remote_calls": false,
+  "prepared": {
+    "campaign_id": "phase3_inventory_test",
+    "created": true,
+    "allocated": 0,
+    "total": 5000,
+    "prizes": 63
+  },
+  "prepared_counts": {
+    "total": 5000,
+    "prizes": 63,
+    "benefits": 4937,
+    "allocated": 0
+  },
+  "test_elapsed_seconds": 18.636,
+  "test_exit_code": 0,
+  "asserted_final_counts": {
+    "allocated": 5000,
+    "distinct_draws": 5000,
+    "prize_slots": 63,
+    "benefit_slots": 4937,
+    "claims": 63,
+    "reserved": 63,
+    "draw_5001": "BENEFIT"
+  },
+  "database_dropped": true,
+  "elapsed_seconds": 19.316,
+  "result": "PASS"
+}

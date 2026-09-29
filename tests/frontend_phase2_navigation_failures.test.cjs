@@ -191,12 +191,14 @@ test('TOP3 submission preserves version provenance and does not navigate from a 
     isCurrent: () => current,
     navigate: (viewName) => navigations.push(viewName),
   };
-  view.top3Modal(router, 4);
+  const form = view.top3Form(router, 4);
+  const fields = form.children.flatMap(child => child.children || []).filter(child => child.name);
+  for (const input of fields) input.value = input.name === 'contact' ? '01012345678' : '입력값';
   checkboxes.at(-1).checked = true;
-  const submit = modal.onConfirm();
+  const submit = form.onsubmit({ preventDefault() {} });
   current = false;
   request.resolve({ status: 'SUBMITTED', submitted_at: '2026-09-26T00:00:00Z' });
-  assert.equal(await submit, true);
+  assert.equal(await submit, undefined);
   assert.equal(router.state.top3Profile.game_version, '1.2.0');
   assert.equal(router.state.top3Profile.status, 'SUBMITTED');
   assert.deepEqual(navigations, []);
@@ -227,7 +229,12 @@ test('claim submission completion does not navigate away from a newer screen', a
     showToast() {},
   };
   const view = loadView('public/js/views/prize_view.js', 'PrizeView', {
-    api: { submitClaim: () => request.promise },
+    api: {
+      getClaimDraft: async () => ({ draft: { name: '입력값', contact: '01012345678', school: '입력값', consent: true } }),
+      saveClaimDraft: async () => ({ draft_saved: true }),
+      submitClaim: () => request.promise,
+    },
+    prepareResultReferralShare: async () => ({ share: async () => ({ method: 'copy', status: 'copied' }) }),
     analytics: { track() {} }, ui, document,
   });
   const router = {
@@ -236,9 +243,11 @@ test('claim submission completion does not navigate away from a newer screen', a
     announceStateChange() {},
     navigate: (viewName) => navigations.push(viewName),
   };
-  view.claimModal({ id: 'claim-1', claim_type: 'DRAW' }, router, 9);
+  await view.claimModal({ id: 'claim-1', claim_type: 'DRAW' }, router, 9);
+  await Promise.resolve();
   checkbox.checked = true;
   const submit = modal.onConfirm();
+  await Promise.resolve();
   current = false;
   request.resolve({ status: 'INFORMATION_RECEIVED' });
   assert.equal(await submit, true);

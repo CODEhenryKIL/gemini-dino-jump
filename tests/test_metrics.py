@@ -19,7 +19,7 @@ class MetricsTest(unittest.TestCase):
     def setUp(self):
         url = os.getenv('PHASE1_METRICS_DATABASE_URL', 'postgresql://postgres@127.0.0.1:55433/dino_phase1_v2_browser')
         parsed = urlparse(url)
-        if parsed.hostname not in {'localhost', '127.0.0.1'} or not parsed.path.startswith('/dino_phase1_v2_'):
+        if parsed.hostname not in {'localhost', '127.0.0.1'} or not parsed.path.startswith(('/dino_phase1_v2_','/dino_phase1_audit_')):
             raise RuntimeError('Metrics fixtures require the isolated local Phase 1 database')
         self.conn = psycopg.connect(url, row_factory=dict_row)
         self.addCleanup(self.conn.close)
@@ -54,6 +54,27 @@ class MetricsTest(unittest.TestCase):
           values(%s,%s,%s,%s,1,'dino-v1','ACTIVE','INITIAL','PENDING',%s,%s,'local')''',
           (session_id,pid,self.campaign,self.prefix+suffix,self.base,self.base+dt.timedelta(hours=1)))
         return session_id
+
+    def share_intent(self, pid, suffix, kind, reward_type, *, claim=False):
+        share_id = self.prefix + 'share_' + suffix
+        claim_id = None
+        if claim:
+            claim_id = self.prefix + 'claim_' + suffix
+            self.conn.execute('''insert into dino_dev.claim
+              (id,campaign_id,participant_id,claim_type,status)
+              values(%s,%s,%s,'RANKING','AWAITING_INFORMATION')''',
+              (claim_id,self.campaign,pid))
+        reward_status = 'GRANTED' if reward_type in {'GAME','DRAW'} else 'NO_REWARD'
+        self.conn.execute('''insert into dino_dev.kakao_share_intent
+          (id,participant_id,campaign_id,claim_id,kind,reward_type,reward_contract_version,
+           callback_token_hash,environment,status,reward_status,resource_id,chat_type,
+           hash_chat_id,expires_at,confirmed_at,created_at,updated_at)
+          values(%s,%s,%s,%s,%s,%s,2,%s,'local','CONFIRMED',%s,%s,'DirectChat',%s,
+            %s+interval '1 hour',%s,%s,%s)''',
+          (share_id,pid,self.campaign,claim_id,kind,reward_type,secrets.token_hex(32),
+           reward_status,self.prefix+'resource_'+suffix,self.prefix+'chat_'+suffix,
+           self.base,self.base,self.base,self.base))
+        return share_id
 
     def report(self, **query):
         self.conn.execute('set local role dino_dev_app')
@@ -248,6 +269,7 @@ class MetricsTest(unittest.TestCase):
         self.event('share_attempted',linked,4,{'share_method':'native','status':'share_sheet_closed'},screen='invite')
         self.event('share_attempted',linked,5,{'source':'home','share_method':'native','status':'cancelled'})
         self.event('share_attempted',None,6,{'share_method':'copy','status':'copied','share_id':'safe_share'},observation=unlinked_observation,screen='invite')
+        self.event('share_attempted',linked,7,{'link_kind':'general_share','share_method':'kakao','status':'confirmed'},screen='ranking')
         self.event('content_clicked',linked,5,{'content':'study'})
         self.event('content_clicked',linked,6,{'content':'study'})
         self.event('notion_redirect_requested',linked,7,{'content':'study'})
@@ -262,15 +284,49 @@ class MetricsTest(unittest.TestCase):
                           data['sharing']['gemini_sharing']['copy_success_events']), (1,1))
         self.assertEqual((data['sharing']['invitation_sharing']['linked_participants'],
                           data['sharing']['invitation_sharing']['unlinked_events'],
-                          data['sharing']['invitation_sharing']['copy_success_events']), (1,1,1))
+                          data['sharing']['invitation_sharing']['copy_success_events']), (0,0,0))
         self.assertEqual((data['sharing']['unknown_sharing']['linked_participants'],
                           data['sharing']['unknown_sharing']['cancelled_events']), (1,1))
+        self.assertEqual(data['sharing']['general_share_sharing']['event_count'],0)
         self.assertEqual({row['purpose'] for row in data['sharing']['by_purpose']},
-                         {'gemini','retry_invite','unknown'})
+                         {'gemini','unknown'})
         study = next(row for row in data['content'] if row['content']=='study')
         photo = next(row for row in data['content'] if row['content']=='photo')
         self.assertEqual((study['click_events'],study['outbound_request_events'],study['linked_participants']), (2,1,1))
         self.assertEqual((photo['linked_participants'],photo['unlinked_events']), (0,1))
+
+    def test_share_purposes_require_owned_intents_and_game_rewards_exclude_claim_shares(self):
+        linked = self.person('purpose_owner')
+        other = self.person('purpose_other')
+        shares = {
+          'retry_invite': self.share_intent(linked,'retry','retry_invite','GAME'),
+          'record_share': self.share_intent(linked,'record','record_share','GAME'),
+          'draw_retry': self.share_intent(linked,'draw','draw_retry','DRAW'),
+          'prize_share': self.share_intent(linked,'prize','prize_share','NONE'),
+          'general_share': self.share_intent(linked,'general','general_share','NONE'),
+          'claim_share': self.share_intent(linked,'claimrecord','record_share','NONE',claim=True),
+          'foreign': self.share_intent(other,'foreign','retry_invite','GAME'),
+        }
+        for minute,(purpose,share_id) in enumerate(shares.items(),1):
+            self.event('share_attempted',linked,minute,
+                       {'link_kind':purpose,'share_id':share_id,'share_method':'kakao','status':'confirmed'},
+                       screen='invite')
+        self.event('share_attempted',linked,20,
+                   {'link_kind':'retry_invite','share_id':'missing_intent','share_method':'kakao','status':'confirmed'},
+                   screen='invite')
+        data = self.report()
+        expected = {'retry_invite','record_share','draw_retry','prize_share','general_share','claim_share','unknown'}
+        self.assertEqual({row['purpose'] for row in data['sharing']['by_purpose']},expected)
+        invitation = data['sharing']['invitation_sharing']
+        self.assertEqual((invitation['event_count'],invitation['linked_participants'],
+                          invitation['server_confirmed_intents'],invitation['server_confirmed_participants']),
+                         (2,1,3,2))
+        self.assertEqual(data['sharing']['claim_share_sharing']['event_count'],1)
+        self.assertEqual(data['sharing']['claim_share_sharing']['server_confirmed_intents'],1)
+        self.assertEqual(data['sharing']['general_share_sharing']['event_count'],1)
+        self.assertEqual(data['sharing']['draw_retry_sharing']['event_count'],1)
+        self.assertEqual(data['sharing']['prize_share_sharing']['event_count'],1)
+        self.assertEqual(data['sharing']['unknown_sharing']['event_count'],2)
 
     def test_invitation_ledger_reports_period_ratio_and_post_cooldown_reparticipation(self):
         participant = self.person('inviteledger')

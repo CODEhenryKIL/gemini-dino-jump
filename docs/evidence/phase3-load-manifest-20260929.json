@@ -1,0 +1,160 @@
+{
+  "version": "phase3-20260929-v4-preparation",
+  "status": "DRAFT",
+  "event_enabled": false,
+  "campaign": {
+    "id": "gemini_dino_campus_2026",
+    "opens_at": "2026-09-29T19:00:00+09:00",
+    "closes_at": "2026-10-03T00:00:00+09:00",
+    "timezone": "Asia/Seoul",
+    "claim_closes_at": "2026-10-04T00:00:00+09:00"
+  },
+  "draw_pool": {
+    "total_slots": 5000,
+    "benefit_slots": 4923,
+    "max_draws_per_participant": 10,
+    "mode": "WITHOUT_REPLACEMENT"
+  },
+  "draw_prizes": [
+    {
+      "id": "samtanbyme",
+      "name": "삼텐바이미",
+      "category": "SHIPPING",
+      "quantity": 1,
+      "unit_price_krw": 350000
+    },
+    {
+      "id": "sony_ult_wear",
+      "name": "소니 ULT WEAR 헤드셋",
+      "category": "SHIPPING",
+      "quantity": 2,
+      "unit_price_krw": 259000
+    },
+    {
+      "id": "orthomol_7day",
+      "name": "오쏘몰 이뮨 7일분",
+      "category": "SHIPPING",
+      "quantity": 2,
+      "unit_price_krw": 38000
+    },
+    {
+      "id": "naverpay_50000",
+      "name": "네이버페이 5만원권",
+      "category": "COUPON",
+      "quantity": 3,
+      "unit_price_krw": 50000
+    },
+    {
+      "id": "musinsa_50000",
+      "name": "무신사 5만원권",
+      "category": "COUPON",
+      "quantity": 2,
+      "unit_price_krw": 50000
+    },
+    {
+      "id": "baemin_20000",
+      "name": "배민 2만원권",
+      "category": "COUPON",
+      "quantity": 4,
+      "unit_price_krw": 20000
+    },
+    {
+      "id": "starbucks_10000",
+      "name": "스타벅스 1만원권",
+      "category": "COUPON",
+      "quantity": 9,
+      "unit_price_krw": 10000
+    },
+    {
+      "id": "convenience_5000",
+      "name": "편의점 5천원권",
+      "category": "COUPON",
+      "quantity": 24,
+      "unit_price_krw": 5000
+    },
+    {
+      "id": "ghana",
+      "name": "가나초콜릿",
+      "category": "SHIPPING",
+      "quantity": 10,
+      "unit_price_krw": 1500
+    },
+    {
+      "id": "snickers",
+      "name": "스니커즈",
+      "category": "SHIPPING",
+      "quantity": 10,
+      "unit_price_krw": 1500
+    },
+    {
+      "id": "chupa_chups",
+      "name": "츄파춥스",
+      "category": "SHIPPING",
+      "quantity": 10,
+      "unit_price_krw": 500
+    }
+  ],
+  "ranking_prizes": [
+    {
+      "rank": 1,
+      "id": "musinsa_50000",
+      "name": "무신사 5만원권",
+      "quantity": 1,
+      "unit_price_krw": 50000
+    },
+    {
+      "rank": 2,
+      "id": "baemin_20000",
+      "name": "배민 2만원권",
+      "quantity": 1,
+      "unit_price_krw": 20000
+    },
+    {
+      "rank": 3,
+      "id": "starbucks_10000",
+      "name": "스타벅스 1만원권",
+      "quantity": 1,
+      "unit_price_krw": 10000
+    }
+  ],
+  "policies": {
+    "pool_exhaustion": "STOP_NEW_DRAWS_AT_POOL_EXHAUSTION — 5,000자리 소진 시 새 추첨을 중단하는 현재 구현 기준",
+    "unallocated_inventory_at_close": "MANUAL_REVIEW — 마감 후 남은 배정분은 자동 추첨·차순위 지급 없이 운영팀 확인",
+    "beta_data_migration": "RESET_BETA_START_NEW — 같은 Supabase의 dino_prod에서 빈 본행사 시작. 베타 쓰기 차단·비공개 최종 백업·삭제 계획 대조 후 공룡 점프 베타 참여 기록만 초기화. 기존 앱·공용 인증·관리자·guard·스키마 유지.",
+    "ranking_ties": "EARLIER_ACHIEVEMENT_FIRST",
+    "finish_after_close": "RECEIVED_BEFORE_CLOSE",
+    "draw_and_ranking_double_award": "ALLOW_BOTH — 2026-09-29 사용자 확정: 동일인이 복주머니 실제 상품과 랭킹 TOP3 상품을 각각 받을 수 있음",
+    "eligibility_and_proof": "재학생·휴학생 모두 경품 수령 가능. 운영팀이 당첨자에게 직접 연락해 대학생 여부와 필요한 증빙을 개별 확인한 뒤 수동 지급. 별도 사이트 증빙 업로드는 오픈 필수 요건이 아님.",
+    "claim_deadline_and_no_response": "MANUAL_REVIEW_AFTER_DEADLINE",
+    "duplicate_person_claims": "MANUAL_REVIEW — 쿠키 단위 한도 외 동일인 여부는 지급 전 운영팀 확인, 자동 차단·추가 지급 없음",
+    "privacy_retention_and_deletion": "지급자는 개인별 지급 완료 후 30일 이내, 미지급·부적격·미응답·최종 비수상자는 전체 경품 지급 종료 후 30일 이내 이름·연락처·학교 등 수령 개인정보 삭제. 담당자는 행사 운영자(사용자 본인) — 2026-09-29 사용자 확정",
+    "operator_contact": "sea42471@naver.com"
+  },
+  "approvals": {
+    "environment": "2026-09-29 사용자 최종 오픈 실행 계획 진행 요청. 기존 Supabase igfrnexknwtiljdqjrbp 안의 전용 dino_prod/dino_prod_app 사용. 추가 유료 프로젝트 생성 없음.",
+    "inventory": "2026-09-29 사용자 확정: 복주머니 77개·랭킹 3개 배정. 아직 미구매이며 당첨자 연락처 취합 후 구매·일괄 발송.",
+    "privacy": "2026-09-29 사용자 확정: 지급자는 개인별 지급 완료 후 30일 이내, 미지급자는 전체 경품 지급 종료 후 30일 이내 수령 개인정보 삭제. 사용자 본인이 관리하며 문의는 sea42471@naver.com.",
+    "benefit_and_brand": null,
+    "public_launch": null
+  },
+  "evidence": {
+    "target_db_and_backup": "2026-09-29 기존 Supabase igfrnexknwtiljdqjrbp에 dino_prod 32테이블·migration12개 생성. dino_prod_app TLS 읽기 연결 및 베타/기존앱 테이블 접근권한0개 확인. 베타 15:58:54 KST 비공개 백업을 로컬 임시 DB에 복원해32테이블 전체행·제약·identity시퀀스 일치 확인. 증거: docs/final-launch-execution-report.md. 공개 직전 쓰기 차단 후 최종 백업을 다시 확보하는 절차 유지.",
+    "runtime_production_guard": "2026-09-29 집중 운영 준비·런타임 검사39개 통과. 원격 dino_prod_app 전용TLS연결·베타/기존앱권한0개 확인. 최종 배포의manifest/DBguard 대조는 운영 후보 단계에서 확인한다. docs/final-launch-execution-report.md",
+    "inventory_reconciliation": "격리 운영 적재 검증: 총 5,000자리 = PRIZE 77+BENEFIT 4,923, 별도 랭킹 3, 총 배정80. 실제 구매·발송 증명 아님.",
+    "real_kakao_game_and_draw": "2026-09-29 베타 실전송: GAME 단톡 +1, DRAW 친구 +1, 목적별 다른 권리 0, 자기전송 제외 및 claim 친구 전송 접수 확인 — docs/test-run-2026-09-29.md. 전체 수신 카드/기기 조합은 별도 대기",
+    "physical_device_qa": null,
+    "final_load_test": null,
+    "notion_and_benefit_links": null,
+    "rollback_rehearsal": null
+  },
+  "production_flags": {
+    "unlimited_play": false,
+    "synthetic_inventory": false,
+    "shortened_clock": false
+  },
+  "fulfillment": {
+    "procurement_status": "NOT_PURCHASED",
+    "method": "당첨자 연락처 취합 후 구매·일괄 발송. 정확한 발송일은 미정.",
+    "source": "2026-09-29 사용자 확정"
+  }
+}

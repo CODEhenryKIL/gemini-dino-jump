@@ -8,8 +8,8 @@ const source = fs.readFileSync(path.join(root, 'public/js/game/simulation.js'), 
 const context = {};
 vm.runInNewContext(`${source}\nglobalThis.V2GameSimulation = V2GameSimulation; globalThis.simulateV2 = simulateV2;`, context);
 
-function runBot(seed, targetRevives = 2) {
-  const sim = new context.V2GameSimulation(seed);
+function runBot(seed, targetRevives = 2, version = '2.0.0') {
+  const sim = new context.V2GameSimulation(seed, version);
   let sacrificeForRevive = false;
   while (!sim.ended) {
     if (sim.heart === 1 && sim.revives < targetRevives) sacrificeForRevive = true;
@@ -27,6 +27,6 @@ function runBot(seed, targetRevives = 2) {
 
 const request = JSON.parse(process.argv[2] || '{}');
 const result = request.mode === 'bot'
-  ? runBot(request.seed, request.target_revives)
-  : context.simulateV2(request.seed, request.jumps || [], request.until_ticks);
+  ? runBot(request.seed, request.target_revives, request.version)
+  : context.simulateV2(request.seed, request.jumps || [], request.until_ticks, request.version);
 process.stdout.write(JSON.stringify(result));

@@ -23,6 +23,9 @@ function loadApi(fetchImpl) {
     crypto: { randomUUID: () => 'uuid' },
     Math,
     Date,
+    AbortController,
+    setTimeout,
+    clearTimeout,
   };
   vm.runInNewContext(`${source}\nglobalThis.loadedApi = api; globalThis.ApiError = ApiError;`, context);
   return context.loadedApi;
@@ -68,6 +71,34 @@ test('analytics batch transport retries a lost request with the exact generated 
   assert.equal(calls[1].options.headers.get('Idempotency-Key'), calls[0].options.headers.get('Idempotency-Key'));
 });
 
+test('a permanently pending API request times out after one safe retry', async () => {
+  const calls = [];
+  const api = loadApi((url, options) => {
+    calls.push({ url, options });
+    return new Promise(() => {});
+  });
+  await assert.rejects(
+    api.request('/api/config', { timeoutMs: 5 }),
+    (error) => error.status === 408 && error.data?.error === 'CLIENT_TIMEOUT',
+  );
+  assert.equal(calls.length, 2);
+});
+
+test('response body reading is bounded and mutation retry keeps one idempotency key', async () => {
+  const calls = [];
+  const api = loadApi(async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 202, json: () => new Promise(() => {}) };
+  });
+  await assert.rejects(
+    api.request('/api/test-mutation', { method: 'POST', idempotent: true, timeoutMs: 5, body: '{}' }),
+    (error) => error.status === 408,
+  );
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].options.headers.get('Idempotency-Key'), calls[0].options.headers.get('Idempotency-Key'));
+  assert.equal(calls[0].options.timeoutMs, undefined);
+});
+
 test('rebatching the same first event gets a fresh request key and relies on event IDs for deduplication', async () => {
   const calls = [];
   let uuid = 0;
@@ -82,6 +113,7 @@ test('rebatching the same first event gets a fresh request key and relies on eve
   const context = {
     fetch: async (url, options) => { calls.push({ url, options }); return { ok: true, status: 202, json: async () => ({ accepted: 1, duplicates: 0, rejected: 0 }) }; },
     Headers: HeadersMock, FormData: class {}, crypto: { randomUUID: () => `uuid-${++uuid}` }, Math, Date,
+    AbortController, setTimeout, clearTimeout,
   };
   vm.runInNewContext(`${source}\nglobalThis.loadedApi = api;`, context);
   const event = { event_id: 'evt_same_first_12345678', name: 'entry_viewed' };
@@ -98,8 +130,8 @@ test('lost finish retries retain an exact key and a PII-free payload', () => {
   assert.doesNotMatch(game, /session_token|contact|recipient|participant_id/i);
   assert.match(game, /checkpointSession/);
   assert.doesNotMatch(game, /checkpointSession\(this\.sessionId, 0\)/);
-  assert.match(game, /정상 종료나 자발적 이탈은 환급 대상이 아닙니다/);
-  assert.match(game, /같은 게임 이어하기/);
+  assert.match(game, /await api\.abandonSession\(id\)/);
+  assert.match(game, /미완료 게임을 무효 처리/);
   assert.doesNotMatch(game, /pending\.status !== 'FAULT_REPORTED'\) await api\.reportSessionFault/);
 });
 
@@ -144,7 +176,7 @@ test('invite qualification requires both active time and interaction and GET can
   assert.match(app, /api\.qualifyReferral/);
   assert.doesNotMatch(app, /fetch\([^)]*invite[^)]*method:\s*['"]GET/i);
   assert.match(read('public/js/api.js'), /method: 'POST'.*\/api\/referrals\/qualify/s);
-  assert.match(app, /requestedLinkKind === 'prize_share' \? 'prize_share' : 'retry_invite'/);
+  assert.match(app, /new Set\(\['retry_invite', 'record_share', 'draw_retry', 'prize_share', 'general_share'\]\)/);
   assert.match(app, /requestedLinkKind === 'initial' \? 'initial' : 'direct'/);
   assert.match(app, /this\.inviteVisit\?\.status === 'PENDING' && this\.inviteVisit\.visit_nonce/);
   assert.match(app, /SELF_INVITE/);
@@ -155,9 +187,9 @@ test('invite qualification requires both active time and interaction and GET can
 test('draw is participant-scoped, resumes from server, and scratch listeners are cleaned up', () => {
   const draw = read('public/js/views/draw_view.js');
   assert.match(draw, /api\.getDraw\(\)/);
-  assert.match(draw, /state\.status === 'DRAWN'/);
+  assert.match(draw, /\['DRAWN', 'WON', 'EXHAUSTED'\]\.includes\(state\.status\)/);
   assert.doesNotMatch(draw, /session_id|sessionId/);
-  assert.match(draw, /draw\.is_won \? 'won' : 'no_prize'/);
+  assert.match(draw, /actualPrize \? 'prize' : 'benefit'/);
   const scratch = read('public/js/components/scratch_card.js');
   assert.match(scratch, /destroy\(\)/);
   assert.match(scratch, /removeEventListener\('touchmove'/);
@@ -218,19 +250,28 @@ test('blocked web storage cannot crash participant or game bootstrap', () => {
   assert.match(read('public/js/app.js'), /navigator\.locks\?\.request/);
 });
 
+test('public viewport allows zoom while app chrome reserves device safe areas', () => {
+  const html = read('public/index.html');
+  const css = read('public/css/style.css');
+  assert.doesNotMatch(html, /user-scalable\s*=\s*no|maximum-scale\s*=\s*1(?:\.0)?/i);
+  assert.match(html, /viewport-fit=cover/);
+  assert.match(css, /\.app-header[\s\S]*safe-area-inset-top/);
+  assert.match(css, /\.bottom-nav[\s\S]*safe-area-inset-bottom/);
+  assert.match(css, /\.view-content[\s\S]*safe-area-inset-bottom/);
+});
+
 test('a consumed ticket does not block access to an existing game or fault recovery', () => {
   const home = read('public/js/views/home.js');
-  assert.match(home, /start\.disabled = !pendingSession && \(campaignStatus !== 'ACTIVE' \|\| \(!unlimited && available < 1\)\)/);
-  assert.match(home, /진행 중 게임 복원/);
-  assert.match(home, /장애 복구 상태 확인/);
-  assert.match(home, /if \(router\.state\.pendingGameSession\) \{ router\.navigate\('game'\); return; \}/);
+  assert.match(home, /start\.disabled = !pendingSession && campaignStatus !== 'ACTIVE'/);
+  assert.match(home, /if \(pendingSession\) start\.textContent = '게임 시작'/);
+  assert.match(home, /!router\.state\.pendingGameSession && tickets\.unlimited_play/);
 });
 
 test('fault recovery persists only non-PII evidence and reconciles rejected checkpoints', () => {
   const game = read('public/js/views/game_view.js');
   assert.match(game, /FAULT_PREFIX = 'dino_fault_'/);
   assert.match(game, /persistFaultMarker\('NETWORK_ERROR', tick\)/);
-  assert.match(game, /정상 종료나 자발적 이탈은 환급 대상이 아닙니다/);
+  assert.match(game, /await api\.abandonSession\(id\)/);
   assert.doesNotMatch(game, /recipient_name|contact|address|participant_token/i);
 });
 
@@ -247,12 +288,12 @@ test('scratch completion keeps a stable retry key and does not claim completion 
 
 test('share attribution uses an opaque approved parameter and records outcomes separately', () => {
   const app = read('public/js/app.js');
-  const invite = read('public/js/views/invite_view.js');
+  const sharing = read('public/js/referral_share.js');
   assert.match(app, /url\.searchParams\.get\('share'\)/);
   assert.match(app, /share_id: shareId/);
-  assert.match(invite, /url\.searchParams\.set\('share', shareId\)/);
-  assert.match(invite, /status: 'copied'/);
-  assert.match(invite, /status: 'failed'/);
+  assert.match(sharing, /url\.searchParams\.set\('share', shareId\)/);
+  assert.match(sharing, /trackShare\('copy', shareId, 'copied'/);
+  assert.match(sharing, /trackShare\('copy', shareId, 'failed'/);
   assert.match(read('public/js/analytics.js'), /'share_id'/);
 });
 
@@ -261,8 +302,12 @@ test('admin isolates contact operations and renders metric definitions and full 
   const admin = read('public/js/admin.js');
   assert.match(html, /id="claim-operations-section"[^>]*hidden/);
   assert.match(html, /id="ranking-contact-section"[^>]*hidden/);
+  assert.match(html, /id="ranking-finalization-section"[^>]*hidden/);
   assert.match(admin, /adminPermissions\.has\('claims:read'\)/);
+  assert.match(admin, /adminPermissions\.has\('ranking:read'\)/);
+  assert.match(admin, /adminPermissions\.has\('ranking:write'\)/);
   assert.match(admin, /\/api\/admin\/ranking-contacts/);
+  assert.match(admin, /\/api\/admin\/ranking-snapshots/);
   assert.match(admin, /claim\.recipient_name/);
   assert.match(admin, /renderOperationalBreakdowns\(data\)/);
   assert.match(admin, /renderDefinitions\(data\.definitions/);
@@ -270,10 +315,11 @@ test('admin isolates contact operations and renders metric definitions and full 
   assert.match(admin, /data\.filter_attribution/);
   assert.match(admin, /new_participants/);
   assert.match(admin, /returning_participants/);
-  assert.match(admin, /claim\.claim_type === 'RANKING' \? '잠정 TOP3 연락 접수'/);
+  assert.match(admin, /finalizedRanking \? \(claim\.prize_name \|\| 'TOP3 수령 요청'\) : '잠정 TOP3 연락 접수'/);
   assert.match(admin, /claim\.assignee_display_name \|\| claim\.assignee_user_id \|\| '미지정'/);
   assert.match(admin, /externalBox\.checked = Boolean\(claim\.external_delivery\)/);
   assert.match(admin, /최종 수상 확정 전이므로 지급 완료로 변경할 수 없습니다/);
+  assert.match(admin, /actual|실제 지급은 수동|실제 지급은 운영자가/);
   assert.match(admin, /row\.ready/);
   assert.match(admin, /row\.pending/);
   assert.match(admin, /row\.estimated_exits/);
@@ -327,9 +373,8 @@ test('submitted TOP3 state wins over a stale requested result when result screen
     ui: { text(node, value) { node.textContent = String(value); } },
   });
   view.render(container, router);
-  const button = created.find((node) => node.tag === 'button' && node.textContent === '정보 접수 완료');
-  assert.ok(button);
-  assert.equal(button.disabled, true);
+  assert.ok(created.find((node) => node.textContent === 'TOP3 정보 접수 완료'));
+  assert.equal(created.some((node) => node.tag === 'form'), false);
   assert.equal(created.some((node) => node.textContent === '합성 테스트 정보 입력'), false);
 });
 
@@ -337,4 +382,6 @@ test('public metadata uses the deployment site name while retaining Dino Jump', 
   const index = read('public/index.html');
   assert.match(index, /<title>구글 코리아 팀 제미나이 \| 공룡 점프<\/title>/);
   assert.match(index, /property="og:site_name" content="구글 코리아 팀 제미나이"/);
+  assert.match(index, /href="\/css\/phase2-views\.css\?v=20260926-benefit"/);
+  assert.match(index, /src="\/js\/app\.js\?v=20260926-benefit"/);
 });

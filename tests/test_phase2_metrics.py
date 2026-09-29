@@ -17,7 +17,7 @@ class Phase2MetricsTest(unittest.TestCase):
     def setUp(self):
         url = os.getenv("PHASE1_METRICS_DATABASE_URL", "postgresql://postgres@127.0.0.1:55433/dino_phase1_v2_browser")
         parsed = urlparse(url)
-        if parsed.hostname not in {"localhost", "127.0.0.1"} or not parsed.path.startswith("/dino_phase1_v2_"):
+        if parsed.hostname not in {"localhost", "127.0.0.1"} or not parsed.path.startswith(("/dino_phase1_v2_","/dino_phase1_audit_")):
             raise RuntimeError("Phase 2 metrics fixtures require an isolated local database")
         self.conn = psycopg.connect(url, row_factory=dict_row)
         self.addCleanup(self.conn.close)
@@ -88,7 +88,7 @@ class Phase2MetricsTest(unittest.TestCase):
         self.assertEqual(data["leaderboard"][0]["rank"], 1, "rank is computed after the environment cohort is scoped")
         self.assertEqual((data["score_distribution"][0]["game_version"], data["score_distribution"][0]["games"]), ("2.0.0", 1))
 
-    def test_loading_content_ordered_ctr_and_record_share_are_separate(self):
+    def test_loading_content_ordered_ctr_and_ungrounded_shares_are_unknown(self):
         converted = self.person("converted")
         converted_obs = self.observation("converted", converted)
         for index, name in enumerate(("loading_data_ready", "loading_intro_completed", "loading_ready")):
@@ -118,13 +118,15 @@ class Phase2MetricsTest(unittest.TestCase):
         self.assertEqual((content["viewed_participants"], content["clicked_participants"],
                           content["converted_participants"], content["unique_ctr"]), (2, 2, 1, 0.5))
         record = data["sharing"]["record_share_sharing"]
-        self.assertEqual((record["copy_success_events"], record["linked_participants"]), (1, 1))
+        self.assertEqual((record["copy_success_events"], record["linked_participants"]), (0, 0))
         retry = data["sharing"]["retry_invite_sharing"]
         prize = data["sharing"]["prize_share_sharing"]
         invitation = data["sharing"]["invitation_sharing"]
-        self.assertEqual((retry["attempt_events"], prize["share_sheet_closed_events"]), (1, 1))
-        self.assertEqual((invitation["event_count"], invitation["linked_participants"]), (3, 1))
-        self.assertEqual({"record_share", "retry_invite", "prize_share"},
+        unknown = data["sharing"]["unknown_sharing"]
+        self.assertEqual((retry["attempt_events"], prize["share_sheet_closed_events"]), (0, 0))
+        self.assertEqual((invitation["event_count"], invitation["linked_participants"]), (0, 0))
+        self.assertEqual((unknown["event_count"],unknown["linked_participants"]),(3,1))
+        self.assertEqual({"unknown"},
                          {row["purpose"] for row in data["sharing"]["by_purpose"]})
         labels = {row["key"]: row["label"] for row in data["metrics"]}
         self.assertEqual(

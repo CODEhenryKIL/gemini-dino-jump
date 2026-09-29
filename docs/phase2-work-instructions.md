@@ -1,4 +1,8 @@
+> **2026-09-29 최신 정책:** 이 문서는 작성 당시의 차수별 기록을 보존합니다. 현재 구현 기준은 [3차 공통 정책](phase3-policy-decisions.md)과 [통합 3차 지시서](phase3-work-instructions.md)입니다. 복주머니 최대 10회·카카오 전송 성공에 따른 게임권/뽑기권 분리·실제 상품 당첨 후 종료·랭킹 5만/2만/1만원이 이전 규칙을 대체합니다.
+
 2차 작업 지시서 — 페이지별 UX·게임·바이럴·Gemini 전환 완성
+
+> 2026-09-27 최신 결정: 초대권은 카카오 전송 성공 웹훅 확인으로만 지급한다. 이전 유효 방문 보상과 최초 2회 공유창 보너스 규칙은 폐기한다. 최대 3장·10시간 대기는 유지한다. 수령 정보 공유 확인도 웹훅을 사용한다. 상세: [카카오 공유 설정](kakao-share-setup.md).
 대상: https://github.com/CODEhenryKIL/gemini-dino-jump
 공통 기준: 00_scope_and_decisions.md / 원문: source_user_plan.md
 선행 산출물: 1차 코드·migration·이벤트 계약·docs/phase1-report.md

@@ -54,8 +54,8 @@ async function renderInvite(navigatorMock) {
   const events = [];
   const toasts = [];
   const nodes = new Map();
-  for (const selector of ['#invite-score', '#invite-balance', '#rewarded-pairs', '#valid-visits', '#invite-cooldown', '#btn-share-native', '#btn-copy-link']) {
-    nodes.set(selector, { onclick: null, textContent: '' });
+  for (const selector of ['#invite-balance', '#ticket-granted', '#ticket-used', '#ticket-refunded', '#valid-visits', '#invite-cooldown', '#invite-gap', '#share-fallback', '#btn-share-native', '#btn-invite-draw']) {
+    nodes.set(selector, { onclick: null, textContent: '', disabled: false, hidden: false, classList: { toggle() {} } });
   }
   const api = {
     async getReferralInfo() {
@@ -64,11 +64,29 @@ async function renderInvite(navigatorMock) {
     createRequestId() { return 'share_12345678'; },
   };
   const container = {
-    innerHTML: '',
+    _html: '',
+    set innerHTML(value) { this._html = value; },
+    get innerHTML() { return this._html; },
     querySelector(selector) { return nodes.get(selector); },
     replaceChildren() { throw new Error('invite render unexpectedly failed'); },
     appendChild() {},
   };
+  const prepareResultReferralShare = async (_router, { kind }) => ({
+    async share() {
+      const shareId = api.createRequestId();
+      const url = `https://example.test/invite/abcdefghijkl?link=${kind}&share=${shareId}`;
+      const method = typeof navigatorMock.share === 'function' ? 'native' : 'copy';
+      const track = (status) => events.push({ name: 'share_attempted', dimensions: { share_method: method, share_id: shareId, link_kind: kind, status } });
+      track('attempted');
+      try {
+        if (method === 'native') await navigatorMock.share({ url });
+        else await navigatorMock.clipboard.writeText(url);
+        const status = method === 'native' ? 'share_sheet_closed' : 'copied'; track(status); return { method, status };
+      } catch (error) {
+        const status = error?.name === 'AbortError' ? 'cancelled' : 'failed'; track(status); return { method, status };
+      }
+    },
+  });
   const view = loadView('public/js/views/invite_view.js', 'InviteView', {
     api,
     analytics: { track(name, dimensions = {}) { events.push({ name, dimensions }); } },
@@ -77,11 +95,12 @@ async function renderInvite(navigatorMock) {
       showToast(message) { toasts.push(message); },
     },
     navigator: navigatorMock,
+    prepareResultReferralShare,
     window: { location: { origin: 'https://example.test' } },
     URL,
     document: { createElement() { return {}; } },
   });
-  const router = { state: { bestScore: 321 }, shareContext: 'retry_invite', isCurrent: () => true };
+  const router = { state: { bestScore: 321, draw: { status: 'LOCKED' } }, shareContext: 'retry_invite', isCurrent: () => true };
   await view.render(container, router, 'render-1');
   return { events, nodes, toasts };
 }
@@ -101,7 +120,7 @@ test('unsupported native sharing falls back to copy without fabricating a native
 
 test('copy failure and native cancellation record the actual attempted method and outcome', async () => {
   const copy = await renderInvite({ clipboard: { async writeText() { throw new Error('denied'); } } });
-  await copy.nodes.get('#btn-copy-link').onclick();
+  await copy.nodes.get('#btn-share-native').onclick();
   assert.deepEqual(copy.events.filter(({ name }) => name === 'share_attempted').map(({ dimensions }) => [dimensions.share_method, dimensions.status]), [
     ['copy', 'attempted'], ['copy', 'failed'],
   ]);

@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-function loadHome(guideSeen = false, tickets = { initial: 1, invitation: 0, available_total: 1 }, campaignStatus = 'ACTIVE') {
+function loadHome(guideSeen = false, tickets = { initial: 1, invitation: 0, available_total: 1 }, campaignStatus = "ACTIVE") {
   const source = fs.readFileSync(path.join(root, 'public/js/views/home.js'), 'utf8')
     .replace(/^import .*;\s*$/gm, '')
     .replace('export const HomeView', 'const HomeView');
@@ -58,22 +58,14 @@ test('home presents only Dino Jump and starts it after the guide', () => {
   assert.deepEqual(page.navigations, []);
 });
 
-test('returning players start Dino Jump directly', () => {
+test('returning players see the tutorial on every new game', () => {
   const page = loadHome(true);
   page.elements.get('#btn-start-jump').onclick();
-  assert.deepEqual(page.navigations, ['game']);
-  assert.equal(page.getModal(), undefined);
-});
-
-test('only an explicit server unlimited flag enables zero-ticket play and keeps campaign pause rules', () => {
-  for (const flag of [false, undefined, 'true', true]) {
-    const page = loadHome(true, { initial: 0, invitation: 0, available_total: 0, unlimited_play: flag });
-    assert.equal(page.elements.get('#btn-start-jump').disabled, flag !== true);
-    assert.equal(page.elements.get('#home-basic-ticket').textContent, flag === true ? '무제한' : '0장');
-  }
-  const paused = loadHome(true, { initial: 0, invitation: 0, available_total: 0, unlimited_play: true }, 'PAUSED');
-  assert.equal(paused.elements.get('#btn-start-jump').disabled, true);
-  assert.match(paused.elements.get('#btn-start-jump').textContent, /잠시 중단/);
+  assert.deepEqual(page.navigations, []);
+  assert.equal(page.guides.length, 1);
+  page.elements.get('#btn-start-jump').onclick();
+  assert.equal(page.guides.length, 2);
+  assert.doesNotMatch(page.container.innerHTML, /btn-how-to-play|조작 방법과 규칙/);
 });
 
 test('Dino Jump runtime has no Gate Runner navigation or port dependency', () => {
@@ -93,3 +85,19 @@ test('Dino Jump runtime has no Gate Runner navigation or port dependency', () =>
   assert.deepEqual(config.redirects.map(({ destination }) => destination), ['/', '/', '/']);
   assert.equal(fs.existsSync(path.join(root, 'public/gate_runner.html')), false);
 });
+
+ test('zero-ticket CTA opens invite, while unlimited starts a game and pause still blocks', () => {
+  for (const flag of [false, undefined, 'true', true]) {
+    const page = loadHome(true, { initial: 0, invitation: 0, available_total: 0, unlimited_play: flag });
+    const button = page.elements.get('#btn-start-jump');
+    assert.equal(button.disabled, false);
+    button.onclick();
+    assert.deepEqual(page.navigations, flag === true ? [] : ['invite']);
+    assert.equal(page.guides.length, flag === true ? 1 : 0);
+    assert.equal(page.elements.get('#home-basic-ticket').textContent, flag === true ? '무제한' : '0장');
+    if (flag !== true) assert.match(button.textContent, /친구에게 공유하고 게임권 받기/);
+  }
+  const paused = loadHome(true, { unlimited_play: true, available_total: 0 }, 'PAUSED');
+  paused.elements.get('#btn-start-jump').onclick();
+  assert.deepEqual(paused.navigations, []);
+ });

@@ -1,3 +1,5 @@
+> **2026-09-29 최신 정책:** 이 문서는 작성 당시의 차수별 기록을 보존합니다. 현재 구현 기준은 [3차 공통 정책](phase3-policy-decisions.md)과 [통합 3차 지시서](phase3-work-instructions.md)입니다. 복주머니 최대 10회·카카오 전송 성공에 따른 게임권/뽑기권 분리·실제 상품 당첨 후 종료·랭킹 5만/2만/1만원이 이전 규칙을 대체합니다.
+
 # Phase 1 policy decisions
 
 Effective 2026-09-25. The user's latest annotations and follow-up answers override older draft/common/phase2/phase3 wording. The previously missing source_user_plan.md was supplied and saved on 2026-09-25. The user reconfirmed that a new invitation reward bringing the balance to 3 starts the cooldown; the supplied plan now reflects this correction.

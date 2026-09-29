@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 
 const slides = [
@@ -19,15 +20,14 @@ const slides = [
   {
     title: '하트는 한 번 더 살아날 기회',
     description: '하트가 있으면 부딪혀도 다시 달려요.',
-    detail: '최대 1개 보관 · 쓰고 다시 얻을 수 있어요.',
+    detail: '부활할 때마다 −100점 · 하트는 최대 1개 보관해요.',
     scene: `<div class="guide-item-demo guide-heart-demo" aria-hidden="true"><img class="guide-item-dino" src="/assets/icons/Dino-Dark.png" alt=""><img class="guide-pickup" src="/assets/icons/Heart-Light.png" alt=""><span class="guide-pickup-result">부활 +1</span><span class="guide-revive-ring"></span><span class="guide-demo-ground"></span></div>`,
     className: 'guide-slide-heart',
   },
   {
     title: '랭킹 TOP3에 도전하세요',
     description: '행사 종료 시 최종 순위에 따라 선물을 드려요.',
-    detail: '동점자는 같은 순위로 표시하며, 최종 동점 수상 기준은 추후 안내해요.',
-    scene: `<div class="guide-rank-rewards"><div><span>1위</span><strong>5만원</strong></div><div><span>2위</span><strong>3만원</strong></div><div><span>3위</span><strong>1만원</strong></div></div><section class="guide-live-ranking" aria-label="현재 랭킹"><h4>현재 TOP3</h4><div class="guide-rank-content" aria-live="polite"></div></section>`,
+    scene: `<div class="guide-rank-rewards"><div><span>🥇</span><strong>5만원</strong></div><div><span>🥈</span><strong>2만원</strong></div><div><span>🥉</span><strong>1만원</strong></div></div><section class="guide-live-ranking" aria-label="현재 랭킹"><h4>현재 TOP3</h4><div class="guide-rank-content" aria-live="polite"></div></section>`,
     className: 'guide-slide-ranking',
   },
 ];
@@ -43,8 +43,20 @@ export function showGameGuide(router, autoStart = true) {
   let previous;
   let skip;
   let overlay;
+  const campaignStatus = () => router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+  analytics.trackGa4?.('tutorial_viewed', { tutorial_step: 1 });
+  const applyCampaignState = () => {
+    if (!autoStart || !confirm || !skip) return;
+    const status = campaignStatus();
+    const blocked = status !== 'ACTIVE';
+    if (index === slides.length - 1) {
+      confirm.disabled = blocked;
+      confirm.textContent = blocked ? (status === 'NOT_OPEN' ? '행사 시작 전이에요' : status === 'ENDED' ? '행사가 종료됐어요' : '행사가 잠시 중단됐어요') : '게임 시작';
+    }
+    skip.disabled = blocked;
+  };
   const finish = () => {
-    try { localStorage.setItem('gemini_dino_guide_seen', 'true'); } catch (_) {}
+    if (autoStart && campaignStatus() !== 'ACTIVE') { applyCampaignState(); return; }
     ui.hideModal();
     if (autoStart) router.navigate('game');
   };
@@ -75,7 +87,7 @@ export function showGameGuide(router, autoStart = true) {
       for (const entry of leaders) {
         const row = document.createElement('li');
         if (entry.is_me) row.className = 'is-me';
-        const rank = document.createElement('strong'); rank.textContent = `${entry.rank}위${entry.tied ? ' 공동' : ''}`;
+        const rank = document.createElement('strong'); rank.textContent = `${entry.rank}위`;
         const nickname = document.createElement('span'); nickname.textContent = entry.nickname || '참가자';
         const score = document.createElement('span'); score.textContent = `${Number(entry.score || 0).toLocaleString('ko-KR')}점`;
         row.append(rank, nickname, score); list.appendChild(row);
@@ -116,13 +128,16 @@ export function showGameGuide(router, autoStart = true) {
       renderRanking();
       if (!ranking && !rankingError) loadRanking();
     }
+    applyCampaignState();
   }
 
   function changeSlide(next) {
     index = Math.max(0, Math.min(slides.length - 1, next));
+    analytics.trackGa4?.('tutorial_progressed', { tutorial_step: index + 1 });
     renderSlide();
     content.querySelector('.guide-slide-title').focus({ preventScroll: true });
-    overlay.querySelector('.modal-card').scrollTop = 0;
+    const scrollHost = overlay.querySelector('.modal-body');
+    if (scrollHost) scrollHost.scrollTop = 0;
   }
 
   renderSlide();
@@ -148,8 +163,12 @@ export function showGameGuide(router, autoStart = true) {
   previous.onclick = () => changeSlide(index - 1);
   confirm.before(previous);
   skip = document.createElement('button'); skip.type = 'button'; skip.className = 'guide-text-button guide-skip';
-  skip.textContent = autoStart ? '건너뛰고 게임 시작' : '건너뛰기'; skip.onclick = finish;
+  skip.textContent = autoStart ? '건너뛰고 게임 시작' : '건너뛰기'; skip.onclick = () => {
+    analytics.trackGa4?.('tutorial_skipped', { tutorial_step: index + 1 });
+    finish();
+  };
   overlay.querySelector('.modal-card').appendChild(skip);
+  applyCampaignState();
 
   let touchStart = null;
   content.addEventListener('touchstart', (event) => {
