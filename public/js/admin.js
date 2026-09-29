@@ -10,6 +10,7 @@ let sessionRevision = 0;
 let loginInFlight = false;
 let campaignVersion = 0;
 let adminPermissions = new Set();
+let adminEnvironment = 'preview';
 const loadFailures = new Set();
 const sectionRevisions = new Map();
 let sessionLoadMessage = '';
@@ -21,7 +22,7 @@ function resetAdminSession(message) {
   document.querySelector('#admin-app').hidden = true;
   document.querySelector('#admin-login').hidden = false;
   document.querySelector('#admin-load-status').hidden = true;
-  for (const id of ['admin-claims', 'admin-ranking-contacts', 'admin-faults', 'admin-name', 'admin-permissions']) {
+  for (const id of ['admin-claims', 'admin-ranking-contacts', 'admin-ranking-snapshots', 'admin-faults', 'admin-name', 'admin-permissions']) {
     document.querySelector(`#${id}`).replaceChildren();
   }
   ui.text(document.querySelector('#admin-login-message'), message);
@@ -88,6 +89,7 @@ async function login() {
   message.textContent = '';
   try {
     const config = await api.getConfig();
+    adminEnvironment = config.environment || 'preview';
     const email = document.querySelector('#admin-email').value.trim();
     const password = document.querySelector('#admin-password').value;
     const response = await fetch(`${config.auth.supabase_url}/auth/v1/token?grant_type=password`, {
@@ -120,6 +122,10 @@ async function showAdmin() {
     throw error;
   }
   sessionLoadMessage = '';
+  try {
+    const config = api.config || (api.getConfig ? await api.getConfig() : null);
+    if (config?.environment) adminEnvironment = config.environment;
+  } catch (_) { /* The authenticated admin sections can still load and the server validates references. */ }
   updateLoadStatus();
   document.querySelector('#admin-login').hidden = true;
   document.querySelector('#admin-app').hidden = false;
@@ -130,6 +136,7 @@ async function showAdmin() {
   document.querySelector('#admin-analytics-section').hidden = !adminPermissions.has('analytics:read');
   document.querySelector('#claim-operations-section').hidden = !adminPermissions.has('claims:read');
   document.querySelector('#ranking-contact-section').hidden = !adminPermissions.has('claims:read');
+  document.querySelector('#ranking-finalization-section').hidden = !adminPermissions.has('ranking:read');
   document.querySelector('#fault-review-section').hidden = !adminPermissions.has('faults:read');
   if (adminPermissions.has('analytics:read')) tasks.push(loadMetrics());
   if (adminPermissions.has('claims:read')) {
@@ -138,6 +145,8 @@ async function showAdmin() {
   if (adminPermissions.has('faults:read')) {
     tasks.push(loadFaults());
   }
+  if (adminPermissions.has('ranking:read')) tasks.push(loadRankingSnapshots());
+  document.querySelector('#btn-create-ranking-snapshot').disabled = !adminPermissions.has('ranking:write');
   document.querySelector('#btn-campaign-update').disabled = !adminPermissions.has('campaign:write');
   await Promise.allSettled(tasks);
 }
@@ -278,7 +287,6 @@ function renderLeaderboard(rows) {
     { label: '현재 순위', value: (row) => row.rank },
     { label: '참가자', value: (row) => row.nickname || '익명 참가자' },
     { label: '최고점', value: (row) => row.best_score },
-    { label: '동점', value: (row) => row.tied ? '예' : '아니오' },
   ], rows, '조회된 최고점 기록이 없습니다.');
 }
 
@@ -561,16 +569,66 @@ function renderRankingContacts(data) {
   }
 }
 
+async function loadRankingSnapshots() {
+  return loadSection('최종 랭킹', '/api/admin/ranking-snapshots', renderRankingSnapshots);
+}
+
+function renderRankingSnapshots(data) {
+  const list = document.querySelector('#admin-ranking-snapshots'); list.replaceChildren();
+  const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
+  if (!snapshots.length) {
+    const empty = document.createElement('p'); empty.className = 'status-note'; empty.textContent = '생성된 랭킹 스냅샷이 없습니다.'; list.appendChild(empty); return;
+  }
+  for (const snapshot of snapshots) list.appendChild(rankingSnapshotEditor(snapshot));
+}
+
+function rankingSnapshotEditor(snapshot) {
+  const item = document.createElement('article'); item.className = 'claim-card';
+  const title = document.createElement('strong');
+  title.textContent = snapshot.status === 'FINAL' ? '최종 확정 완료' : '확정 전 스냅샷';
+  const meta = document.createElement('p');
+  const captured = snapshot.captured_at ? new Date(snapshot.captured_at).toLocaleString('ko-KR') : '-';
+  meta.textContent = `생성 ${captured} · 기록 ${Number(snapshot.entry_count || 0).toLocaleString('ko-KR')}명 · 먼저 달성 우선`;
+  const status = document.createElement('p'); status.className = 'status-note';
+  status.textContent = snapshot.status === 'FINAL'
+    ? `확정 ${snapshot.finalized_at ? new Date(snapshot.finalized_at).toLocaleString('ko-KR') : '-'} · TOP3 수령 요청과 경품 예약 생성 완료`
+    : '최종 확정 전에는 수령 요청과 경품 예약이 생성되지 않아요.';
+  item.append(title, meta, status);
+  if (snapshot.status !== 'FINAL') {
+    const controls = document.createElement('div'); controls.className = 'inline-controls';
+    const reason = document.createElement('input'); reason.maxLength = 160; reason.placeholder = '최종 확정 사유'; reason.ariaLabel = '최종 랭킹 확정 사유';
+    const finalize = document.createElement('button'); finalize.type = 'button'; finalize.className = 'btn btn-primary btn-sm'; finalize.textContent = 'TOP3 최종 확정';
+    if (!adminPermissions.has('ranking:write')) { reason.disabled = true; finalize.disabled = true; finalize.textContent = '읽기 전용'; }
+    finalize.onclick = async () => {
+      const value = reason.value.trim();
+      if (!value) { ui.showToast('최종 확정 사유를 입력해 주세요.'); return; }
+      finalize.disabled = true;
+      try {
+        await adminRequest(`/api/admin/ranking-snapshots/${encodeURIComponent(snapshot.id)}/finalize`, {
+          method: 'POST', body: JSON.stringify({ reason: value, event_id: api.createRequestId('evt') }),
+        });
+        ui.showToast('TOP3 최종 순위를 확정했습니다. 실제 지급은 수동으로 처리해 주세요.');
+        await Promise.all([loadRankingSnapshots(), ...(adminPermissions.has('claims:read') ? [loadClaims()] : [])]);
+      } catch (error) { ui.showToast(error.message); finalize.disabled = false; }
+    };
+    controls.append(reason, finalize); item.appendChild(controls);
+  }
+  return item;
+}
+
 function claimEditor(claim) {
   const item = document.createElement('article'); item.className = 'admin-claim-row admin-payment-editor';
   const info = document.createElement('div');
-  const claimTitle = claim.claim_type === 'RANKING' ? '잠정 TOP3 연락 접수' : (claim.prize_name || '경품 수령 요청');
+  const finalizedRanking = claim.claim_type === 'RANKING' && Boolean(claim.prize_id && claim.inventory_item_id);
+  const claimTitle = claim.claim_type === 'RANKING'
+    ? (finalizedRanking ? (claim.prize_name || 'TOP3 수령 요청') : '잠정 TOP3 연락 접수')
+    : (claim.prize_name || '경품 수령 요청');
   const title = document.createElement('strong'); title.textContent = `${claimTitle} · ${CLAIM_STATUS_LABELS[claim.status] || claim.status}`;
   const meta = document.createElement('p'); meta.textContent = `담당 ${claim.assignee_display_name || claim.assignee_user_id || '미지정'} · 버전 ${claim.version}`;
   const privateInfo = document.createElement('p'); privateInfo.className = 'private-contact';
   privateInfo.textContent = `연락 정보: ${claim.recipient_name || '미접수'} · ${claim.contact || '-'} · ${claim.school || '-'} · ${claim.address || '-'}`;
   info.append(title, meta, privateInfo);
-  if (claim.claim_type === 'RANKING') {
+  if (claim.claim_type === 'RANKING' && !finalizedRanking) {
     const rankingRestriction = document.createElement('p'); rankingRestriction.className = 'status-note';
     rankingRestriction.textContent = '잠정 TOP3는 최종 수상 확정 전이므로 지급 완료로 변경할 수 없습니다.';
     info.appendChild(rankingRestriction);
@@ -585,7 +643,7 @@ function claimEditor(claim) {
   const state = document.createElement('select');
   for (const [status, label] of Object.entries(CLAIM_STATUS_LABELS)) {
     const option = document.createElement('option'); option.value = status; option.textContent = label; option.selected = claim.status === status;
-    option.disabled = (claim.claim_type === 'RANKING' && status === 'PAID')
+    option.disabled = (claim.claim_type === 'RANKING' && !finalizedRanking && status === 'PAID')
       || (awaitingInformation ? status !== 'AWAITING_INFORMATION' : status === 'AWAITING_INFORMATION');
     state.appendChild(option);
   }
@@ -602,8 +660,9 @@ function claimEditor(claim) {
   }
   verification.value = claim.verification_status || 'NOT_REQUESTED';
   verificationLabel.append(verificationText, verification);
+  const referencePrefix = adminEnvironment === 'production' ? 'REF_' : 'TEST_REF_';
   const reference = document.createElement('input'); reference.ariaLabel = '자격 확인 참조';
-  reference.placeholder = '확인 참조 (TEST_REF_...)'; reference.maxLength = 109; reference.value = claim.verification_reference || '';
+  reference.placeholder = `확인 참조 (${referencePrefix}...)`; reference.maxLength = 109; reference.value = claim.verification_reference || '';
   const external = document.createElement('label'); const externalBox = document.createElement('input'); externalBox.type = 'checkbox'; externalBox.checked = Boolean(claim.external_delivery); externalBox.disabled = awaitingInformation || needsContact; const externalText = document.createElement('span'); externalText.textContent = '외부 전달 완료'; external.append(externalBox, externalText);
   const paymentNote = document.createElement('p'); paymentNote.className = 'status-note';
   paymentNote.textContent = '지급 완료 전 자격 확인과 외부 전달을 확인하고, 전달 확인 사유를 입력해 주세요. 증빙 원본·연락처는 적지 마세요.';
@@ -620,8 +679,9 @@ function claimEditor(claim) {
   }
   save.onclick = async () => {
     const verificationReference = reference.value.trim() || null;
-    if (verificationReference && !/^TEST_REF_[A-Za-z0-9_-]{1,100}$/.test(verificationReference)) {
-      ui.showToast('확인 참조는 TEST_REF_로 시작하는 영문·숫자·밑줄·하이픈으로 입력해 주세요.'); return;
+    const referencePattern = adminEnvironment === 'production' ? /^REF_[A-Za-z0-9_-]{1,100}$/ : /^TEST_REF_[A-Za-z0-9_-]{1,100}$/;
+    if (verificationReference && !referencePattern.test(verificationReference)) {
+      ui.showToast(`확인 참조는 ${referencePrefix}로 시작하는 영문·숫자·밑줄·하이픈으로 입력해 주세요.`); return;
     }
     if (verification.value !== 'NOT_REQUESTED' && !verificationReference) { ui.showToast('자격 확인 참조를 입력해 주세요.'); return; }
     if (state.value === 'PAID') {
@@ -650,6 +710,15 @@ document.querySelector('#btn-admin-retry').onclick = async () => {
 document.querySelector('#analytics-filter').onsubmit = (event) => { event.preventDefault(); loadMetrics().catch((error) => ui.showToast(error.message)); };
 document.querySelector('#btn-refresh-claims').onclick = () => loadClaims().catch((error) => ui.showToast(error.message));
 document.querySelector('#btn-refresh-ranking-contacts').onclick = () => loadRankingContacts().catch((error) => ui.showToast(error.message));
+document.querySelector('#btn-refresh-ranking-snapshots').onclick = () => loadRankingSnapshots().catch((error) => ui.showToast(error.message));
+document.querySelector('#btn-create-ranking-snapshot').onclick = async () => {
+  const button = document.querySelector('#btn-create-ranking-snapshot'); button.disabled = true;
+  try {
+    await adminRequest('/api/admin/ranking-snapshots', { method: 'POST', body: JSON.stringify({ event_id: api.createRequestId('evt') }) });
+    ui.showToast('현재 기록으로 랭킹 스냅샷을 만들었습니다.'); await loadRankingSnapshots();
+  } catch (error) { ui.showToast(error.message); }
+  finally { button.disabled = !adminPermissions.has('ranking:write'); }
+};
 document.querySelector('#btn-refresh-faults').onclick = () => loadFaults().catch((error) => ui.showToast(error.message));
 document.querySelector('#btn-campaign-update').onclick = async () => {
   try {

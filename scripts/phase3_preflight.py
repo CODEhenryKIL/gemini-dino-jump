@@ -60,7 +60,7 @@ def validate(manifest):
     if bool(campaign.get("opens_at")) != bool(campaign.get("closes_at")):
         errors.append("행사 시작과 종료는 함께 설정해야 합니다")
     dates = {}
-    for key in ("opens_at", "closes_at"):
+    for key in ("opens_at", "closes_at", "claim_closes_at"):
         value = campaign.get(key)
         if not value:
             pending.append(f"campaign.{key}")
@@ -71,8 +71,10 @@ def validate(manifest):
                 raise ValueError()
         except (ValueError, TypeError):
             errors.append(f"campaign.{key}: 시간대가 포함된 ISO 날짜가 필요합니다")
-    if len(dates) == 2 and all(v.utcoffset() is not None for v in dates.values()) and dates["opens_at"] >= dates["closes_at"]:
+    if all(key in dates and dates[key].utcoffset() is not None for key in ("opens_at", "closes_at")) and dates["opens_at"] >= dates["closes_at"]:
         errors.append("행사 종료는 시작보다 늦어야 합니다")
+    if all(key in dates and dates[key].utcoffset() is not None for key in ("closes_at", "claim_closes_at")) and dates["claim_closes_at"] <= dates["closes_at"]:
+        errors.append("수령 접수 마감은 행사 종료보다 늦어야 합니다")
 
     required = {
         "policies": ("pool_exhaustion", "unallocated_inventory_at_close", "beta_data_migration", "ranking_ties", "finish_after_close", "draw_and_ranking_double_award", "eligibility_and_proof", "claim_deadline_and_no_response", "duplicate_person_claims", "privacy_retention_and_deletion", "operator_contact"),

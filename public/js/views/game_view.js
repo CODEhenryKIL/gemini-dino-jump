@@ -403,11 +403,25 @@ export const GameView = {
     const release = (event) => { event?.preventDefault?.(); this.engine?.jumpRelease(); };
     const jumpButton = container.querySelector('#btn-jump');
     const suppressJumpButtonCallout = (event) => event.preventDefault();
+    const suppressedJumpButtonEvents = ['selectstart', 'dblclick'];
+    const suppressedJumpButtonTouchEvents = ['touchstart', 'touchmove', 'touchend'];
     jumpButton.addEventListener('contextmenu', suppressJumpButtonCallout);
     jumpButton.addEventListener('dragstart', suppressJumpButtonCallout);
+    for (const eventName of suppressedJumpButtonEvents) {
+      jumpButton.addEventListener(eventName, suppressJumpButtonCallout);
+    }
+    for (const eventName of suppressedJumpButtonTouchEvents) {
+      jumpButton.addEventListener(eventName, suppressJumpButtonCallout, { passive: false });
+    }
     this.cleanupTasks.push(() => {
       jumpButton.removeEventListener('contextmenu', suppressJumpButtonCallout);
       jumpButton.removeEventListener('dragstart', suppressJumpButtonCallout);
+      for (const eventName of suppressedJumpButtonEvents) {
+        jumpButton.removeEventListener(eventName, suppressJumpButtonCallout);
+      }
+      for (const eventName of suppressedJumpButtonTouchEvents) {
+        jumpButton.removeEventListener(eventName, suppressJumpButtonCallout);
+      }
     });
     for (const element of [canvas, jumpButton]) {
       element.addEventListener('pointerdown', press);

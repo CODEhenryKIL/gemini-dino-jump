@@ -26,7 +26,7 @@ const slides = [
   {
     title: '랭킹 TOP3에 도전하세요',
     description: '행사 종료 시 최종 순위에 따라 선물을 드려요.',
-    scene: `<div class="guide-rank-rewards"><div><span>🥇</span><strong>무신사 5만원권</strong></div><div><span>🥈</span><strong>배민 2만원권</strong></div><div><span>🥉</span><strong>스타벅스 1만원권</strong></div></div><section class="guide-live-ranking" aria-label="현재 랭킹"><h4>현재 TOP3</h4><div class="guide-rank-content" aria-live="polite"></div></section>`,
+    scene: `<div class="guide-rank-rewards"><div><span>🥇</span><strong>5만원</strong></div><div><span>🥈</span><strong>2만원</strong></div><div><span>🥉</span><strong>1만원</strong></div></div><section class="guide-live-ranking" aria-label="현재 랭킹"><h4>현재 TOP3</h4><div class="guide-rank-content" aria-live="polite"></div></section>`,
     className: 'guide-slide-ranking',
   },
 ];
@@ -73,7 +73,7 @@ export function showGameGuide(router, autoStart = true) {
       for (const entry of leaders) {
         const row = document.createElement('li');
         if (entry.is_me) row.className = 'is-me';
-        const rank = document.createElement('strong'); rank.textContent = `${entry.rank}위${entry.tied ? ' 공동' : ''}`;
+        const rank = document.createElement('strong'); rank.textContent = `${entry.rank}위`;
         const nickname = document.createElement('span'); nickname.textContent = entry.nickname || '참가자';
         const score = document.createElement('span'); score.textContent = `${Number(entry.score || 0).toLocaleString('ko-KR')}점`;
         row.append(rank, nickname, score); list.appendChild(row);
@@ -120,7 +120,8 @@ export function showGameGuide(router, autoStart = true) {
     index = Math.max(0, Math.min(slides.length - 1, next));
     renderSlide();
     content.querySelector('.guide-slide-title').focus({ preventScroll: true });
-    overlay.querySelector('.modal-card').scrollTop = 0;
+    const scrollHost = overlay.querySelector('.modal-body');
+    if (scrollHost) scrollHost.scrollTop = 0;
   }
 
   renderSlide();

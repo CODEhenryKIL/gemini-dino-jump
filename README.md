@@ -7,6 +7,8 @@ JavaScript 게임과 Python API를 Vercel Preview·Supabase PostgreSQL에 연결
 - 브랜치: `codex/phase3-launch`, [초안 PR #8](https://github.com/CODEhenryKIL/gemini-dino-jump/pull/8). 결과 화면·목적별 공유·최대 10회 추첨을 기존 공개 베타에 반영했습니다.
 - 최신 기준: [통합 3차 지시서](docs/phase3-work-instructions.md), [공통 정책](docs/phase3-policy-decisions.md), [새 API 계약](docs/phase3-api-contract.md).
 - 검증 및 미완료 사항: [3차 보고서](docs/phase3-report.md), [오픈 체크리스트](docs/phase3-launch-checklist.md).
+- 직접 검증할 때: [전체 수동 테스트](docs/manual-test-cases.md), [서버 검증](docs/manual-test-server.md), [실행 기록 양식](docs/manual-test-results-template.md), [기존 테스트 전체 대응표](docs/manual-test-coverage.md).
+- 9월 29일 전체 검증: [실행 결과와 개선안](docs/test-run-2026-09-29.md), [217개 케이스별 근거·남은 조건](docs/test-run-2026-09-29-cases.md). 일정·동점 정책은 문서와 설정 초안에 반영했으며 원격 본행사를 활성화한 상태는 아닙니다.
 - [현재 베타](https://google-korea-team-gemini.vercel.app/): 코드 `1e7975b`, Vercel Preview READY·DB ready. 베타 무제한과 기존 점수·추첨·수령 기록을 유지합니다. 새 공유 목적의 실제 카카오 전송 검증은 사용자 요청으로 나중에 진행합니다.
 - 확정한 77개/5,000자리 추첨 풀은 격리 로컬 DB에서 검증했습니다. 현재 베타의 기존 테스트 재고 25개는 유지하며 실제 경품을 아직 적재하지 않았습니다.
 - 본행사 날짜·정책·운영 재고·공개 승인은 미확정입니다. 원격 부하 테스트는 계속 보류합니다.

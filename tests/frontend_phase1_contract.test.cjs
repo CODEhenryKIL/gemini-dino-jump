@@ -260,8 +260,12 @@ test('admin isolates contact operations and renders metric definitions and full 
   const admin = read('public/js/admin.js');
   assert.match(html, /id="claim-operations-section"[^>]*hidden/);
   assert.match(html, /id="ranking-contact-section"[^>]*hidden/);
+  assert.match(html, /id="ranking-finalization-section"[^>]*hidden/);
   assert.match(admin, /adminPermissions\.has\('claims:read'\)/);
+  assert.match(admin, /adminPermissions\.has\('ranking:read'\)/);
+  assert.match(admin, /adminPermissions\.has\('ranking:write'\)/);
   assert.match(admin, /\/api\/admin\/ranking-contacts/);
+  assert.match(admin, /\/api\/admin\/ranking-snapshots/);
   assert.match(admin, /claim\.recipient_name/);
   assert.match(admin, /renderOperationalBreakdowns\(data\)/);
   assert.match(admin, /renderDefinitions\(data\.definitions/);
@@ -269,10 +273,11 @@ test('admin isolates contact operations and renders metric definitions and full 
   assert.match(admin, /data\.filter_attribution/);
   assert.match(admin, /new_participants/);
   assert.match(admin, /returning_participants/);
-  assert.match(admin, /claim\.claim_type === 'RANKING' \? '잠정 TOP3 연락 접수'/);
+  assert.match(admin, /finalizedRanking \? \(claim\.prize_name \|\| 'TOP3 수령 요청'\) : '잠정 TOP3 연락 접수'/);
   assert.match(admin, /claim\.assignee_display_name \|\| claim\.assignee_user_id \|\| '미지정'/);
   assert.match(admin, /externalBox\.checked = Boolean\(claim\.external_delivery\)/);
   assert.match(admin, /최종 수상 확정 전이므로 지급 완료로 변경할 수 없습니다/);
+  assert.match(admin, /actual|실제 지급은 수동|실제 지급은 운영자가/);
   assert.match(admin, /row\.ready/);
   assert.match(admin, /row\.pending/);
   assert.match(admin, /row\.estimated_exits/);

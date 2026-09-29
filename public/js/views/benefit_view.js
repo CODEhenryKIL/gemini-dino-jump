@@ -108,7 +108,7 @@ export const BenefitView = {
           guidePending = true;
           const trackingContext = captureAnalyticsContext();
           const shareMethod = method === 'share' && typeof navigator.share === 'function' ? 'native' : 'copy';
-          const track = (status) => analytics.track('share_attempted', { source: 'content', content, position: 'benefit_guides', share_method: shareMethod, status }, trackingContext);
+          const track = (status) => analytics.track('share_attempted', { source: 'gemini', content, position: 'benefit_guides', share_method: shareMethod, status }, trackingContext);
           track('attempted');
           try {
             if (shareMethod === 'native') {

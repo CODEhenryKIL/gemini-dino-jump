@@ -212,7 +212,7 @@ class BackendPhase2Test(unittest.TestCase):
                     operations._ranking_contact_values(body)
                 self.assertEqual(caught.exception.code,code)
 
-    def test_dense_rank_ties_private_name_and_gap_use_same_rules(self):
+    def test_earliest_achievement_breaks_score_ties_consistently(self):
         participants=[]
         scores=(500,500,400,300,300,200)
         elapsed_ticks=(600,540,480,720,180,360)
@@ -225,24 +225,23 @@ class BackendPhase2Test(unittest.TestCase):
         with fixtures.app_tx() as conn:
             conn.execute('update dino_dev.participant set is_public=false where id=%s',(participants[0][1],))
             ctx=self.ctx(participants[-1][0]);data=operations.leaderboard(conn,{},ctx)[1]
-            self.assertEqual(data['me']['rank'],4)
+            self.assertEqual(data['me']['rank'],6)
             self.assertEqual(data['me']['best_elapsed_seconds'],6.0)
-            self.assertEqual(data['top3_gap']['third_score'],300)
-            self.assertEqual(data['top3_gap']['third_elapsed_seconds'],12.0)
-            self.assertEqual(data['top3_gap']['score_needed'],100)
+            self.assertEqual(data['top3_gap']['third_score'],400)
+            self.assertEqual(data['top3_gap']['third_elapsed_seconds'],8.0)
+            self.assertEqual(data['top3_gap']['score_needed'],201)
             self.assertEqual(data['top3_gap']['status'],'CHASING')
             conn.execute("update dino_dev.versioned_best_score set achieved_at=timestamptz '2026-01-01 00:00:03+00' where score=300")
             tied_third=operations.leaderboard(conn,{},ctx)[1]['top3_gap']
-            expected_tied_seconds=12.0 if participants[3][1]<participants[4][1] else 3.0
-            self.assertEqual(tied_third['third_elapsed_seconds'],expected_tied_seconds)
+            self.assertEqual(tied_third['third_elapsed_seconds'],8.0)
             top=operations.get_me(conn,self.ctx(participants[1][0]))[1]
-            self.assertEqual(top['rank'],1);self.assertTrue(top['top3_gap']['tied'])
+            self.assertEqual(top['rank'],2);self.assertTrue(top['top3_gap']['tied'])
             self.assertEqual(len(data['leaderboard']),5)
             self.assertEqual(sum(x['score']==500 for x in data['leaderboard']),1)
             self.assertEqual(data['rank_targets'],[
                 {'rank':1,'score':500},
-                {'rank':2,'score':400},
-                {'rank':3,'score':300},
+                {'rank':2,'score':500},
+                {'rank':3,'score':400},
             ])
         admin=self.make_admin(['ranking:write']);admin['game_version']='2.0.0'
         with fixtures.app_tx() as conn:

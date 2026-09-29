@@ -90,7 +90,7 @@ export const api = {
     });
   },
   getSession(sessionId) { return request(`/api/game-sessions/${encodeURIComponent(sessionId)}`); },
-  getLeaderboard() { return request('/api/leaderboard'); },
+  getLeaderboard({ view } = {}) { return request(`/api/leaderboard${view === 'milestones' ? '?view=milestones' : ''}`); },
   getDraw() { return request('/api/draws/me'); },
   drawPouch(pouchIndex, idempotencyKey = null, expectedRoundNumber = null) {
     const eventId = idempotencyKey || createRequestId('evt');

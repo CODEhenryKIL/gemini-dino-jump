@@ -38,11 +38,13 @@ function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
   const confirm = new Node('button');
   const close = new Node('button');
   const card = new Node(); card.scrollTop = 0;
+  const body = new Node(); body.scrollTop = 47;
   card.insertBefore = (node) => { card.inserted = node; };
   const overlay = new Node();
   overlay.querySelector = (selector) => ({
     '.modal-actions .btn-primary': confirm,
     '.modal-card': card,
+    '.modal-body': body,
     '.modal-actions .btn-secondary': close,
   }[selector]);
 
@@ -72,7 +74,7 @@ function harness(getLeaderboard = async () => ({ leaderboard: [], me: {} })) {
   vm.runInNewContext(source, context, { filename: 'game_guide.js' });
   const router = { navigate: (view) => navigations.push(view) };
   context.showGameGuide(router, true);
-  return { content, title, rankHost, confirm, close, card, overlay, modal: () => modal, writes, navigations, hidden: () => hidden };
+  return { content, title, rankHost, confirm, close, card, body, overlay, modal: () => modal, writes, navigations, hidden: () => hidden };
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -89,11 +91,19 @@ test('guide uses concise touch instructions, previous navigation, and a top X cl
   h.modal().onConfirm();
   assert.match(h.content.innerHTML, /웃음 코인을 먹으면 \+10점/);
   assert.equal(h.confirm.beforeNode.disabled, false);
+  assert.equal(h.body.scrollTop, 0, '슬라이드가 바뀌면 가이드 본문만 처음으로 올라야 한다');
   h.confirm.beforeNode.onclick();
   assert.match(h.content.innerHTML, /화면을 터치하면 점프!/);
   h.close.onclick();
   assert.deepEqual(h.navigations, []);
   assert.deepEqual(h.writes, []);
+});
+
+test('guide-only modal layout keeps actions outside the scrolling body', () => {
+  const css = fs.readFileSync(path.join(root, 'public/css/phase2-views.css'), 'utf8');
+  assert.match(css, /\.game-guide-dialog \.modal-card \{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto auto;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.game-guide-dialog \.modal-body \{[^}]*overflow-y:\s*auto;/s);
+  assert.match(css, /\.game-guide-dialog \.modal-actions \{[^}]*flex:\s*0 0 auto;/s);
 });
 
 test('skip starts the game without suppressing future tutorials', () => {
@@ -113,7 +123,7 @@ test('final slide shows rewards and safely renders live ranking data', async () 
     me: { rank: 1, best_score: 12345 },
   }));
   h.modal().onConfirm(); h.modal().onConfirm(); h.modal().onConfirm();
-  assert.match(h.content.innerHTML, /🥇[\s\S]*무신사 5만원권[\s\S]*🥈[\s\S]*배민 2만원권[\s\S]*🥉[\s\S]*스타벅스 1만원권/);
+  assert.match(h.content.innerHTML, /🥇[\s\S]*5만원[\s\S]*🥈[\s\S]*2만원[\s\S]*🥉[\s\S]*1만원/);
   assert.match(h.rankHost.children[0].textContent, /불러오는 중/);
   await settle();
   const list = h.rankHost.children[0];

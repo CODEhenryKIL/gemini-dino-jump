@@ -17,7 +17,11 @@ class Phase3PreflightTest(unittest.TestCase):
     def test_confirmed_inventory_and_pending_policies_are_distinct(self):
         result = MODULE.validate(self.manifest)
         self.assertEqual(result["errors"], [])
-        self.assertIn("campaign.opens_at", result["pending"])
+        self.assertNotIn("campaign.opens_at", result["pending"])
+        self.assertEqual(self.manifest["campaign"]["opens_at"], "2026-09-29T19:00:00+09:00")
+        self.assertEqual(self.manifest["campaign"]["closes_at"], "2026-10-03T00:00:00+09:00")
+        self.assertNotIn("policies.finish_after_close", result["pending"])
+        self.assertEqual(self.manifest["policies"]["finish_after_close"], "RECEIVED_BEFORE_CLOSE")
         self.assertEqual(result["totals"]["total_budget_krw"], 1599000)
         self.assertEqual(result["totals"]["initial_actual_prize_probability"], .0154)
 
@@ -49,6 +53,7 @@ class Phase3PreflightTest(unittest.TestCase):
         for key in ("opens_at", "closes_at"):
             with self.subTest(key=key):
                 manifest = copy.deepcopy(self.manifest)
+                manifest["campaign"].update(opens_at=None, closes_at=None)
                 manifest["campaign"][key] = "2026-10-01T12:00:00+09:00"
                 self.assertIn("행사 시작과 종료는 함께 설정해야 합니다", MODULE.validate(manifest)["errors"])
 
@@ -63,6 +68,15 @@ class Phase3PreflightTest(unittest.TestCase):
                 m = copy.deepcopy(self.manifest)
                 m["campaign"].update(opens_at=start, closes_at=end)
                 self.assertTrue(MODULE.validate(m)["errors"])
+
+    def test_claim_deadline_must_follow_close_and_have_timezone(self):
+        for deadline in ("2026-10-03T00:00:00+09:00", "2026-10-04T00:00:00"):
+            with self.subTest(deadline=deadline):
+                manifest = copy.deepcopy(self.manifest)
+                manifest["campaign"]["claim_closes_at"] = deadline
+                self.assertTrue(MODULE.validate(manifest)["errors"])
+        self.manifest["campaign"]["claim_closes_at"] = None
+        self.assertIn("campaign.claim_closes_at", MODULE.validate(self.manifest)["pending"])
 
     def test_deleted_checks_or_placeholder_cannot_pass_readiness(self):
         self.manifest["policies"] = {}

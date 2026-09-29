@@ -74,6 +74,24 @@ test('home distinguishes expired cooldown from current waiting and explains an e
   assert.doesNotMatch(nodes.get('#home-ticket-note').textContent, /다시 시작/);
 });
 
+test('unlimited home omits the test explanation without hiding event closure or requiring tickets', () => {
+  const nodes = new Map();
+  const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
+  const view = loadView('public/js/views/home.js', 'HomeView');
+  const router = { state: { tickets: { initial: 0, invitation: 0, unlimited_play: true } } };
+  view.render(container, router);
+  assert.equal(nodes.get('#home-ticket-note').hidden, true);
+  assert.equal(nodes.get('#home-basic-ticket').textContent, '무제한');
+  assert.equal(nodes.get('#btn-start-jump').textContent, '게임 시작');
+  assert.equal(nodes.get('#btn-start-jump').disabled, false);
+  assert.ok(container.innerHTML.indexOf('id="btn-start-jump"') < container.innerHTML.indexOf('class="stat-grid"'));
+  router.config = { campaign: { status: 'ENDED' } };
+  view.updateState(container, router);
+  assert.equal(nodes.get('#btn-start-jump').disabled, true);
+  assert.equal(nodes.get('#home-ticket-note').hidden, false);
+  assert.match(nodes.get('#home-ticket-note').textContent, /종료/);
+});
+
 test('home restores a draw route without requiring another ticket or another game', () => {
   const nodes = new Map();
   const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
@@ -167,6 +185,9 @@ test('prize claim preserves the form and rejects an empty school before sending 
   fields.get('school').value = 'TEST_학교';
   await modal.onConfirm();
   await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(submitted, 0, 'the information step must not share or submit the claim');
+  const share = modal.content.children.find((child) => typeof child.onclick === 'function');
+  await share.onclick();
   assert.equal(submitted, 1);
 });
 
@@ -177,7 +198,20 @@ test('TOP3 gap copy handles server states without promising a prize', () => {
   assert.match(view.top3GapMessage({ rank: null, top3_gap: { status: 'TOO_FEW', participant_count: 2 } }), /현재 참가자는 2명/);
   assert.match(view.top3GapMessage({ rank: null, top3_gap: { status: 'NO_SCORE' } }), /검증된 점수/);
   assert.equal(view.top3GapMessage({ rank: 6, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 42, tied: false, participant_count: 8 } }), 'TOP3까지 약 5초만 더!');
-  assert.match(view.top3GapMessage({ rank: 4, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 0, tied: true, participant_count: 8 } }), /3위 점수와 동점/);
+  assert.equal(view.top3GapMessage({ rank: 4, top3_gap: { status: 'CHASING', third_score: 100, score_needed: 0, tied: true, participant_count: 8 } }), 'TOP3 기준을 계산하는 중이에요.');
+});
+
+test('TOP3 information form states eligibility, retention, and contact policy', () => {
+  const view = loadView('public/js/views/result_view.js', 'ResultView', {
+    document: { createElement: () => node() },
+    ui: { formField: () => ({ label: node(), input: { value: '' } }) },
+    analytics: { track() {} },
+  });
+  const form = view.top3Form({ renderToken: 1, isCurrent: () => true });
+  const copy = form.children.map((child) => child.textContent).join(' ');
+  assert.match(copy, /재학생·휴학생/);
+  assert.match(copy, /지급 완료 후 30일 이내 삭제/);
+  assert.match(copy, /sea42471@naver\.com/);
 });
 
 test('record sharing uses the prepared public share and preserves authoritative ticket totals', async () => {
@@ -249,6 +283,21 @@ test('record sharing uses the prepared public share and preserves authoritative 
   assert.equal(draw.hidden, true);
   draw.onclick();
   assert.deepEqual(routes, ['draw'], 'a now-locked draw action does not navigate');
+});
+
+test('invite gap never renders zero seconds for a stale tied response', async () => {
+  const gapNode = node();
+  let scoreNeeded = 0;
+  const view = loadView('public/js/views/invite_view.js', 'InviteView', {
+    api: { getLeaderboard: async () => ({ top3_gap: { status: 'CHASING', score_needed: scoreNeeded } }) },
+    ui: { text: (target, value) => { target.textContent = String(value); } }, analytics: { track() {} },
+  });
+  const container = { querySelector: () => gapNode };
+  await view.loadGap(container, () => true);
+  assert.match(gapNode.textContent, /다시 확인/); assert.doesNotMatch(gapNode.textContent, /0초/);
+  scoreNeeded = 1;
+  await view.loadGap(container, () => true);
+  assert.equal(gapNode.textContent, '3위까지 약 1초 더!');
 });
 
 test('restored scratched draw reveals the same server result without another draw or completion request', async () => {
@@ -339,7 +388,7 @@ test('scratch result enters the accessibility tree only when revealed and canvas
   assert.deepEqual(JSON.parse(JSON.stringify(exposureStates)), [{ hidden: 'false', inert: false, tabIndex: -1 }]);
 });
 
-test('guide card exposure and outbound click use distinct events and stop after cleanup', () => {
+test('guide card exposure, outbound click, and share retain content attribution under the Gemini source', async () => {
   const events = [];
   const observers = [];
   class ObserverMock {
@@ -379,9 +428,15 @@ test('guide card exposure and outbound click use distinct events and stop after 
   contentObserver.trigger(card, 0.5);
   contentObserver.trigger(card, 1);
   action.onclick();
+  const copy = card.children[1].children[1];
+  await copy.onclick();
   assert.deepEqual(JSON.parse(JSON.stringify(events.filter(({ name }) => name.startsWith('content_')))), [
     { name: 'content_viewed', dimensions: { content: 'study_note', position: 'benefit_guides' } },
     { name: 'content_clicked', dimensions: { content: 'study_note', position: 'benefit_guides' } },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(events.filter(({ name }) => name === 'share_attempted'))), [
+    { name: 'share_attempted', dimensions: { source: 'gemini', content: 'study_note', position: 'benefit_guides', share_method: 'copy', status: 'attempted' } },
+    { name: 'share_attempted', dimensions: { source: 'gemini', content: 'study_note', position: 'benefit_guides', share_method: 'copy', status: 'copied' } },
   ]);
   view.cleanup();
   contentObserver.trigger(card, 1);

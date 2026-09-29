@@ -1,0 +1,50 @@
+[
+  {
+    "file": "20260925083548_phase1_dino_dev_foundation.sql",
+    "sha256": "3272b19973f6d173ddb0fa3acde9694734550c664828404b486f5a6dc16bec7f"
+  },
+  {
+    "file": "20260925092759_phase1_acceptance_additions.sql",
+    "sha256": "581e6cffbe005bb569d67dcf8fd61e84ba781520a377ba17a1e5950b135390ee"
+  },
+  {
+    "file": "20260925125939_add_awaiting_claim_information_status.sql",
+    "sha256": "7c32d3fd7a95ef370042b8d19c8e9533d78f1a7306ec430395738e6299ca0a2a"
+  },
+  {
+    "file": "20260925140902_phase2_game_versions_and_tracking.sql",
+    "sha256": "81714e0b6465c5b810519cf0026d7301ba1e5e267b38bc3de038ad0e838355fd"
+  },
+  {
+    "file": "20260926093414_game_rules_v21.sql",
+    "sha256": "690e0f6803f7c05900cd1735d2e1de9f3b78058e5f557b33fe8636af0f2ae0d0"
+  },
+  {
+    "file": "20260926103809_allow_real_top3_contact.sql",
+    "sha256": "bad1c1fa186bf7928dd9c0972ac7001a400004319b4020d0ec85730c5c21b499"
+  },
+  {
+    "file": "20260926215000_claim_contact_draft.sql",
+    "sha256": "a29e0e922d69a3fb9b00555d6586d24fbc82d7272c46073cfe5fa134cf09b991"
+  },
+  {
+    "file": "20260927090000_low_score_ticket_refund.sql",
+    "sha256": "ea9785b4d6eff57da3e7c13062361de8905056cfe87a5dcb948e7eb88ff28201"
+  },
+  {
+    "file": "20260927091037_kakao_share_webhook.sql",
+    "sha256": "9c294cb74cd86fb203ab6edea391cdff97ed02411147ad553f2c8db5feea2ccf"
+  },
+  {
+    "file": "20260927140000_incomplete_refund_and_share_grant.sql",
+    "sha256": "5cc15e86dda72912bc80e7efcf5047f2fd3e91b0b6eb3a912806d1bf2db33c0f"
+  },
+  {
+    "file": "20260928151903_phase3_draw_rounds_and_reward_purposes.sql",
+    "sha256": "63a77f5654c282c1f0363e0120a240d372c41fc0058e698fff60066a0377452e"
+  },
+  {
+    "file": "20260929021923_finalize_ranking_awards.sql",
+    "sha256": "ad4bece12c0b6c7c9bed5f1542e7c767dd8a4b687213a92778c791a3a9fb8cd9"
+  }
+]

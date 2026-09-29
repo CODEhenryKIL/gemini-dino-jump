@@ -1,7 +1,8 @@
 """Transactional Phase 1 business operations. No connection or network ownership."""
 from __future__ import annotations
+from config import database_schema
 import datetime as dt
-import hashlib, hmac, json, re, secrets, uuid
+import hashlib, hmac, json, re, secrets, unicodedata, uuid
 from urllib.parse import urlparse
 import metrics
 
@@ -14,7 +15,7 @@ def _iso(value): return value.astimezone(UTC).isoformat().replace("+00:00","Z") 
 def _one(conn,sql,params=()): return conn.execute(sql,params).fetchone()
 def _all(conn,sql,params=()): return list(conn.execute(sql,params).fetchall())
 def _campaign(conn,lock=False):
-    row=_one(conn,"select * from dino_dev.campaign where id=(select campaign_id from dino_dev.environment_guard where singleton)"+(" for update" if lock else ""))
+    row=_one(conn,f"select * from {database_schema()}.campaign where id=(select campaign_id from {database_schema()}.environment_guard where singleton)"+(" for update" if lock else ""))
     if not row: raise DomainError("CAMPAIGN_NOT_CONFIGURED","행사 설정이 준비되지 않았습니다.",503,True)
     return row
 def _mutable(campaign):
@@ -30,10 +31,35 @@ def _new_entry_allowed(conn,campaign):
         raise DomainError("CAMPAIGN_WINDOW_INVALID","행사 운영 시간을 확인하고 있습니다.",503,True)
     if now<opens_at:raise DomainError("CAMPAIGN_NOT_OPEN","행사 시작 전입니다.",409)
     if now>=closes_at:raise DomainError("CAMPAIGN_CLOSED","행사가 종료되었습니다.",409)
+def _observation_window_allowed(conn,campaign):
+    try:_new_entry_allowed(conn,campaign)
+    except DomainError as error:
+        # Claims and receipts still need linked observations after gameplay closes.
+        if error.code!="CAMPAIGN_CLOSED":raise
+def _request_time(conn,ctx):
+    received=ctx.get("request_received_at")
+    if received is None:received=_one(conn,"select clock_timestamp() as now")["now"]
+    if not isinstance(received,dt.datetime) or received.tzinfo is None:
+        raise DomainError("REQUEST_TIME_INVALID","요청 시각을 확인할 수 없습니다.",503,True)
+    return received
+def _before_campaign_close(conn,campaign,ctx):
+    closes=campaign.get("closes_at")
+    if campaign.get("opens_at") is None and closes is None:return
+    if not isinstance(closes,dt.datetime) or closes.tzinfo is None:
+        raise DomainError("CAMPAIGN_WINDOW_INVALID","행사 운영 시간을 확인하고 있습니다.",503,True)
+    if _request_time(conn,ctx)>=closes:raise DomainError("CAMPAIGN_CLOSED","행사가 종료되었습니다.",409)
+def _claim_submission_allowed(conn,campaign,ctx):
+    settings=campaign.get("settings") or {};raw=settings.get("claim_submission_cutoff") if isinstance(settings,dict) else None
+    if campaign.get("closes_at") is None and raw is None:return
+    if not isinstance(raw,str):raise DomainError("CLAIM_DEADLINE_NOT_CONFIGURED","수령 정보 접수 기간을 확인하고 있습니다.",503,True)
+    try:cutoff=dt.datetime.fromisoformat(raw.replace("Z","+00:00"))
+    except ValueError:raise DomainError("CLAIM_DEADLINE_NOT_CONFIGURED","수령 정보 접수 기간을 확인하고 있습니다.",503,True)
+    if cutoff.tzinfo is None:raise DomainError("CLAIM_DEADLINE_NOT_CONFIGURED","수령 정보 접수 기간을 확인하고 있습니다.",503,True)
+    if _request_time(conn,ctx)>=cutoff:raise DomainError("CLAIM_SUBMISSION_CLOSED","수령 정보 접수 기간이 종료되었습니다.",409)
 def _participant(conn,ctx,lock=False,active=False):
     token_hash=ctx.get("participant_token_hash")
     if not token_hash: raise DomainError("UNAUTHORIZED","참가자 인증이 필요합니다.",401)
-    row=_one(conn,"select * from dino_dev.participant where token_hash=%s and token_expires_at>clock_timestamp()"+(" for update" if lock else ""),(token_hash,))
+    row=_one(conn,f"select * from {database_schema()}.participant where token_hash=%s and token_expires_at>clock_timestamp()"+(" for update" if lock else ""),(token_hash,))
     if not row: raise DomainError("SESSION_INVALID","참가자 인증이 만료되었거나 유효하지 않습니다.",401)
     if active and row["status"]!="ACTIVE": raise DomainError("PARTICIPANT_BLOCKED","현재 참여할 수 없습니다.",403)
     return row
@@ -44,44 +70,44 @@ def _game_version(conn,ctx):
     return version
 def _score_source(version):
     # Static SQL fragments only. Old deployments can keep writing the v1 table.
-    if version=="1.2.0":return "dino_dev.best_score"
-    if version in {"2.0.0","2.1.0"}:return f"(select participant_id,session_id,score,achieved_at from dino_dev.versioned_best_score where game_version='{version}')"
+    if version=="1.2.0":return f"{database_schema()}.best_score"
+    if version in {"2.0.0","2.1.0"}:return f"(select participant_id,session_id,score,achieved_at from {database_schema()}.versioned_best_score where game_version='{version}')"
     raise DomainError("GAME_VERSION_UNSUPPORTED","게임 업데이트를 확인해 주세요.",409)
 def _ranking_info(conn,pid,version,campaign_id):
     source=_score_source(version)
     row=_one(conn,f"""with scores as (
-      select b.*,s.valid_ticks from {source} b join dino_dev.participant p on p.id=b.participant_id
-      join dino_dev.game_session s on s.id=b.session_id and s.participant_id=b.participant_id and s.campaign_id=p.campaign_id and s.version=%s
+      select b.*,s.valid_ticks from {source} b join {database_schema()}.participant p on p.id=b.participant_id
+      join {database_schema()}.game_session s on s.id=b.session_id and s.participant_id=b.participant_id and s.campaign_id=p.campaign_id and s.version=%s
       where p.campaign_id=%s and p.status='ACTIVE'
-    ), mine as (select score,valid_ticks from scores where participant_id=%s),
-    third_score as (select distinct score from scores order by score desc offset 2 limit 1),
-    third as (
-      select score,valid_ticks from scores where score=(select score from third_score)
-      order by achieved_at,participant_id limit 1
-    )
+    ), ranked as (
+      select scores.*,row_number() over(order by score desc,achieved_at asc,participant_id asc)::int rank,
+        count(*) over(partition by score)>1 tied from scores
+    ), mine as (select score,valid_ticks,rank,tied from ranked where participant_id=%s),
+    third as (select score,valid_ticks from ranked where rank=3)
     select (select score from mine) best_score,
       (select valid_ticks::double precision/60.0 from mine) best_elapsed_seconds,
-      case when exists(select 1 from mine) then 1+(select count(distinct score)::int from scores where score>(select score from mine)) end rank,
+      (select rank from mine) rank,
       (select score from third) third_score,
       (select valid_ticks::double precision/60.0 from third) third_elapsed_seconds,
-      (select count(*)::int from scores) participant_count,
-      (select count(*)>1 from scores where score=(select score from mine)) tied""",(version,campaign_id,pid))
+      (select count(*)::int from ranked) participant_count,
+      (select tied from mine) tied""",(version,campaign_id,pid))
     own=row["best_score"];rank=row["rank"];third=row["third_score"]
     state="IN_TOP3" if rank is not None and rank<=3 else "TOO_FEW" if third is None else "NO_SCORE" if own is None else "CHASING"
+    score_needed=None if third is None else 0 if rank is not None and rank<=3 else max(1,third-(own or 0)+1)
     return {"best_score":own or 0,"best_elapsed_seconds":row["best_elapsed_seconds"],"rank":rank,"game_version":version,
-      "top3_gap":{"status":state,"third_score":third,"third_elapsed_seconds":row["third_elapsed_seconds"],"score_needed":max(0,third-(own or 0)) if third is not None else None,
+      "top3_gap":{"status":state,"third_score":third,"third_elapsed_seconds":row["third_elapsed_seconds"],"score_needed":score_needed,
                   "rank":rank,"tied":row["tied"],"participant_count":row["participant_count"]}}
 def _unlimited_play(row,ctx):
     return bool(row["status"]=="ACTIVE" and row["synthetic"] and ctx.get("environment") in {"local","test","preview"} and ctx.get("preview_unlimited_play") is True)
 def _tickets(row,ctx):
     return {"initial":row["initial_balance"],"invitation":row["invitation_balance"],"invitation_reserved":row["invitation_refund_pending"],"available_total":row["initial_balance"]+row["invitation_balance"],"cooldown_until":_iso(row["cooldown_until"]),"cooldown_notice_pending":row["cooldown_notice_pending"],"unlimited_play":_unlimited_play(row,ctx)}
 def _event(conn,name,ctx,participant_id=None,event_id=None,screen=None,game_session_id=None,dimensions=None,observation_id=None,visit_session_id=None):
-    conn.execute("""insert into dino_dev.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,visit_session_id,game_session_id,dimensions,environment,deployment,event_version,synthetic,source,occurred_at)
-      values(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,true,'server',clock_timestamp()) on conflict(event_id) do nothing""",
-      (event_id or _id("evt"),ctx["campaign_id"],participant_id,observation_id,name,screen,visit_session_id,game_session_id,json.dumps(dimensions or {}),ctx["environment"],ctx["deployment"],ctx["event_version"]))
+    conn.execute(f"""insert into {database_schema()}.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,visit_session_id,game_session_id,dimensions,environment,deployment,event_version,synthetic,source,occurred_at)
+      values(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,'server',clock_timestamp()) on conflict(event_id) do nothing""",
+      (event_id or _id("evt"),ctx["campaign_id"],participant_id,observation_id,name,screen,visit_session_id,game_session_id,json.dumps(dimensions or {}),ctx["environment"],ctx["deployment"],ctx["event_version"],ctx["environment"]!="production"))
 def _admin(conn,ctx,permission=None):
     uid=ctx.get("admin_user_id")
-    row=_one(conn,"select * from dino_dev.admin_member where auth_user_id=%s and active",(uid,)) if uid else None
+    row=_one(conn,f"select * from {database_schema()}.admin_member where auth_user_id=%s and active",(uid,)) if uid else None
     if not row: raise DomainError("ADMIN_FORBIDDEN","관리자 권한이 없습니다.",403)
     if permission and permission not in row["permissions"]: raise DomainError("ADMIN_FORBIDDEN","해당 관리자 권한이 없습니다.",403)
     return row
@@ -92,6 +118,7 @@ def _revalidate_idempotent_replay(conn,method,path,ctx):
         if method=="PATCH" and re.fullmatch(r"/api/admin/claims/[^/]+",path):permission="claims:write"
         elif method=="PATCH" and re.fullmatch(r"/api/admin/game-faults/[^/]+",path):permission="faults:write"
         elif method=="POST" and path=="/api/admin/ranking-snapshots":permission="ranking:write"
+        elif method=="POST" and re.fullmatch(r"/api/admin/ranking-snapshots/[^/]+/finalize",path):permission="ranking:write"
         elif method=="PATCH" and re.fullmatch(r"/api/admin/participants/[^/]+",path):permission="participants:write"
         elif method=="PATCH" and path=="/api/admin/campaign":permission="campaign:write"
         _admin(conn,ctx,permission)
@@ -109,13 +136,13 @@ def _idempotent(conn,method,path,body,ctx,fn):
     actor=ctx.get("admin_user_id") or ctx.get("participant_token_hash") or ctx.get("ip_subject")
     route=method+" "+path; digest=_request_hash(body)
     conn.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",(str(actor)+"|"+route+"|"+key,))
-    old=_one(conn,"select * from dino_dev.idempotency_request where actor_key=%s and route=%s and idempotency_key=%s",(actor,route,key))
+    old=_one(conn,f"select * from {database_schema()}.idempotency_request where actor_key=%s and route=%s and idempotency_key=%s",(actor,route,key))
     if old:
         if old["request_hash"]!=digest: raise DomainError("IDEMPOTENCY_CONFLICT","같은 요청 식별자에 다른 값을 사용할 수 없습니다.",409)
         _revalidate_idempotent_replay(conn,method,path,ctx)
         return old["response_status"],old["response_body"]
     status,response=fn()
-    conn.execute("insert into dino_dev.idempotency_request(actor_key,route,idempotency_key,request_hash,response_status,response_body) values(%s,%s,%s,%s,%s,%s::jsonb)",(actor,route,key,digest,status,json.dumps(response,default=str)))
+    conn.execute(f"insert into {database_schema()}.idempotency_request(actor_key,route,idempotency_key,request_hash,response_status,response_body) values(%s,%s,%s,%s,%s,%s::jsonb)",(actor,route,key,digest,status,json.dumps(response,default=str)))
     return status,response
 
 def create_observation(conn,body,ctx):
@@ -129,32 +156,45 @@ def create_observation(conn,body,ctx):
     key=ctx.get("idempotency_key")
     if not key:raise DomainError("IDEMPOTENCY_KEY_REQUIRED","요청 식별자가 필요합니다.")
     if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",key):raise DomainError("INVALID_IDEMPOTENCY_KEY","초기 접속 식별자는 충분히 긴 무작위 값이어야 합니다.")
+    if ctx.get("environment")=="production":
+        _observation_window_allowed(conn,_campaign(conn))
     digest=_request_hash(body);actor=ctx["ip_subject"]
     conn.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",(actor+"|observation|"+key,))
-    old=_one(conn,"select id,event_id,request_hash from dino_dev.observation where actor_key=%s and idempotency_key=%s",(actor,key))
+    old=_one(conn,f"select id,event_id,request_hash from {database_schema()}.observation where actor_key=%s and idempotency_key=%s",(actor,key))
     if old and old["request_hash"]!=digest:raise DomainError("IDEMPOTENCY_CONFLICT","같은 요청 식별자에 다른 값을 사용할 수 없습니다.",409)
     if not old:
-        replay=_one(conn,"select actor_key,idempotency_key from dino_dev.observation where event_id=%s or id=%s",(eid,oid))
+        replay=_one(conn,f"select actor_key,idempotency_key from {database_schema()}.observation where event_id=%s or id=%s",(eid,oid))
         if replay:raise DomainError("OBSERVATION_REPLAY_DENIED","이미 사용된 초기 관측 정보입니다.",409)
-        conn.execute("""insert into dino_dev.observation(id,event_id,actor_key,idempotency_key,request_hash,link_kind,channel_code,campaign_code,share_id,referrer_origin,environment)
+        conn.execute(f"""insert into {database_schema()}.observation(id,event_id,actor_key,idempotency_key,request_hash,link_kind,channel_code,campaign_code,share_id,referrer_origin,environment)
           values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",(oid,eid,actor,key,digest,link,channel,campaign_code or None,share_id or None,referrer or None,ctx["environment"]))
     bootstrap=ctx["bootstrap_token"]; bh=ctx["bootstrap_token_hash"]
-    conn.execute("insert into dino_dev.bootstrap(token_hash,observation_id,expires_at) values(%s,%s,clock_timestamp()+interval '10 minutes') on conflict(token_hash) do nothing",(bh,oid))
+    conn.execute(f"insert into {database_schema()}.bootstrap(token_hash,observation_id,expires_at) values(%s,%s,clock_timestamp()+interval '10 minutes') on conflict(token_hash) do nothing",(bh,oid))
     return 201,{"observation_id":oid,"accepted":True,"bootstrap_token":bootstrap}
 
 def _invite_visit(conn,p,invite_code,ctx,share_id=None):
     if not invite_code: return None
-    inviter=_one(conn,"select * from dino_dev.participant where referral_code=%s and campaign_id=%s and status='ACTIVE' for update",(invite_code,p["campaign_id"]))
+    inviter=_one(conn,f"select * from {database_schema()}.participant where referral_code=%s and campaign_id=%s and status='ACTIVE' for update",(invite_code,p["campaign_id"]))
     if not inviter:return {"visit_nonce":None,"status":"INVALID_CODE","reason":"INVITE_CODE_NOT_FOUND","expires_at":None}
     if inviter["id"]==p["id"]:return {"visit_nonce":None,"status":"SELF_INVITE","reason":"SELF_INVITE_NOT_ALLOWED","expires_at":None}
     raw=ctx["invite_nonce"]; hashed=ctx["invite_nonce_hash"]
-    existing=_one(conn,"select * from dino_dev.invitation_visit where inviter_id=%s and visitor_id=%s and status='PENDING' and expires_at>clock_timestamp() order by created_at desc limit 1",(inviter["id"],p["id"]))
+    existing=_one(conn,f"select * from {database_schema()}.invitation_visit where inviter_id=%s and visitor_id=%s and status='PENDING' and expires_at>clock_timestamp() order by created_at desc limit 1",(inviter["id"],p["id"]))
     if existing:
-        existing=_one(conn,"update dino_dev.invitation_visit set nonce_hash=%s,share_id=%s,expires_at=clock_timestamp()+interval '15 minutes' where id=%s returning *",(hashed,share_id,existing["id"]))
+        existing=_one(conn,f"update {database_schema()}.invitation_visit set nonce_hash=%s,share_id=%s,expires_at=clock_timestamp()+interval '15 minutes' where id=%s returning *",(hashed,share_id,existing["id"]))
     else:
-        existing=_one(conn,"""insert into dino_dev.invitation_visit(id,campaign_id,inviter_id,visitor_id,nonce_hash,share_id,expires_at)
+        existing=_one(conn,f"""insert into {database_schema()}.invitation_visit(id,campaign_id,inviter_id,visitor_id,nonce_hash,share_id,expires_at)
           values(%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '15 minutes') returning *""",(_id("iv"),p["campaign_id"],inviter["id"],p["id"],hashed,share_id))
     return {"visit_nonce":raw,"status":"PENDING","reason":None,"expires_at":_iso(existing["expires_at"])}
+
+def _invite_visit_during_campaign(conn,p,invite_code,ctx,share_id=None):
+    if not invite_code:return None
+    campaign=_campaign(conn)
+    try:
+        _mutable(campaign)
+        _new_entry_allowed(conn,campaign)
+    except DomainError as error:
+        if error.code in {"CAMPAIGN_UNAVAILABLE","CAMPAIGN_NOT_OPEN","CAMPAIGN_CLOSED"}:return None
+        raise
+    return _invite_visit(conn,p,invite_code,ctx,share_id)
 
 def participant_init(conn,body,ctx):
     share_id=str(body.get("share_id") or "")
@@ -163,31 +203,31 @@ def participant_init(conn,body,ctx):
     # Only a fresh bootstrap may replace a missing participant; existing blocked
     # or expired accounts still pass through the normal authentication checks.
     token_hash=ctx.get("participant_token_hash")
-    recover_missing=bool(token_hash and body.get("bootstrap_token") and ctx.get("bootstrap_token_hash") and not _one(conn,"select id from dino_dev.participant where token_hash=%s",(token_hash,)))
+    recover_missing=bool(token_hash and body.get("bootstrap_token") and ctx.get("bootstrap_token_hash") and not _one(conn,f"select id from {database_schema()}.participant where token_hash=%s",(token_hash,)))
     if token_hash and not recover_missing:
         p=_participant(conn,ctx,active=True)
         bootstrap=str(body.get("bootstrap_token") or "");oid=str(body.get("observation_id") or "")
         if bootstrap and oid and ctx.get("bootstrap_token_hash"):
-            proof=_one(conn,"select observation_id from dino_dev.bootstrap where token_hash=%s and expires_at>clock_timestamp()",(ctx["bootstrap_token_hash"],))
-            if proof and proof["observation_id"]==oid:conn.execute("update dino_dev.observation set participant_id=%s,linked_at=coalesce(linked_at,clock_timestamp()) where id=%s and participant_id is null",(p["id"],oid))
-        visit=_invite_visit(conn,p,str(body.get("invite_code") or "")[:64],ctx,share_id or None)
+            proof=_one(conn,f"select observation_id from {database_schema()}.bootstrap where token_hash=%s and expires_at>clock_timestamp()",(ctx["bootstrap_token_hash"],))
+            if proof and proof["observation_id"]==oid:conn.execute(f"update {database_schema()}.observation set participant_id=%s,linked_at=coalesce(linked_at,clock_timestamp()) where id=%s and participant_id is null",(p["id"],oid))
+        visit=_invite_visit_during_campaign(conn,p,str(body.get("invite_code") or "")[:64],ctx,share_id or None)
         return 200,{"participant":_public(p),"tickets":_tickets(p,ctx),"invite_visit":visit}
     bootstrap=str(body.get("bootstrap_token") or "")
     if not bootstrap or ctx.get("bootstrap_token_hash") is None: raise DomainError("BOOTSTRAP_REQUIRED","초기 접속을 다시 시도해 주세요.",401)
-    proof=_one(conn,"select * from dino_dev.bootstrap where token_hash=%s and expires_at>clock_timestamp() for update",(ctx["bootstrap_token_hash"],))
+    proof=_one(conn,f"select * from {database_schema()}.bootstrap where token_hash=%s and expires_at>clock_timestamp() for update",(ctx["bootstrap_token_hash"],))
     if not proof: raise DomainError("BOOTSTRAP_INVALID","초기 접속을 다시 시도해 주세요.",401)
-    p=_one(conn,"select * from dino_dev.participant where id=%s for update",(proof["participant_id"],)) if proof["participant_id"] else None
+    p=_one(conn,f"select * from {database_schema()}.participant where id=%s for update",(proof["participant_id"],)) if proof["participant_id"] else None
     created=False
     if not p:
-        campaign=_campaign(conn,True); _mutable(campaign); pid=_id("p")
-        p=_one(conn,"""insert into dino_dev.participant(id,campaign_id,token_hash,token_expires_at,nickname,referral_code,environment,first_link_kind,first_channel)
+        campaign=_campaign(conn,True); _mutable(campaign); _new_entry_allowed(conn,campaign); pid=_id("p")
+        p=_one(conn,f"""insert into {database_schema()}.participant(id,campaign_id,token_hash,token_expires_at,nickname,referral_code,environment,first_link_kind,first_channel)
           values(%s,%s,%s,clock_timestamp()+make_interval(secs=>%s),%s,%s,%s,%s,%s) returning *""",(pid,campaign["id"],ctx["new_participant_token_hash"],ctx["participant_cookie_max_age"],f"공룡{secrets.randbelow(9000)+1000}",secrets.token_urlsafe(12),ctx["environment"],str(body.get("link_kind") or "unknown")[:32],str(body.get("channel") or "unknown")[:64]))
-        conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after) values(%s,'INITIAL',1,'INITIAL_GRANT','initial',1)",(pid,))
-        conn.execute("update dino_dev.bootstrap set participant_id=%s,consumed_at=clock_timestamp() where token_hash=%s",(pid,ctx["bootstrap_token_hash"]))
+        conn.execute(f"insert into {database_schema()}.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after) values(%s,'INITIAL',1,'INITIAL_GRANT','initial',1)",(pid,))
+        conn.execute(f"update {database_schema()}.bootstrap set participant_id=%s,consumed_at=clock_timestamp() where token_hash=%s",(pid,ctx["bootstrap_token_hash"]))
         created=True
     oid=str(body.get("observation_id") or "")
-    if oid and oid==proof["observation_id"]: conn.execute("update dino_dev.observation set participant_id=%s,linked_at=coalesce(linked_at,clock_timestamp()) where id=%s and participant_id is null",(p["id"],oid))
-    visit=_invite_visit(conn,p,str(body.get("invite_code") or "")[:64],ctx,share_id or None)
+    if oid and oid==proof["observation_id"]: conn.execute(f"update {database_schema()}.observation set participant_id=%s,linked_at=coalesce(linked_at,clock_timestamp()) where id=%s and participant_id is null",(p["id"],oid))
+    visit=_invite_visit_during_campaign(conn,p,str(body.get("invite_code") or "")[:64],ctx,share_id or None)
     return (201 if created else 200),{"participant":_public(p),"tickets":_tickets(p,ctx),"invite_visit":visit,"_set_cookie_token":ctx["new_participant_token"]}
 
 def _ranking_profile_state(contact,rank,version):
@@ -196,34 +236,37 @@ def _ranking_profile_state(contact,rank,version):
     return {"required":eligible and status=="REQUESTED","eligible":eligible,"status":status,"game_version":contact["game_version"] if contact else None}
 
 def get_me(conn,ctx):
-    p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
+    p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(p["id"],))
     ranking=_ranking_info(conn,p["id"],_game_version(conn,ctx),p["campaign_id"])
-    live=_one(conn,"select id,status,ticket_kind,expires_at,last_checkpoint_tick from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1",(p["id"],))
-    eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
-    contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
-    claims=_one(conn,"select count(*)::int n from dino_dev.claim where participant_id=%s",(p["id"],))["n"]
+    live=_one(conn,f"select id,status,ticket_kind,expires_at,last_checkpoint_tick from {database_schema()}.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1",(p["id"],))
+    eligible=_one(conn,f"select id from {database_schema()}.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
+    contact=_one(conn,f"select status,game_version from {database_schema()}.ranking_contact where participant_id=%s",(p["id"],))
+    claims=_one(conn,f"select count(*)::int n from {database_schema()}.claim where participant_id=%s",(p["id"],))["n"]
     draw_state=_draw_state(conn,p,eligible)
     return 200,{"participant":_public(p),"tickets":_tickets(p,ctx),**ranking,"pending_game_session":dict(live) if live else None,"draw":draw_state,"top3_profile":_ranking_profile_state(contact,ranking["rank"],_game_version(conn,ctx)),"claim_count":claims}
 
 def patch_profile(conn,body,ctx):
-    p=_participant(conn,ctx,True,True); nickname=str(body.get("nickname") or "").strip(); public=body.get("is_public",p["is_public"])
+    p=_participant(conn,ctx,True,True); raw_nickname=body.get("nickname"); public=body.get("is_public",p["is_public"])
+    if not isinstance(raw_nickname,str) or any(unicodedata.category(char) in {"Cc","Cf","Zl","Zp"} for char in raw_nickname):
+        raise DomainError("VALIDATION_ERROR","닉네임에는 줄바꿈이나 제어문자를 사용할 수 없습니다.")
+    nickname=raw_nickname.strip()
     if not 1<=len(nickname)<=24 or not isinstance(public,bool): raise DomainError("VALIDATION_ERROR","프로필 값을 확인해 주세요.")
-    p=_one(conn,"update dino_dev.participant set nickname=%s,is_public=%s,updated_at=clock_timestamp() where id=%s returning *",(nickname,public,p["id"]))
+    p=_one(conn,f"update {database_schema()}.participant set nickname=%s,is_public=%s,updated_at=clock_timestamp() where id=%s returning *",(nickname,public,p["id"]))
     return 200,{"participant":_public(p)}
 
 def referral_me(conn,ctx):
-    p=_participant(conn,ctx); counts=_one(conn,"""select count(distinct visitor_id) filter(where qualified_at is not null and active_ms>=3000 and interacted)::int valid_visits,
+    p=_participant(conn,ctx); counts=_one(conn,f"""select count(distinct visitor_id) filter(where qualified_at is not null and active_ms>=3000 and interacted)::int valid_visits,
       count(*) filter(where status in ('QUALIFIED','ALREADY_QUALIFIED','REWARDED','ALREADY_REWARDED'))::int qualified_visits,
       count(*) filter(where status not in ('PENDING','QUALIFIED','ALREADY_QUALIFIED','REWARDED','ALREADY_REWARDED'))::int rejected_visits
-      from dino_dev.invitation_visit where inviter_id=%s""",(p["id"],))
-    pairs=_one(conn,"select count(*)::int n from dino_dev.invitation_reward where inviter_id=%s",(p["id"],))["n"]
-    totals=_one(conn,"""select count(*) filter(where source_type in ('INVITATION_GRANT','SHARE_GRANT'))::int granted,
+      from {database_schema()}.invitation_visit where inviter_id=%s""",(p["id"],))
+    pairs=_one(conn,f"select count(*)::int n from {database_schema()}.invitation_reward where inviter_id=%s",(p["id"],))["n"]
+    totals=_one(conn,f"""select count(*) filter(where source_type in ('INVITATION_GRANT','SHARE_GRANT'))::int granted,
       count(*) filter(where source_type='PLAY_CONSUME')::int used,
       count(*) filter(where source_type in ('FAULT_REFUND','LOW_SCORE_REFUND','INCOMPLETE_REFUND'))::int refunded
-      from dino_dev.ticket_ledger where participant_id=%s and ticket_kind='INVITATION'""",(p["id"],))
-    confirmed_shares=_one(conn,"select count(*)::int n from dino_dev.kakao_share_intent where participant_id=%s and status='CONFIRMED'",(p["id"],))["n"]
+      from {database_schema()}.ticket_ledger where participant_id=%s and ticket_kind='INVITATION'""",(p["id"],))
+    confirmed_shares=_one(conn,f"select count(*)::int n from {database_schema()}.kakao_share_intent where participant_id=%s and status='CONFIRMED'",(p["id"],))["n"]
     ranking=_ranking_info(conn,p["id"],_game_version(conn,ctx),p["campaign_id"])
-    won=_one(conn,"select pr.name from dino_dev.draw d join dino_dev.prize pr on pr.id=d.prize_id where d.participant_id=%s and d.campaign_id=%s and d.is_won",(p["id"],p["campaign_id"]))
+    won=_one(conn,f"select pr.name from {database_schema()}.draw d join {database_schema()}.prize pr on pr.id=d.prize_id where d.participant_id=%s and d.campaign_id=%s and d.is_won",(p["id"],p["campaign_id"]))
     return 200,{"participant_count":ranking["top3_gap"]["participant_count"],"won_prize_name":won["name"] if won else None,"invite_url":ctx["base_url"]+"/invite/"+p["referral_code"],"referral_code":p["referral_code"],"invitation_balance":p["invitation_balance"],"invitation_reserved":p["invitation_refund_pending"],"cooldown_until":_iso(p["cooldown_until"]),"cooldown_notice_pending":p["cooldown_notice_pending"],"rewarded_pairs":pairs,"confirmed_shares":confirmed_shares,"ticket_totals":dict(totals),**dict(counts)}
 
 def share_reward(conn,body,ctx):
@@ -242,26 +285,29 @@ def _share_intent_response(row,tickets=None):
 def create_share_intent(conn,body,ctx):
     if ctx.get("share_webhook_enabled") is not True:
         raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
-    p=_participant(conn,ctx,True,True);campaign=_campaign(conn);_mutable(campaign)
+    p=_participant(conn,ctx,True,True);campaign=_campaign(conn)
     kind=str(body.get("kind") or "")
     if kind not in SHARE_KINDS:raise DomainError("VALIDATION_ERROR","공유 종류를 확인해 주세요.")
     reward_type=SHARE_REWARD_TYPES[kind]
     claim_id=str(body.get("claim_id") or "") or None
     if claim_id:
-        claim=_one(conn,"select id,claim_type from dino_dev.claim where id=%s and participant_id=%s and campaign_id=%s",(claim_id,p["id"],p["campaign_id"]))
+        claim=_one(conn,f"select id,claim_type from {database_schema()}.claim where id=%s and participant_id=%s and campaign_id=%s",(claim_id,p["id"],p["campaign_id"]))
         if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
         allowed={"DRAW":{"prize_share"},"RANKING":{"prize_share","record_share"}}[claim["claim_type"]]
         if kind not in allowed:raise DomainError("CLAIM_SHARE_KIND_INVALID","수령 접수용 공유 유형을 확인해 주세요.",409)
         reward_type="NONE"
+        _claim_submission_allowed(conn,_campaign(conn),ctx)
+    elif reward_type in {"GAME","DRAW"}:
+        _mutable(campaign);_before_campaign_close(conn,campaign,ctx)
     if reward_type=="DRAW":
-        latest=_one(conn,"select outcome_kind from dino_dev.draw where campaign_id=%s and participant_id=%s order by round_number desc limit 1",(p["campaign_id"],p["id"]))
+        latest=_one(conn,f"select outcome_kind from {database_schema()}.draw where campaign_id=%s and participant_id=%s order by round_number desc limit 1",(p["campaign_id"],p["id"]))
         state=_draw_state(conn,p)
         if not latest or latest["outcome_kind"]!="BENEFIT" or state["used_count"]>=state["max_count"] or state["actual_prize_won"]:
             raise DomainError("DRAW_SHARE_NOT_AVAILABLE","혜택 결과 확인 후 남은 횟수 안에서 추가 뽑기를 받을 수 있습니다.",409)
     raw_token=ctx.get("new_share_callback_token");token_hash=ctx.get("new_share_callback_token_hash")
     if not raw_token or not token_hash:raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
     share_id=_id("share")
-    row=_one(conn,"""insert into dino_dev.kakao_share_intent
+    row=_one(conn,f"""insert into {database_schema()}.kakao_share_intent
       (id,participant_id,campaign_id,claim_id,kind,reward_type,reward_contract_version,callback_token_hash,environment,expires_at)
       values(%s,%s,%s,%s,%s,%s,2,%s,%s,clock_timestamp()+interval '30 minutes') returning *""",
       (share_id,p["id"],p["campaign_id"],claim_id,kind,reward_type,token_hash,ctx["environment"]))
@@ -273,7 +319,7 @@ def create_share_intent(conn,body,ctx):
 
 def get_share_intent(conn,share_id,ctx):
     p=_participant(conn,ctx)
-    row=_one(conn,"select * from dino_dev.kakao_share_intent where id=%s and participant_id=%s",(share_id,p["id"]))
+    row=_one(conn,f"select * from {database_schema()}.kakao_share_intent where id=%s and participant_id=%s",(share_id,p["id"]))
     if not row:raise DomainError("SHARE_INTENT_NOT_FOUND","공유 확인 요청을 찾을 수 없습니다.",404)
     status="EXPIRED" if row["status"]=="PENDING" and row["expires_at"]<=dt.datetime.now(UTC) else row["status"]
     if status!=row["status"]:row={**dict(row),"status":status,"reward_status":"NOT_ELIGIBLE"}
@@ -290,41 +336,49 @@ def kakao_share_webhook(conn,body,ctx):
         raise DomainError("INVALID_WEBHOOK","카카오 앱 식별값이 일치하지 않습니다.",403)
     resource_id=ctx["kakao_resource_id"]
     conn.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",("kakao-share-resource:"+resource_id,))
-    used=_one(conn,"select id,status,reward_status from dino_dev.kakao_share_intent where resource_id=%s for update",(resource_id,))
+    used=_one(conn,f"select id,status,reward_status from {database_schema()}.kakao_share_intent where resource_id=%s for update",(resource_id,))
     if used and used["id"]!=share_id:return 200,{"accepted":True,"duplicate":True}
-    row=_one(conn,"select * from dino_dev.kakao_share_intent where id=%s for update",(share_id,))
+    row=_one(conn,f"select * from {database_schema()}.kakao_share_intent where id=%s for update",(share_id,))
     if not row:raise DomainError("SHARE_INTENT_NOT_FOUND","공유 확인 요청을 찾을 수 없습니다.",404)
     if not hmac.compare_digest(str(row["callback_token_hash"]),str(ctx.get("share_callback_token_hash") or "")):
         raise DomainError("INVALID_WEBHOOK","웹훅 식별값이 올바르지 않습니다.",403)
     if row["environment"]!=ctx["environment"] or row["campaign_id"]!=ctx["campaign_id"]:
         raise DomainError("INVALID_WEBHOOK","공유 확인 환경이 일치하지 않습니다.",403)
     if row["status"]!="PENDING":
-        p=_one(conn,"select * from dino_dev.participant where id=%s",(row["participant_id"],))
+        p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(row["participant_id"],))
         response={"accepted":True,"duplicate":True,**_share_intent_response(row,_tickets(p,ctx))}
         if response["reward_type"]=="DRAW":response["draw_state"]=_draw_state(conn,p)
         return 200,response
     now=dt.datetime.now(UTC);chat_type=str(body.get("CHAT_TYPE") or "");hash_chat_id=str(body.get("HASH_CHAT_ID") or "")
     single_room=body.get("IS_SINGLE_CHATROOM") is True or str(body.get("IS_SINGLE_CHATROOM") or "").lower()=="true"
+    claim_memo_chat=bool(row.get("claim_id")) and row.get("reward_type")=="NONE" and chat_type=="MemoChat" and bool(hash_chat_id)
     if row["expires_at"]<=now:
-        row=_one(conn,"update dino_dev.kakao_share_intent set status='EXPIRED',reward_status='NOT_ELIGIBLE',resource_id=%s,updated_at=clock_timestamp() where id=%s returning *",(resource_id,share_id))
+        row=_one(conn,f"update {database_schema()}.kakao_share_intent set status='EXPIRED',reward_status='NOT_ELIGIBLE',resource_id=%s,updated_at=clock_timestamp() where id=%s returning *",(resource_id,share_id))
         return 200,{"accepted":True,**_share_intent_response(row)}
-    if chat_type not in KAKAO_FRIEND_CHAT_TYPES or single_room or not hash_chat_id:
-        row=_one(conn,"""update dino_dev.kakao_share_intent set status='REJECTED',reward_status='NOT_ELIGIBLE',resource_id=%s,
+    if not claim_memo_chat and (chat_type not in KAKAO_FRIEND_CHAT_TYPES or single_room or not hash_chat_id):
+        row=_one(conn,f"""update {database_schema()}.kakao_share_intent set status='REJECTED',reward_status='NOT_ELIGIBLE',resource_id=%s,
           chat_type=%s,hash_chat_id=%s,updated_at=clock_timestamp() where id=%s returning *""",(resource_id,chat_type,hash_chat_id or None,share_id))
         return 200,{"accepted":True,**_share_intent_response(row)}
-    p=_one(conn,"select * from dino_dev.participant where id=%s for update",(row["participant_id"],));campaign=_campaign(conn)
+    p=_one(conn,f"select * from {database_schema()}.participant where id=%s for update",(row["participant_id"],));campaign=_campaign(conn)
     reward_type=row.get("reward_type") or SHARE_REWARD_TYPES.get(row["kind"],"NONE")
     reward_status="NOT_ELIGIBLE"
     draw_state=None
-    if not p or p["status"]!="ACTIVE" or campaign["status"]!="ACTIVE":reward_status="NOT_ELIGIBLE"
+    reward_window_open=True
+    if reward_type in {"GAME","DRAW"}:
+        try:_before_campaign_close(conn,campaign,ctx)
+        except DomainError as error:
+            if error.code not in {"CAMPAIGN_CLOSED","CAMPAIGN_NOT_OPEN"}:raise
+            reward_window_open=False
+    if not p or p["status"]!="ACTIVE":reward_status="NOT_ELIGIBLE"
     elif reward_type=="NONE":reward_status="NO_REWARD"
+    elif campaign["status"]!="ACTIVE" or not reward_window_open:reward_status="NOT_ELIGIBLE"
     elif reward_type=="DRAW":
         draw_state=_draw_state(conn,p)
         if draw_state["actual_prize_won"]:reward_status="BLOCKED_PRIZE_WON"
         elif draw_state["used_count"]+draw_state["available_credits"]>=draw_state["max_count"]:reward_status="BLOCKED_DRAW_LIMIT"
         else:
             new_balance=draw_state["available_credits"]+1
-            conn.execute("""insert into dino_dev.draw_credit_ledger
+            conn.execute(f"""insert into {database_schema()}.draw_credit_ledger
               (participant_id,campaign_id,delta,source_type,source_id,balance_after)
               values(%s,%s,1,'SHARE_GRANT',%s,%s)""",(p["id"],p["campaign_id"],share_id,new_balance))
             reward_status="GRANTED"
@@ -334,15 +388,15 @@ def kakao_share_webhook(conn,body,ctx):
     elif p["invitation_balance"]+p["invitation_refund_pending"]>=3:reward_status="BLOCKED_CAP"
     else:
         new_balance=p["invitation_balance"]+1;cooldown=now+dt.timedelta(hours=10) if new_balance==3 else p["cooldown_until"]
-        p=_one(conn,"""update dino_dev.participant set invitation_balance=%s,cooldown_until=%s,
+        p=_one(conn,f"""update {database_schema()}.participant set invitation_balance=%s,cooldown_until=%s,
           cooldown_notice_pending=case when %s=3 then true else cooldown_notice_pending end,updated_at=clock_timestamp()
           where id=%s returning *""",(new_balance,cooldown,new_balance,p["id"]))
-        conn.execute("""insert into dino_dev.ticket_ledger
+        conn.execute(f"""insert into {database_schema()}.ticket_ledger
           (participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until)
           values(%s,'INVITATION',1,'SHARE_GRANT',%s,%s,%s)""",(p["id"],share_id,new_balance,cooldown))
         reward_status="GRANTED"
         _event(conn,"invitation_share_granted",ctx,p["id"],"invitation_share_granted:"+share_id,dimensions={"balance":new_balance,"method":"kakao"})
-    row=_one(conn,"""update dino_dev.kakao_share_intent set status='CONFIRMED',reward_status=%s,resource_id=%s,chat_type=%s,
+    row=_one(conn,f"""update {database_schema()}.kakao_share_intent set status='CONFIRMED',reward_status=%s,resource_id=%s,chat_type=%s,
       hash_chat_id=%s,confirmed_at=clock_timestamp(),updated_at=clock_timestamp() where id=%s returning *""",
       (reward_status,resource_id,chat_type,hash_chat_id,share_id))
     response={"accepted":True,"duplicate":False,**_share_intent_response(row,_tickets(p,ctx))}
@@ -353,31 +407,31 @@ def qualify_referral(conn,body,ctx):
     visitor=_participant(conn,ctx,active=True); raw=str(body.get("visit_nonce") or "")
     try: active_ms=int(body.get("active_ms"))
     except (TypeError,ValueError): active_ms=0
-    visit=_one(conn,"select * from dino_dev.invitation_visit where nonce_hash=%s for update",(ctx["visit_nonce_hash"] if raw else "",))
+    visit=_one(conn,f"select * from {database_schema()}.invitation_visit where nonce_hash=%s for update",(ctx["visit_nonce_hash"] if raw else "",))
     if not visit or visit["visitor_id"]!=visitor["id"] or visit["expires_at"]<=dt.datetime.now(UTC):
         raise DomainError("INVALID_NONCE","초대 방문을 다시 시작해 주세요.",409)
     if visit["status"]!="PENDING": return 200,{"status":visit["status"],"reason":visit["reason"],"granted":0}
     campaign=_campaign(conn);_mutable(campaign)
-    inviter=_one(conn,"select * from dino_dev.participant where id=%s and status='ACTIVE' for update",(visit["inviter_id"],))
+    inviter=_one(conn,f"select * from {database_schema()}.participant where id=%s and status='ACTIVE' for update",(visit["inviter_id"],))
     if not inviter or inviter["campaign_id"]!=visitor["campaign_id"] or str(body.get("code") or "")!=inviter["referral_code"]: raise DomainError("INVALID_NONCE","초대 방문을 다시 시작해 주세요.",409)
-    existing=_one(conn,"""select id from dino_dev.invitation_visit where campaign_id=%s and inviter_id=%s and visitor_id=%s
+    existing=_one(conn,f"""select id from {database_schema()}.invitation_visit where campaign_id=%s and inviter_id=%s and visitor_id=%s
       and id<>%s and status in ('QUALIFIED','ALREADY_QUALIFIED','REWARDED','ALREADY_REWARDED') limit 1""",
       (visit["campaign_id"],visit["inviter_id"],visitor["id"],visit["id"]))
     now=dt.datetime.now(UTC);status="QUALIFIED";reason="TRACKING_ONLY";granted=0
     if existing:status="ALREADY_QUALIFIED";reason="PAIR_ALREADY_QUALIFIED"
     elif active_ms<ctx["invite_active_ms"] or body.get("interacted") is not True or visit["created_at"]>now-dt.timedelta(milliseconds=ctx["invite_active_ms"]):status="NOT_QUALIFIED";reason="ACTIVE_TIME_OR_INTERACTION_REQUIRED"
-    conn.execute("update dino_dev.invitation_visit set status=%s,reason=%s,qualified_at=clock_timestamp(),active_ms=%s,interacted=%s where id=%s",(status,reason,active_ms,bool(body.get("interacted")),visit["id"]))
-    inviter=_one(conn,"select * from dino_dev.participant where id=%s",(inviter["id"],))
+    conn.execute(f"update {database_schema()}.invitation_visit set status=%s,reason=%s,qualified_at=clock_timestamp(),active_ms=%s,interacted=%s where id=%s",(status,reason,active_ms,bool(body.get("interacted")),visit["id"]))
+    inviter=_one(conn,f"select * from {database_schema()}.participant where id=%s",(inviter["id"],))
     return 200,{"status":status,"reason":reason,"granted":granted,"inviter_balance":inviter["invitation_balance"],"cooldown_until":_iso(inviter["cooldown_until"])}
 
 def cooldown_ack(conn,body,ctx):
     p=_participant(conn,ctx,True,True)
     if str(body.get("cooldown_until") or "")!=_iso(p["cooldown_until"]): raise DomainError("COOLDOWN_CHANGED","대기 상태가 변경되었습니다.",409)
-    conn.execute("update dino_dev.participant set cooldown_notice_pending=false where id=%s",(p["id"],))
+    conn.execute(f"update {database_schema()}.participant set cooldown_notice_pending=false where id=%s",(p["id"],))
     return 200,{"acknowledged":True}
 
 def _owned_session(conn,sid,pid,lock=False):
-    row=_one(conn,"select * from dino_dev.game_session where id=%s"+(" for update" if lock else ""),(sid,))
+    row=_one(conn,f"select * from {database_schema()}.game_session where id=%s"+(" for update" if lock else ""),(sid,))
     if not row or row["participant_id"]!=pid: raise DomainError("SESSION_NOT_FOUND","게임 기록을 찾을 수 없습니다.",404)
     return row
 def _session(row):
@@ -389,15 +443,15 @@ def create_session(conn,body,ctx):
     if observation_id is not None:
         observation_id=str(observation_id)
         if not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",observation_id):raise DomainError("VALIDATION_ERROR","게임 유입 관측값을 확인해 주세요.")
-        observed=_one(conn,"select participant_id from dino_dev.observation where id=%s",(observation_id,))
+        observed=_one(conn,f"select participant_id from {database_schema()}.observation where id=%s",(observation_id,))
         if not observed or observed["participant_id"]!=p["id"]:raise DomainError("INVALID_OBSERVATION_ATTRIBUTION","현재 참가자의 유입 관측만 연결할 수 있습니다.",409)
     if visit_session_id is not None:
         visit_session_id=str(visit_session_id)
         if not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",visit_session_id):raise DomainError("VALIDATION_ERROR","방문 세션 식별자를 확인해 주세요.")
-    _reconcile_expired(conn,p["id"]);p=_one(conn,"select * from dino_dev.participant where id=%s for update",(p["id"],))
-    old=_one(conn,"select * from dino_dev.game_session where participant_id=%s and idempotency_key=%s",(p["id"],ctx["idempotency_key"]))
+    _reconcile_expired(conn,p["id"]);p=_one(conn,f"select * from {database_schema()}.participant where id=%s for update",(p["id"],))
+    old=_one(conn,f"select * from {database_schema()}.game_session where participant_id=%s and idempotency_key=%s",(p["id"],ctx["idempotency_key"]))
     if old:return 200,_session(old)
-    live=_one(conn,"select * from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1 for update",(p["id"],))
+    live=_one(conn,f"select * from {database_schema()}.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1 for update",(p["id"],))
     if live:return 200,{**_session(live),"existing_session":True}
     _new_entry_allowed(conn,campaign)
     unlimited=_unlimited_play(p,ctx)
@@ -406,20 +460,21 @@ def create_session(conn,body,ctx):
     if unlimited:
         after=None
     elif kind=="INITIAL":
-        conn.execute("update dino_dev.participant set initial_balance=initial_balance-1,updated_at=clock_timestamp() where id=%s",(p["id"],)); after=p["initial_balance"]-1
+        conn.execute(f"update {database_schema()}.participant set initial_balance=initial_balance-1,updated_at=clock_timestamp() where id=%s",(p["id"],)); after=p["initial_balance"]-1
     else:
-        conn.execute("update dino_dev.participant set invitation_balance=invitation_balance-1,invitation_refund_pending=invitation_refund_pending+1,updated_at=clock_timestamp() where id=%s",(p["id"],)); after=p["invitation_balance"]-1
+        conn.execute(f"update {database_schema()}.participant set invitation_balance=invitation_balance-1,invitation_refund_pending=invitation_refund_pending+1,updated_at=clock_timestamp() where id=%s",(p["id"],)); after=p["invitation_balance"]-1
     sid=_id("gs")
-    if not unlimited:conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after) values(%s,%s,-1,'PLAY_CONSUME',%s,%s)",(p["id"],kind,sid,after))
-    row=_one(conn,"""insert into dino_dev.game_session(id,participant_id,campaign_id,idempotency_key,seed,version,ticket_kind,ticket_refund_status,expires_at,environment)
+    if not unlimited:conn.execute(f"insert into {database_schema()}.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after) values(%s,%s,-1,'PLAY_CONSUME',%s,%s)",(p["id"],kind,sid,after))
+    row=_one(conn,f"""insert into {database_schema()}.game_session(id,participant_id,campaign_id,idempotency_key,seed,version,ticket_kind,ticket_refund_status,expires_at,environment)
       values(%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '2 minutes',%s) returning *""",(sid,p["id"],campaign["id"],ctx["idempotency_key"],secrets.randbelow(2147483646)+1,_game_version(conn,ctx),kind,"NOT_DUE" if unlimited else "PENDING",ctx["environment"]))
     _event(conn,"game_start_approved",ctx,p["id"],"game_reserved:"+sid,game_session_id=sid,observation_id=observation_id,visit_session_id=visit_session_id)
     return 201,_session(row)
 def start_session(conn,sid,ctx):
-    p=_participant(conn,ctx,True,True); s=_owned_session(conn,sid,p["id"],True)
+    p=_participant(conn,ctx,True,True);s=_owned_session(conn,sid,p["id"],True)
     if s["status"]=="ACTIVE": return 200,_session(s)
+    campaign=_campaign(conn,True);_before_campaign_close(conn,campaign,ctx)
     if s["status"]!="RESERVED" or s["expires_at"]<=dt.datetime.now(UTC): raise DomainError("SESSION_NOT_STARTABLE","게임 시작 시간이 만료되었습니다.",409)
-    s=_one(conn,"update dino_dev.game_session set status='ACTIVE',started_at=clock_timestamp(),expires_at=clock_timestamp()+make_interval(secs=>%s) where id=%s returning *",(720 if s["version"] in {"2.0.0","2.1.0"} else 600,sid))
+    s=_one(conn,f"update {database_schema()}.game_session set status='ACTIVE',started_at=clock_timestamp(),expires_at=clock_timestamp()+make_interval(secs=>%s) where id=%s returning *",(720 if s["version"] in {"2.0.0","2.1.0"} else 600,sid))
     return 200,{**_session(s),"started_at":_iso(s["started_at"])}
 def checkpoint(conn,sid,body,ctx):
     p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
@@ -427,31 +482,35 @@ def checkpoint(conn,sid,body,ctx):
     except (TypeError,ValueError): raise DomainError("VALIDATION_ERROR","체크포인트를 확인해 주세요.")
     elapsed=(dt.datetime.now(UTC)-s["started_at"]).total_seconds() if s["started_at"] else 0
     if s["status"]!="ACTIVE" or not 60<=tick<=36000 or tick/60.0>elapsed+1.0 or (s["last_checkpoint_tick"] is not None and tick<s["last_checkpoint_tick"]): raise DomainError("CHECKPOINT_REJECTED","체크포인트 상태가 올바르지 않습니다.",409)
-    conn.execute("update dino_dev.game_session set last_checkpoint_tick=%s where id=%s",(tick,sid)); return 202,{"session_id":sid,"tick":tick}
+    conn.execute(f"update {database_schema()}.game_session set last_checkpoint_tick=%s where id=%s",(tick,sid)); return 202,{"session_id":sid,"tick":tick}
 def _settle_invitation_pending(conn,s):
     if s["ticket_kind"]=="INVITATION" and s["ticket_refund_status"]=="PENDING":
-        conn.execute("update dino_dev.participant set invitation_refund_pending=invitation_refund_pending-1 where id=%s",(s["participant_id"],))
+        conn.execute(f"update {database_schema()}.participant set invitation_refund_pending=invitation_refund_pending-1 where id=%s",(s["participant_id"],))
 def _settle_verified_ticket(conn,s,score):
     if s["ticket_refund_status"]!="PENDING":
         return s["ticket_refund_status"]
     if score>100:
         _settle_invitation_pending(conn,s)
         return "NOT_DUE"
-    p=_one(conn,"select * from dino_dev.participant where id=%s for update",(s["participant_id"],))
+    p=_one(conn,f"select * from {database_schema()}.participant where id=%s for update",(s["participant_id"],))
     if s["ticket_kind"]=="INITIAL":
         after=min(1,p["initial_balance"]+1)
-        conn.execute("update dino_dev.participant set initial_balance=%s,updated_at=clock_timestamp() where id=%s",(after,p["id"]))
+        conn.execute(f"update {database_schema()}.participant set initial_balance=%s,updated_at=clock_timestamp() where id=%s",(after,p["id"]))
     else:
         after=p["invitation_balance"]+1
-        conn.execute("""update dino_dev.participant set invitation_refund_pending=invitation_refund_pending-1,
+        conn.execute(f"""update {database_schema()}.participant set invitation_refund_pending=invitation_refund_pending-1,
           invitation_balance=invitation_balance+1,updated_at=clock_timestamp() where id=%s""",(p["id"],))
-    conn.execute("""insert into dino_dev.ticket_ledger
+    conn.execute(f"""insert into {database_schema()}.ticket_ledger
       (participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until)
       values(%s,%s,1,'LOW_SCORE_REFUND',%s,%s,%s) on conflict do nothing""",
       (p["id"],s["ticket_kind"],s["id"],after,p["cooldown_until"]))
     return "REFUNDED"
 def finish_session(conn,sid,body,ctx):
-    p=_participant(conn,ctx,active=True); s=_owned_session(conn,sid,p["id"],True)
+    p=_participant(conn,ctx,active=True);s=_owned_session(conn,sid,p["id"])
+    if s["status"] in ("FINISHED","REJECTED"):
+        return 200,finish_response(conn,s,ctx)
+    campaign=_campaign(conn,True);_before_campaign_close(conn,campaign,ctx)
+    s=_owned_session(conn,sid,p["id"],True)
     if s["status"] in ("FINISHED","REJECTED"):
         return 200,finish_response(conn,s,ctx)
     if s["status"]!="ACTIVE": raise DomainError("SESSION_NOT_ACTIVE","진행 중인 게임만 종료할 수 있습니다.",409)
@@ -472,33 +531,33 @@ def finish_session(conn,sid,body,ctx):
         ticket_refund_status=_settle_verified_ticket(conn,s,score)
     else:
         _settle_invitation_pending(conn,s);ticket_refund_status="NOT_DUE"
-    s=_one(conn,"update dino_dev.game_session set status=%s,score=%s,valid_ticks=%s,verification_result=%s,game_summary=%s::jsonb,end_reason=%s,finished_at=clock_timestamp(),ticket_refund_status=%s where id=%s returning *",(status,score,ticks,reason,json.dumps(summary if valid else {}),end_reason if valid else None,ticket_refund_status,sid))
+    s=_one(conn,f"update {database_schema()}.game_session set status=%s,score=%s,valid_ticks=%s,verification_result=%s,game_summary=%s::jsonb,end_reason=%s,finished_at=clock_timestamp(),ticket_refund_status=%s where id=%s returning *",(status,score,ticks,reason,json.dumps(summary if valid else {}),end_reason if valid else None,ticket_refund_status,sid))
     if not valid:
         _event(conn,"game_verification_rejected",ctx,p["id"],"game_rejected:"+sid,game_session_id=sid,dimensions={"reason":reason})
         return 422,{"error":"GAME_VERIFICATION_FAILED","message":"게임 결과를 검증하지 못했습니다.","retryable":False,"session_id":sid,"status":"REJECTED","verification":reason}
     if s["version"]=="1.2.0":
-        conn.execute("""insert into dino_dev.best_score(participant_id,session_id,score,achieved_at) values(%s,%s,%s,clock_timestamp())
-          on conflict(participant_id) do update set session_id=excluded.session_id,score=excluded.score,achieved_at=excluded.achieved_at where excluded.score>dino_dev.best_score.score""",(p["id"],sid,score))
+        conn.execute(f"""insert into {database_schema()}.best_score(participant_id,session_id,score,achieved_at) values(%s,%s,%s,clock_timestamp())
+          on conflict(participant_id) do update set session_id=excluded.session_id,score=excluded.score,achieved_at=excluded.achieved_at where excluded.score>{database_schema()}.best_score.score""",(p["id"],sid,score))
     else:
-        conn.execute("""insert into dino_dev.versioned_best_score(participant_id,game_version,session_id,score,achieved_at) values(%s,%s,%s,%s,clock_timestamp())
-          on conflict(participant_id,game_version) do update set session_id=excluded.session_id,score=excluded.score,achieved_at=excluded.achieved_at where excluded.score>dino_dev.versioned_best_score.score""",(p["id"],s["version"],sid,score))
+        conn.execute(f"""insert into {database_schema()}.versioned_best_score(participant_id,game_version,session_id,score,achieved_at) values(%s,%s,%s,%s,clock_timestamp())
+          on conflict(participant_id,game_version) do update set session_id=excluded.session_id,score=excluded.score,achieved_at=excluded.achieved_at where excluded.score>{database_schema()}.versioned_best_score.score""",(p["id"],s["version"],sid,score))
     rank=_ranking_info(conn,p["id"],s["version"],p["campaign_id"])["rank"]
     if rank<=3:
-        conn.execute("""insert into dino_dev.ranking_contact(participant_id,game_version) values(%s,%s)
+        conn.execute(f"""insert into {database_schema()}.ranking_contact(participant_id,game_version) values(%s,%s)
           on conflict(participant_id) do update set game_version=case
-            when excluded.game_version='2.1.0' or dino_dev.ranking_contact.game_version='1.2.0' then excluded.game_version
-            else dino_dev.ranking_contact.game_version end""",(p["id"],s["version"]))
+            when excluded.game_version='2.1.0' or {database_schema()}.ranking_contact.game_version='1.2.0' then excluded.game_version
+            else {database_schema()}.ranking_contact.game_version end""",(p["id"],s["version"]))
     _event(conn,"game_finish_verified",ctx,p["id"],"game_finished:"+sid,game_session_id=sid,dimensions={"score":score,"rank":rank,"game_version":s["version"],"end_reason":end_reason,**summary})
     return 200,finish_response(conn,s,ctx)
 def finish_response(conn,s,ctx=None):
     ranking=_ranking_info(conn,s["participant_id"],s["version"],s["campaign_id"])
     if s["status"]!="FINISHED":ranking["rank"]=None
-    p=_one(conn,"select * from dino_dev.participant where id=%s",(s["participant_id"],))
-    ticket_entries=_one(conn,"""select exists(select 1 from dino_dev.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME' and source_id=%s) consumed,
-      exists(select 1 from dino_dev.ticket_ledger where participant_id=%s and source_type='LOW_SCORE_REFUND' and source_id=%s) low_score_refunded""",
+    p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(s["participant_id"],))
+    ticket_entries=_one(conn,f"""select exists(select 1 from {database_schema()}.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME' and source_id=%s) consumed,
+      exists(select 1 from {database_schema()}.ticket_ledger where participant_id=%s and source_type='LOW_SCORE_REFUND' and source_id=%s) low_score_refunded""",
       (s["participant_id"],s["id"],s["participant_id"],s["id"]))
-    contact=_one(conn,"select status,game_version from dino_dev.ranking_contact where participant_id=%s",(s["participant_id"],))
-    eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' limit 1",(s["participant_id"],s["campaign_id"]))
+    contact=_one(conn,f"select status,game_version from {database_schema()}.ranking_contact where participant_id=%s",(s["participant_id"],))
+    eligible=_one(conn,f"select id from {database_schema()}.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' limit 1",(s["participant_id"],s["campaign_id"]))
     draw_state=_draw_state(conn,p,eligible)
     return {"session_id":s["id"],"status":s["status"],"verification":s["verification_result"],"score":s["score"],**ranking,
       "summary":s.get("game_summary") or {},"end_reason":s.get("end_reason"),
@@ -517,21 +576,21 @@ def report_fault(conn,sid,body,ctx):
     try: last_tick=int(body.get("last_tick"))
     except (TypeError,ValueError): last_tick=-1
     if last_tick<s["last_checkpoint_tick"] or last_tick>36000: raise DomainError("FAULT_NOT_REFUNDABLE","장애 증거가 올바르지 않습니다.",409)
-    s=_one(conn,"update dino_dev.game_session set status='FAULT_REPORTED',fault_reason=%s,fault_reported_at=clock_timestamp(),fault_review_status='PENDING',fault_review_version=1 where id=%s returning *",(reason,sid))
+    s=_one(conn,f"update {database_schema()}.game_session set status='FAULT_REPORTED',fault_reason=%s,fault_reported_at=clock_timestamp(),fault_review_status='PENDING',fault_review_version=1 where id=%s returning *",(reason,sid))
     _event(conn,"game_fault_reported",ctx,p["id"],"fault:"+sid,game_session_id=sid,dimensions={"reason":reason})
     return 202,_session(s)
 def _refund_fault(conn,s,review_status,reviewed_by=None,reason=None):
     if s["ticket_refund_status"]=="REFUNDED":return s
     if s["ticket_refund_status"]=="NOT_DUE":
-        return _one(conn,"""update dino_dev.game_session set status='ABORTED',ticket_refund_status='NOT_DUE',finished_at=clock_timestamp(),fault_review_status=%s,
+        return _one(conn,f"""update {database_schema()}.game_session set status='ABORTED',ticket_refund_status='NOT_DUE',finished_at=clock_timestamp(),fault_review_status=%s,
           fault_review_version=fault_review_version+1,fault_reviewed_by=%s,fault_reviewed_at=clock_timestamp(),fault_review_reason=%s where id=%s returning *""",(review_status,reviewed_by,reason,s["id"]))
-    p=_one(conn,"select * from dino_dev.participant where id=%s for update",(s["participant_id"],))
+    p=_one(conn,f"select * from {database_schema()}.participant where id=%s for update",(s["participant_id"],))
     if s["ticket_kind"]=="INITIAL":
-        conn.execute("update dino_dev.participant set initial_balance=least(1,initial_balance+1) where id=%s",(p["id"],)); after=min(1,p["initial_balance"]+1)
+        conn.execute(f"update {database_schema()}.participant set initial_balance=least(1,initial_balance+1) where id=%s",(p["id"],)); after=min(1,p["initial_balance"]+1)
     else:
-        conn.execute("update dino_dev.participant set invitation_refund_pending=invitation_refund_pending-1,invitation_balance=invitation_balance+1 where id=%s",(p["id"],)); after=p["invitation_balance"]+1
-    conn.execute("insert into dino_dev.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until) values(%s,%s,1,'FAULT_REFUND',%s,%s,%s) on conflict do nothing",(p["id"],s["ticket_kind"],s["id"],after,p["cooldown_until"]))
-    return _one(conn,"""update dino_dev.game_session set status='ABORTED',ticket_refund_status='REFUNDED',finished_at=clock_timestamp(),fault_review_status=%s,
+        conn.execute(f"update {database_schema()}.participant set invitation_refund_pending=invitation_refund_pending-1,invitation_balance=invitation_balance+1 where id=%s",(p["id"],)); after=p["invitation_balance"]+1
+    conn.execute(f"insert into {database_schema()}.ticket_ledger(participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until) values(%s,%s,1,'FAULT_REFUND',%s,%s,%s) on conflict do nothing",(p["id"],s["ticket_kind"],s["id"],after,p["cooldown_until"]))
+    return _one(conn,f"""update {database_schema()}.game_session set status='ABORTED',ticket_refund_status='REFUNDED',finished_at=clock_timestamp(),fault_review_status=%s,
       fault_review_version=fault_review_version+1,fault_reviewed_by=%s,fault_reviewed_at=clock_timestamp(),fault_review_reason=%s where id=%s returning *""",(review_status,reviewed_by,reason,s["id"]))
 def abandon_session(conn,sid,ctx):
     p=_participant(conn,ctx,True,True);s=_owned_session(conn,sid,p["id"],True)
@@ -539,43 +598,43 @@ def abandon_session(conn,sid,ctx):
         result=finish_response(conn,s,ctx)
         return 200,{"session_id":sid,"status":s["status"],"tickets":result["tickets"],"result":result}
     if s["status"]=="ABORTED":
-        p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
+        p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(p["id"],))
         return 200,{"session_id":sid,"status":"ABORTED","refund":{"status":s["ticket_refund_status"],"ticket_kind":s["ticket_kind"],"reason":"INCOMPLETE_GAME" if s["ticket_refund_status"]=="REFUNDED" else None},"tickets":_tickets(p,ctx)}
     if s["status"] not in {"RESERVED","ACTIVE","FAULT_REPORTED"}:
         raise DomainError("SESSION_NOT_ABANDONABLE","완료되지 않은 게임만 무효 처리할 수 있습니다.",409)
-    consumed=_one(conn,"select id from dino_dev.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME' and source_id=%s",(p["id"],sid))
+    consumed=_one(conn,f"select id from {database_schema()}.ticket_ledger where participant_id=%s and source_type='PLAY_CONSUME' and source_id=%s",(p["id"],sid))
     refund_status="NOT_DUE"
     if s["ticket_refund_status"]=="PENDING" and consumed:
         if s["ticket_kind"]=="INITIAL":
             after=min(1,p["initial_balance"]+1)
-            conn.execute("update dino_dev.participant set initial_balance=%s,updated_at=clock_timestamp() where id=%s",(after,p["id"]))
+            conn.execute(f"update {database_schema()}.participant set initial_balance=%s,updated_at=clock_timestamp() where id=%s",(after,p["id"]))
         else:
             after=p["invitation_balance"]+1
-            conn.execute("""update dino_dev.participant set invitation_refund_pending=greatest(0,invitation_refund_pending-1),
+            conn.execute(f"""update {database_schema()}.participant set invitation_refund_pending=greatest(0,invitation_refund_pending-1),
               invitation_balance=invitation_balance+1,updated_at=clock_timestamp() where id=%s""",(p["id"],))
-        conn.execute("""insert into dino_dev.ticket_ledger
+        conn.execute(f"""insert into {database_schema()}.ticket_ledger
           (participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until)
           values(%s,%s,1,'INCOMPLETE_REFUND',%s,%s,%s) on conflict do nothing""",(p["id"],s["ticket_kind"],sid,after,p["cooldown_until"]))
         refund_status="REFUNDED"
-    s=_one(conn,"""update dino_dev.game_session set status='ABORTED',ticket_refund_status=%s,finished_at=clock_timestamp(),
+    s=_one(conn,f"""update {database_schema()}.game_session set status='ABORTED',ticket_refund_status=%s,finished_at=clock_timestamp(),
       fault_review_status='NONE',fault_reviewed_by=null,fault_reviewed_at=null,fault_review_reason='INCOMPLETE_GAME_INVALIDATED'
       where id=%s returning *""",(refund_status,sid))
     _event(conn,"game_incomplete_invalidated",ctx,p["id"],"game_incomplete_invalidated:"+sid,game_session_id=sid,dimensions={"refund_status":refund_status})
-    p=_one(conn,"select * from dino_dev.participant where id=%s",(p["id"],))
+    p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(p["id"],))
     return 200,{"session_id":sid,"status":"ABORTED","refund":{"status":refund_status,"ticket_kind":s["ticket_kind"],"reason":"INCOMPLETE_GAME" if refund_status=="REFUNDED" else None},"tickets":_tickets(p,ctx)}
 def _reconcile_expired(conn,participant_id):
-    expired=_all(conn,"select * from dino_dev.game_session where participant_id=%s and status in ('RESERVED','ACTIVE') and expires_at<=clock_timestamp() order by reserved_at for update",(participant_id,))
+    expired=_all(conn,f"select * from {database_schema()}.game_session where participant_id=%s and status in ('RESERVED','ACTIVE') and expires_at<=clock_timestamp() order by reserved_at for update",(participant_id,))
     for session in expired:
         if session["status"]=="RESERVED":
             session=dict(session);session["fault_reason"]="SERVER_RESERVATION_EXPIRED"
-            conn.execute("update dino_dev.game_session set fault_reason='SERVER_RESERVATION_EXPIRED',fault_reported_at=clock_timestamp(),fault_review_status='PENDING',fault_review_version=1 where id=%s",(session["id"],))
+            conn.execute(f"update {database_schema()}.game_session set fault_reason='SERVER_RESERVATION_EXPIRED',fault_reported_at=clock_timestamp(),fault_review_status='PENDING',fault_review_version=1 where id=%s",(session["id"],))
             _refund_fault(conn,session,"AUTO_APPROVED",reason="RESERVATION_NEVER_STARTED")
         else:
-            conn.execute("""update dino_dev.game_session set status='FAULT_REPORTED',fault_reason='SERVER_TIMEOUT',fault_reported_at=clock_timestamp(),
+            conn.execute(f"""update {database_schema()}.game_session set status='FAULT_REPORTED',fault_reason='SERVER_TIMEOUT',fault_reported_at=clock_timestamp(),
               fault_review_status='PENDING',fault_review_version=1 where id=%s""",(session["id"],))
 def _reconcile_fault(conn,s):
     if s["status"]!="FAULT_REPORTED" or s["fault_reason"]!="NETWORK_ERROR" or s["fault_reported_at"]>dt.datetime.now(UTC)-dt.timedelta(seconds=10): return s
-    prior=_one(conn,"""select count(*)::int n from dino_dev.game_session where participant_id=%s and id<>%s and fault_review_status='AUTO_APPROVED' and fault_reason='NETWORK_ERROR'
+    prior=_one(conn,f"""select count(*)::int n from {database_schema()}.game_session where participant_id=%s and id<>%s and fault_review_status='AUTO_APPROVED' and fault_reason='NETWORK_ERROR'
       and fault_reviewed_at>=clock_timestamp()-interval '24 hours'""",(s["participant_id"],s["id"]))["n"]
     return _refund_fault(conn,s,"AUTO_APPROVED",reason="FIRST_NETWORK_FAULT_24H") if prior==0 else s
 def get_session(conn,sid,ctx):
@@ -593,21 +652,38 @@ def leaderboard(conn,query,ctx):
     except (TypeError,ValueError):limit=100
     version=_game_version(conn,ctx);campaign=_campaign(conn);source=_score_source(version)
     rows=_all(conn,f"""select * from (
-      select b.participant_id,p.nickname,p.is_public,b.score,b.achieved_at,dense_rank() over(order by b.score desc)::int rank,
-        count(*) over(partition by b.score)>1 tied from {source} b join dino_dev.participant p on p.id=b.participant_id
+      select b.participant_id,p.nickname,p.is_public,b.score,b.achieved_at,
+        row_number() over(order by b.score desc,b.achieved_at asc,b.participant_id asc)::int rank,
+        count(*) over(partition by b.score)>1 tied from {source} b join {database_schema()}.participant p on p.id=b.participant_id
       where p.campaign_id=%s and p.status='ACTIVE') ranked
-      where is_public order by score desc,achieved_at limit %s""",(campaign["id"],limit))
-    rank_targets=_all(conn,f"""select dense_rank() over(order by score desc)::int rank,score from (
-      select distinct b.score from {source} b join dino_dev.participant p on p.id=b.participant_id
-      where p.campaign_id=%s and p.status='ACTIVE') scores
-      order by score desc limit 3""",(campaign["id"],))
+      where is_public order by rank limit %s""",(campaign["id"],limit))
+    highlights=[]
+    if query.get("view")=="milestones":
+        highlights=_all(conn,f"""with ranked as (
+          select b.participant_id,p.nickname,p.is_public,b.score,b.achieved_at,
+            row_number() over(order by b.score desc,b.achieved_at asc,b.participant_id asc)::int rank,
+            count(*) over(partition by b.score)>1 tied
+          from {source} b join {database_schema()}.participant p on p.id=b.participant_id
+          where p.campaign_id=%s and p.status='ACTIVE'
+        )
+        select * from ranked
+        where is_public and (rank between 1 and 10 or rank in (20,30,40,50))
+        order by rank""",(campaign["id"],))
+    rank_targets=_all(conn,f"""select rank,score from (
+      select row_number() over(order by b.score desc,b.achieved_at asc,b.participant_id asc)::int rank,b.score
+      from {source} b join {database_schema()}.participant p on p.id=b.participant_id
+      where p.campaign_id=%s and p.status='ACTIVE') ranked
+      where rank<=3 order by rank""",(campaign["id"],))
     mine=_ranking_info(conn,p["id"] if p else None,version,campaign["id"])
-    return 200,{"leaderboard":[{"rank":r["rank"],"nickname":r["nickname"],"score":r["score"],"tied":r["tied"],"is_me":bool(p and r["participant_id"]==p["id"])} for r in rows],
+    def public_row(r):return {"rank":r["rank"],"nickname":r["nickname"],"score":r["score"],"tied":r["tied"],"is_me":bool(p and r["participant_id"]==p["id"])}
+    response={"leaderboard":[public_row(r) for r in rows],
       "rank_targets":[{"rank":r["rank"],"score":r["score"]} for r in rank_targets],
       "me":{k:mine[k] for k in ("rank","best_score","best_elapsed_seconds","top3_gap")} if mine["rank"] is not None else None,
-      "top3_gap":mine["top3_gap"],"game_version":version,"tie_policy":"UNDECIDED"}
+      "top3_gap":mine["top3_gap"],"game_version":version,"tie_policy":"EARLIEST_ACHIEVED_AT"}
+    if query.get("view")=="milestones":response["rank_highlights"]=[public_row(r) for r in highlights]
+    return 200,response
 def ranking_profile_get(conn,ctx):
-    p=_participant(conn,ctx); row=_one(conn,"select status,game_version,submitted_at from dino_dev.ranking_contact where participant_id=%s",(p["id"],))
+    p=_participant(conn,ctx); row=_one(conn,f"select status,game_version,submitted_at from {database_schema()}.ranking_contact where participant_id=%s",(p["id"],))
     version=_game_version(conn,ctx);rank=_ranking_info(conn,p["id"],version,p["campaign_id"])["rank"]
     return 200,{**_ranking_profile_state(row,rank,version),"submitted_at":_iso(row["submitted_at"]) if row else None}
 def _ranking_contact_values(body):
@@ -622,41 +698,42 @@ def _ranking_contact_values(body):
     if not re.fullmatch(r"\+?[0-9][0-9 ()\-.]*[0-9]",contact) or not 7<=len(digits)<=15:raise DomainError("VALIDATION_ERROR","연락 가능한 전화번호를 확인해 주세요.")
     return name,contact,school
 def ranking_profile_post(conn,body,ctx):
-    p=_participant(conn,ctx,active=True); row=_one(conn,"select * from dino_dev.ranking_contact where participant_id=%s for update",(p["id"],))
+    p=_participant(conn,ctx,active=True); row=_one(conn,f"select * from {database_schema()}.ranking_contact where participant_id=%s for update",(p["id"],))
     if not row: raise DomainError("TOP3_PROFILE_NOT_REQUIRED","현재 잠정 TOP3 정보 등록 대상이 아닙니다.",409)
-    existing=_one(conn,"select id from dino_dev.claim where campaign_id=%s and participant_id=%s and claim_type='RANKING'",(p["campaign_id"],p["id"]))
+    existing=_one(conn,f"select id from {database_schema()}.claim where campaign_id=%s and participant_id=%s and claim_type='RANKING'",(p["campaign_id"],p["id"]))
     if row["status"]=="SUBMITTED" and existing:return 200,{"status":"SUBMITTED","submitted_at":_iso(row["submitted_at"]),"claim_id":existing["id"]}
+    _claim_submission_allowed(conn,_campaign(conn),ctx)
     version=_game_version(conn,ctx);rank=_ranking_info(conn,p["id"],version,p["campaign_id"])["rank"]
     if not _ranking_profile_state(row,rank,version)["eligible"]:raise DomainError("TOP3_PROFILE_NOT_REQUIRED","현재 TOP3 참가자만 수령 정보를 등록할 수 있어요.",409)
     name,contact,school=_ranking_contact_values(body)
     if row["status"]=="SUBMITTED" and row["recipient_name"]:name,contact,school=row["recipient_name"],row["contact"],row["school"]
     claim_id=existing["id"] if existing else _id("claim")
-    if not existing:conn.execute("insert into dino_dev.claim(id,campaign_id,participant_id,claim_type) values(%s,%s,%s,'RANKING')",(claim_id,p["campaign_id"],p["id"]))
+    if not existing:conn.execute(f"insert into {database_schema()}.claim(id,campaign_id,participant_id,claim_type) values(%s,%s,%s,'RANKING')",(claim_id,p["campaign_id"],p["id"]))
     synthetic=name.startswith("TEST_") and contact=="01000000000" and school.startswith("TEST_")
-    conn.execute("""insert into dino_dev.claim_contact
+    conn.execute(f"""insert into {database_schema()}.claim_contact
       (claim_id,recipient_name,contact,school,synthetic,consent_at,consent_version)
       values(%s,%s,%s,%s,%s,clock_timestamp(),%s) on conflict(claim_id) do nothing""",
       (claim_id,name,contact,school,synthetic,"top3-contact-v1"))
-    conn.execute("""update dino_dev.claim set
+    conn.execute(f"""update {database_schema()}.claim set
       status=case when status='AWAITING_INFORMATION' then 'INFORMATION_RECEIVED' else status end,
       contact_submitted_at=coalesce(contact_submitted_at,clock_timestamp()),updated_at=clock_timestamp()
       where id=%s""",(claim_id,))
-    row=_one(conn,"update dino_dev.ranking_contact set status='SUBMITTED',recipient_name=null,contact=null,school=null,submitted_at=coalesce(submitted_at,clock_timestamp()),updated_at=clock_timestamp() where participant_id=%s returning *",(p["id"],))
+    row=_one(conn,f"update {database_schema()}.ranking_contact set status='SUBMITTED',recipient_name=null,contact=null,school=null,submitted_at=coalesce(submitted_at,clock_timestamp()),updated_at=clock_timestamp() where participant_id=%s returning *",(p["id"],))
     return 200,{"status":"SUBMITTED","submitted_at":_iso(row["submitted_at"]),"claim_id":claim_id}
 
 MAX_DRAW_COUNT=10
-DRAW_SELECT="""select d.*,p.name prize_name,p.category prize_category,p.image_url,c.id claim_id from dino_dev.draw d join dino_dev.prize p on p.id=d.prize_id left join dino_dev.claim c on c.draw_id=d.id"""
+def _draw_select():return f"""select d.*,p.name prize_name,p.category prize_category,p.image_url,c.id claim_id from {database_schema()}.draw d join {database_schema()}.prize p on p.id=d.prize_id left join {database_schema()}.claim c on c.draw_id=d.id"""
 def _draw_response(row):
     return {"draw_id":row["id"],"round_number":row.get("round_number") or 1,"pouch_index":row["pouch_index"],"is_won":row["is_won"],"outcome_kind":row.get("outcome_kind") or ("PRIZE" if row["is_won"] else "BENEFIT"),"is_actual_prize":bool(row["is_won"]),"prize":{"id":row["prize_id"],"name":row["prize_name"],"category":row["prize_category"],"image_url":row["image_url"]},"revealed":row["revealed"],"scratch_completed":row["scratch_completed"],"claim_id":row["claim_id"]}
 
 def _draw_state(conn,p,eligible=None):
-    if eligible is None:eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],p["campaign_id"]))
-    rows=_all(conn,DRAW_SELECT+" where d.campaign_id=%s and d.participant_id=%s order by d.round_number",(p["campaign_id"],p["id"]))
-    credits=_one(conn,"select coalesce(sum(delta),0)::int balance from dino_dev.draw_credit_ledger where participant_id=%s and campaign_id=%s",(p["id"],p["campaign_id"]))["balance"]
-    first_recorded=bool(_one(conn,"select 1 from dino_dev.draw_credit_ledger where participant_id=%s and campaign_id=%s and source_type='FIRST_GRANT'",(p["id"],p["campaign_id"])))
-    missing_consumes=_one(conn,"""select count(*)::int n from dino_dev.draw d
+    if eligible is None:eligible=_one(conn,f"select id from {database_schema()}.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],p["campaign_id"]))
+    rows=_all(conn,_draw_select()+" where d.campaign_id=%s and d.participant_id=%s order by d.round_number",(p["campaign_id"],p["id"]))
+    credits=_one(conn,f"select coalesce(sum(delta),0)::int balance from {database_schema()}.draw_credit_ledger where participant_id=%s and campaign_id=%s",(p["id"],p["campaign_id"]))["balance"]
+    first_recorded=bool(_one(conn,f"select 1 from {database_schema()}.draw_credit_ledger where participant_id=%s and campaign_id=%s and source_type='FIRST_GRANT'",(p["id"],p["campaign_id"])))
+    missing_consumes=_one(conn,f"""select count(*)::int n from {database_schema()}.draw d
       where d.participant_id=%s and d.campaign_id=%s and not exists(
-        select 1 from dino_dev.draw_credit_ledger l where l.participant_id=d.participant_id
+        select 1 from {database_schema()}.draw_credit_ledger l where l.participant_id=d.participant_id
           and l.campaign_id=d.campaign_id and l.source_type='DRAW_CONSUME' and l.source_id=d.id)""",
       (p["id"],p["campaign_id"]))["n"]
     # During a rolling deploy, the previous application may insert its first
@@ -674,34 +751,34 @@ def _draw_state(conn,p,eligible=None):
     return {"status":status,"draw_id":latest["id"] if latest else None,"used_count":used,"max_count":MAX_DRAW_COUNT,"available_credits":available,"remaining_possible":max(0,MAX_DRAW_COUNT-used-available),"actual_prize_won":won}
 
 def _ensure_first_draw_credit(conn,p,eligible):
-    old=_one(conn,"select 1 from dino_dev.draw_credit_ledger where participant_id=%s and campaign_id=%s and source_type='FIRST_GRANT'",(p["id"],p["campaign_id"]))
-    balance=_one(conn,"select coalesce(sum(delta),0)::int balance from dino_dev.draw_credit_ledger where participant_id=%s and campaign_id=%s",(p["id"],p["campaign_id"]))["balance"]
+    old=_one(conn,f"select 1 from {database_schema()}.draw_credit_ledger where participant_id=%s and campaign_id=%s and source_type='FIRST_GRANT'",(p["id"],p["campaign_id"]))
+    balance=_one(conn,f"select coalesce(sum(delta),0)::int balance from {database_schema()}.draw_credit_ledger where participant_id=%s and campaign_id=%s",(p["id"],p["campaign_id"]))["balance"]
     if not old:
-        result=conn.execute("""insert into dino_dev.draw_credit_ledger(participant_id,campaign_id,delta,source_type,source_id,balance_after)
+        result=conn.execute(f"""insert into {database_schema()}.draw_credit_ledger(participant_id,campaign_id,delta,source_type,source_id,balance_after)
           values(%s,%s,1,'FIRST_GRANT',%s,%s) on conflict(participant_id,source_type,source_id) do nothing""",(p["id"],p["campaign_id"],eligible["id"],balance+1))
         if result.rowcount:balance+=1
-    missing=_all(conn,"""select d.id,d.created_at from dino_dev.draw d
+    missing=_all(conn,f"""select d.id,d.created_at from {database_schema()}.draw d
       where d.participant_id=%s and d.campaign_id=%s and not exists(
-        select 1 from dino_dev.draw_credit_ledger l where l.participant_id=d.participant_id
+        select 1 from {database_schema()}.draw_credit_ledger l where l.participant_id=d.participant_id
           and l.campaign_id=d.campaign_id and l.source_type='DRAW_CONSUME' and l.source_id=d.id)
       order by d.round_number,d.created_at,d.id""",(p["id"],p["campaign_id"]))
     for draw in missing:
         if balance<=0:raise DomainError("DRAW_LEDGER_INVALID","복주머니 사용 기록을 확인하고 있습니다.",503)
         balance-=1
-        conn.execute("""insert into dino_dev.draw_credit_ledger
+        conn.execute(f"""insert into {database_schema()}.draw_credit_ledger
           (participant_id,campaign_id,delta,source_type,source_id,balance_after,created_at)
           values(%s,%s,-1,'DRAW_CONSUME',%s,%s,%s)
           on conflict(participant_id,source_type,source_id) do nothing""",
           (p["id"],p["campaign_id"],draw["id"],balance,draw["created_at"]))
 
 def draw_me(conn,ctx):
-    p=_participant(conn,ctx); rows=_all(conn,DRAW_SELECT+" where d.campaign_id=%s and d.participant_id=%s order by d.round_number",(p["campaign_id"],p["id"]))
-    eligible=_one(conn,"select id from dino_dev.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
+    p=_participant(conn,ctx); rows=_all(conn,_draw_select()+" where d.campaign_id=%s and d.participant_id=%s order by d.round_number",(p["campaign_id"],p["id"]))
+    eligible=_one(conn,f"select id from {database_schema()}.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
     state=_draw_state(conn,p,eligible)
     return 200,{**state,"eligible_session_id":eligible["id"] if eligible else None,"draw":_draw_response(rows[-1]) if rows else None,"draws":[_draw_response(row) for row in rows],"draw_state":state}
 
 def _legacy_prize(conn,campaign):
-    prizes=_all(conn,"select * from dino_dev.prize where campaign_id=%s and is_active order by id",(campaign["id"],))
+    prizes=_all(conn,f"select * from {database_schema()}.prize where campaign_id=%s and is_active order by id",(campaign["id"],))
     roll=secrets.randbelow(10_000_000)/10_000_000;acc=0;prize=None
     for item in prizes:
         acc+=float(item["probability"])
@@ -710,33 +787,33 @@ def _legacy_prize(conn,campaign):
     if not prize:raise DomainError("DRAW_CONFIG_INVALID","추첨 설정을 확인하고 있습니다.",503)
     inventory=None
     if prize["category"]!="NO_PRIZE":
-        inventory=_one(conn,"select * from dino_dev.inventory_item where prize_id=%s and status='AVAILABLE' order by created_at,id for update skip locked limit 1",(prize["id"],))
+        inventory=_one(conn,f"select * from {database_schema()}.inventory_item where prize_id=%s and status='AVAILABLE' order by created_at,id for update skip locked limit 1",(prize["id"],))
         if not inventory:
-            remaining=_one(conn,"select count(*)::int n from dino_dev.inventory_item where prize_id=%s and status='AVAILABLE'",(prize["id"],))["n"]
+            remaining=_one(conn,f"select count(*)::int n from {database_schema()}.inventory_item where prize_id=%s and status='AVAILABLE'",(prize["id"],))["n"]
             if remaining:raise DomainError("INVENTORY_BUSY","경품 재고 확인이 지연되고 있습니다.",503,True)
             prize=next((item for item in prizes if item["category"]=="NO_PRIZE"),None)
     return prize,inventory,roll,None
 
 def _pool_prize(conn,campaign):
     conn.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",("draw-pool:"+campaign["id"],))
-    counts=_one(conn,"""select count(*)::int total,
+    counts=_one(conn,f"""select count(*)::int total,
       count(*) filter(where outcome_kind='PRIZE')::int prizes
-      from dino_dev.draw_pool_slot where campaign_id=%s""",(campaign["id"],))
+      from {database_schema()}.draw_pool_slot where campaign_id=%s""",(campaign["id"],))
     total=counts["total"]
     finite_pool=bool((campaign.get("settings") or {}).get("phase3_manifest_hash"))
     if finite_pool and (total!=5000 or counts["prizes"]!=77):
         raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
     if not total:return _legacy_prize(conn,campaign)
-    remaining=_one(conn,"select count(*)::int n from dino_dev.draw_pool_slot where campaign_id=%s and allocated_draw_id is null",(campaign["id"],))["n"]
+    remaining=_one(conn,f"select count(*)::int n from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null",(campaign["id"],))["n"]
     if remaining<=0:raise DomainError("DRAW_POOL_EXHAUSTED","준비된 복주머니 추첨이 모두 소진되었습니다.",409)
     offset=secrets.randbelow(remaining)
-    slot=_one(conn,"select * from dino_dev.draw_pool_slot where campaign_id=%s and allocated_draw_id is null order by slot_number offset %s limit 1 for update",(campaign["id"],offset))
+    slot=_one(conn,f"select * from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null order by slot_number offset %s limit 1 for update",(campaign["id"],offset))
     if not slot:raise DomainError("DRAW_POOL_BUSY","추첨 자리 확인이 지연되고 있습니다.",503,True)
     if slot["outcome_kind"]=="BENEFIT":
-        prize=_one(conn,"select * from dino_dev.prize where campaign_id=%s and category='NO_PRIZE' and is_active order by id limit 1",(campaign["id"],));inventory=None
+        prize=_one(conn,f"select * from {database_schema()}.prize where campaign_id=%s and category='NO_PRIZE' and is_active order by id limit 1",(campaign["id"],));inventory=None
     else:
-        prize=_one(conn,"select * from dino_dev.prize where id=%s and campaign_id=%s and is_active",(slot["prize_id"],campaign["id"]))
-        inventory=_one(conn,"select * from dino_dev.inventory_item where id=%s and prize_id=%s and status='AVAILABLE' for update",(slot["inventory_item_id"],slot["prize_id"]))
+        prize=_one(conn,f"select * from {database_schema()}.prize where id=%s and campaign_id=%s and is_active",(slot["prize_id"],campaign["id"]))
+        inventory=_one(conn,f"select * from {database_schema()}.inventory_item where id=%s and prize_id=%s and status='AVAILABLE' for update",(slot["inventory_item_id"],slot["prize_id"]))
     if not prize or (slot["outcome_kind"]=="PRIZE" and not inventory):raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
     return prize,inventory,slot["slot_number"]/max(total,1),slot
 
@@ -745,7 +822,7 @@ def create_draw(conn,body,ctx):
     try:pouch=int(body.get("pouch_index"))
     except (TypeError,ValueError):pouch=-1
     if pouch not in (0,1,2):raise DomainError("VALIDATION_ERROR","복주머니를 확인해 주세요.")
-    session=_one(conn,"select * from dino_dev.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1 for update",(p["id"],p["campaign_id"]))
+    session=_one(conn,f"select * from {database_schema()}.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1 for update",(p["id"],p["campaign_id"]))
     if not session:raise DomainError("DRAW_NOT_AVAILABLE","정상 게임 완료 후 열 수 있습니다.",409)
     campaign=_campaign(conn);_mutable(campaign)
     state=_draw_state(conn,p,session)
@@ -759,7 +836,7 @@ def create_draw(conn,body,ctx):
         except (TypeError,ValueError):expected_round=0
         if expected_round<1 or expected_round>MAX_DRAW_COUNT:
             raise DomainError("VALIDATION_ERROR","추첨 회차를 확인해 주세요.")
-    existing=_one(conn,DRAW_SELECT+" where d.campaign_id=%s and d.participant_id=%s and d.round_number=%s",(p["campaign_id"],p["id"],expected_round))
+    existing=_one(conn,_draw_select()+" where d.campaign_id=%s and d.participant_id=%s and d.round_number=%s",(p["campaign_id"],p["id"],expected_round))
     if existing:
         if existing["pouch_index"]!=pouch:
             raise DomainError("DRAW_ROUND_CONFLICT","이미 선택한 복주머니 결과가 있습니다.",409)
@@ -774,27 +851,27 @@ def create_draw(conn,body,ctx):
     if state["available_credits"]<=0:raise DomainError("DRAW_CREDIT_REQUIRED","카카오톡 공유 후 추가 복주머니를 확인할 수 있습니다.",409)
     prize,inventory,roll,slot=_pool_prize(conn,campaign);round_number=expected_round
     outcome_kind="PRIZE" if inventory else "BENEFIT";did=_id("draw");audit=hashlib.sha256(f"{did}:{roll}:{campaign['probability_version']}:{slot['id'] if slot else 'legacy'}".encode()).hexdigest()
-    conn.execute("""insert into dino_dev.draw(id,campaign_id,participant_id,eligible_session_id,round_number,pouch_index,prize_id,inventory_item_id,is_won,outcome_kind,probability_version,random_audit_hash)
+    conn.execute(f"""insert into {database_schema()}.draw(id,campaign_id,participant_id,eligible_session_id,round_number,pouch_index,prize_id,inventory_item_id,is_won,outcome_kind,probability_version,random_audit_hash)
       values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",(did,campaign["id"],p["id"],session["id"],round_number,pouch,prize["id"],inventory["id"] if inventory else None,bool(inventory),outcome_kind,campaign["probability_version"],audit))
     balance=state["available_credits"]-1
-    conn.execute("""insert into dino_dev.draw_credit_ledger(participant_id,campaign_id,delta,source_type,source_id,balance_after)
+    conn.execute(f"""insert into {database_schema()}.draw_credit_ledger(participant_id,campaign_id,delta,source_type,source_id,balance_after)
       values(%s,%s,-1,'DRAW_CONSUME',%s,%s)""",(p["id"],p["campaign_id"],did,balance))
-    if slot:conn.execute("update dino_dev.draw_pool_slot set allocated_draw_id=%s,allocated_at=clock_timestamp() where id=%s",(did,slot["id"]))
+    if slot:conn.execute(f"update {database_schema()}.draw_pool_slot set allocated_draw_id=%s,allocated_at=clock_timestamp() where id=%s",(did,slot["id"]))
     claim_id=None
     if inventory:
-        conn.execute("update dino_dev.inventory_item set status='RESERVED',reserved_by_draw_id=%s,reserved_at=clock_timestamp() where id=%s",(did,inventory["id"])); conn.execute("insert into dino_dev.inventory_history(inventory_item_id,from_status,to_status,reason,related_type,related_id) values(%s,'AVAILABLE','RESERVED','DRAW','draw',%s)",(inventory["id"],did))
-        claim_id=_id("claim"); conn.execute("insert into dino_dev.claim(id,campaign_id,participant_id,draw_id,claim_type,prize_id,inventory_item_id) values(%s,%s,%s,%s,'DRAW',%s,%s)",(claim_id,campaign["id"],p["id"],did,prize["id"],inventory["id"]))
-    row=_one(conn,DRAW_SELECT+" where d.id=%s",(did,));_event(conn,"draw_fixed",ctx,p["id"],"draw:"+did,dimensions={"result_type":"prize" if inventory else "benefit","round_number":round_number})
+        conn.execute(f"update {database_schema()}.inventory_item set status='RESERVED',reserved_by_draw_id=%s,reserved_at=clock_timestamp() where id=%s",(did,inventory["id"])); conn.execute(f"insert into {database_schema()}.inventory_history(inventory_item_id,from_status,to_status,reason,related_type,related_id) values(%s,'AVAILABLE','RESERVED','DRAW','draw',%s)",(inventory["id"],did))
+        claim_id=_id("claim"); conn.execute(f"insert into {database_schema()}.claim(id,campaign_id,participant_id,draw_id,claim_type,prize_id,inventory_item_id) values(%s,%s,%s,%s,'DRAW',%s,%s)",(claim_id,campaign["id"],p["id"],did,prize["id"],inventory["id"]))
+    row=_one(conn,_draw_select()+" where d.id=%s",(did,));_event(conn,"draw_fixed",ctx,p["id"],"draw:"+did,dimensions={"result_type":"prize" if inventory else "benefit","round_number":round_number})
     return 201,{**_draw_response(row),"draw_state":_draw_state(conn,p,session)}
 def scratch_complete(conn,did,ctx):
-    p=_participant(conn,ctx); row=_one(conn,"update dino_dev.draw set revealed=true,scratch_completed=true where id=%s and participant_id=%s returning *",(did,p["id"]))
+    p=_participant(conn,ctx); row=_one(conn,f"update {database_schema()}.draw set revealed=true,scratch_completed=true where id=%s and participant_id=%s returning *",(did,p["id"]))
     if not row:raise DomainError("DRAW_NOT_FOUND","추첨 결과를 찾을 수 없습니다.",404)
-    claim=_one(conn,"select id from dino_dev.claim where draw_id=%s",(did,)); return 200,{"draw_id":did,"scratch_completed":True,"claim_id":claim["id"] if claim else None}
+    claim=_one(conn,f"select id from {database_schema()}.claim where draw_id=%s",(did,)); return 200,{"draw_id":did,"scratch_completed":True,"claim_id":claim["id"] if claim else None}
 
 def claims(conn,ctx):
-    p=_participant(conn,ctx); rows=_all(conn,"""select c.id,c.claim_type,c.status,c.created_at,c.contact_submitted_at,p.name prize_name,p.category,
-      exists(select 1 from dino_dev.claim_contact_draft d where d.claim_id=c.id) draft_saved
-      from dino_dev.claim c left join dino_dev.prize p on p.id=c.prize_id where c.participant_id=%s order by c.created_at desc""",(p["id"],))
+    p=_participant(conn,ctx); rows=_all(conn,f"""select c.id,c.claim_type,c.status,c.created_at,c.contact_submitted_at,p.name prize_name,p.category,
+      exists(select 1 from {database_schema()}.claim_contact_draft d where d.claim_id=c.id) draft_saved
+      from {database_schema()}.claim c left join {database_schema()}.prize p on p.id=c.prize_id where c.participant_id=%s order by c.created_at desc""",(p["id"],))
     return 200,{"claims":[{"id":r["id"],"type":r["claim_type"],"claim_type":r["claim_type"],"prize_name":r["prize_name"],"category":r["category"],"status":r["status"],"created_at":_iso(r["created_at"]),"contact_submitted":bool(r["contact_submitted_at"]),"draft_saved":r["draft_saved"]} for r in rows]}
 
 def _claim_contact_values(body):
@@ -811,11 +888,11 @@ def _claim_contact_values(body):
     return name,contact,school,address,synthetic
 
 def claim_draft_get(conn,cid,ctx):
-    p=_participant(conn,ctx); claim=_one(conn,"select id from dino_dev.claim where id=%s and participant_id=%s",(cid,p["id"]))
+    p=_participant(conn,ctx); claim=_one(conn,f"select id from {database_schema()}.claim where id=%s and participant_id=%s",(cid,p["id"]))
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
-    row=_one(conn,"select recipient_name,contact,school,address,consent_version from dino_dev.claim_contact_draft where claim_id=%s",(cid,))
+    row=_one(conn,f"select recipient_name,contact,school,address,consent_version from {database_schema()}.claim_contact_draft where claim_id=%s",(cid,))
     draft=None if not row else {"name":row["recipient_name"],"contact":row["contact"],"school":row["school"],"address":row["address"] or "","consent":True,"notice_version":row["consent_version"]}
-    intent=_one(conn,"""select id,status,reward_status,reward_type,reward_contract_version,kind,expires_at,confirmed_at from dino_dev.kakao_share_intent
+    intent=_one(conn,f"""select id,status,reward_status,reward_type,reward_contract_version,kind,expires_at,confirmed_at from {database_schema()}.kakao_share_intent
       where claim_id=%s and participant_id=%s
       and (reward_contract_version=1 or (reward_type='NONE' and kind in ('prize_share','record_share')))
       and (status='CONFIRMED' or (status='PENDING' and expires_at>clock_timestamp()))
@@ -823,15 +900,16 @@ def claim_draft_get(conn,cid,ctx):
     return 200,{"draft":draft,"share_intent_id":intent["id"] if intent else None,"share_intent":_share_intent_response(intent) if intent else None}
 
 def claim_draft_post(conn,cid,body,ctx):
-    p=_participant(conn,ctx,active=True); claim=_one(conn,"""select c.id,c.status,p.category
-      from dino_dev.claim c left join dino_dev.prize p on p.id=c.prize_id
+    p=_participant(conn,ctx,active=True); claim=_one(conn,f"""select c.id,c.status,p.category
+      from {database_schema()}.claim c left join {database_schema()}.prize p on p.id=c.prize_id
       where c.id=%s and c.participant_id=%s for update of c""",(cid,p["id"]))
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
-    if _one(conn,"select claim_id from dino_dev.claim_contact where claim_id=%s",(cid,)):raise DomainError("CLAIM_ALREADY_SUBMITTED","이미 수령 정보가 접수되었습니다.",409)
+    if _one(conn,f"select claim_id from {database_schema()}.claim_contact where claim_id=%s",(cid,)):raise DomainError("CLAIM_ALREADY_SUBMITTED","이미 수령 정보가 접수되었습니다.",409)
+    _claim_submission_allowed(conn,_campaign(conn),ctx)
     if claim["status"] in {"PAID","INELIGIBLE"}:raise DomainError("CLAIM_CLOSED","종료된 수령 요청은 정보를 변경할 수 없습니다.",409)
     name,contact,school,address,synthetic=_claim_contact_values(body)
     if claim["category"]=="SHIPPING" and not address:raise DomainError("VALIDATION_ERROR","배송 경품 수령 주소를 입력해 주세요.")
-    conn.execute("""insert into dino_dev.claim_contact_draft
+    conn.execute(f"""insert into {database_schema()}.claim_contact_draft
       (claim_id,recipient_name,contact,school,address,synthetic,consent_at,consent_version)
       values(%s,%s,%s,%s,%s,%s,clock_timestamp(),'claim-contact-v1')
       on conflict(claim_id) do update set recipient_name=excluded.recipient_name,contact=excluded.contact,
@@ -841,28 +919,29 @@ def claim_draft_post(conn,cid,body,ctx):
     return 200,{"draft_saved":True}
 
 def submit_claim(conn,cid,body,ctx):
-    p=_participant(conn,ctx,active=True); claim=_one(conn,"select * from dino_dev.claim where id=%s and participant_id=%s for update",(cid,p["id"]))
+    p=_participant(conn,ctx,active=True); claim=_one(conn,f"select * from {database_schema()}.claim where id=%s and participant_id=%s for update",(cid,p["id"]))
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
-    existing=_one(conn,"select claim_id from dino_dev.claim_contact where claim_id=%s",(cid,))
+    existing=_one(conn,f"select claim_id from {database_schema()}.claim_contact where claim_id=%s",(cid,))
     if existing:return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
+    _claim_submission_allowed(conn,_campaign(conn),ctx)
     if claim["status"] in {"PAID","INELIGIBLE"}:raise DomainError("CLAIM_CLOSED","종료된 수령 요청은 접수할 수 없습니다.",409)
-    draft=_one(conn,"select * from dino_dev.claim_contact_draft where claim_id=%s for update",(cid,))
+    draft=_one(conn,f"select * from {database_schema()}.claim_contact_draft where claim_id=%s for update",(cid,))
     if not draft or not draft["consent_at"] or draft["consent_version"]!="claim-contact-v1":raise DomainError("CLAIM_DRAFT_REQUIRED","먼저 수령 정보를 저장하고 동의해 주세요.",409)
     share_intent_id=str(body.get("share_intent_id") or "")
-    intent=_one(conn,"""select id from dino_dev.kakao_share_intent where id=%s and participant_id=%s and claim_id=%s
+    intent=_one(conn,f"""select id from {database_schema()}.kakao_share_intent where id=%s and participant_id=%s and claim_id=%s
       and status='CONFIRMED' and confirmed_at is not null
       and (reward_contract_version=1 or (reward_type='NONE' and kind in ('prize_share','record_share')))""",(share_intent_id,p["id"],cid))
     if not intent:raise DomainError("SHARE_STEP_REQUIRED","카카오톡 전송이 확인된 뒤 접수해 주세요.",409)
-    conn.execute("""insert into dino_dev.claim_contact
+    conn.execute(f"""insert into {database_schema()}.claim_contact
       (claim_id,recipient_name,contact,school,address,synthetic,consent_at,consent_version)
       values(%s,%s,%s,%s,%s,%s,%s,'claim-contact-v1')""",
       (cid,draft["recipient_name"],draft["contact"],draft["school"],draft["address"],draft["synthetic"],draft["consent_at"]))
-    claim=_one(conn,"""update dino_dev.claim set
+    claim=_one(conn,f"""update {database_schema()}.claim set
       status=case when status='AWAITING_INFORMATION' then 'INFORMATION_RECEIVED' else status end,
       contact_submitted_at=coalesce(contact_submitted_at,clock_timestamp()),updated_at=clock_timestamp()
       where id=%s returning *""",(cid,))
     _event(conn,"claim_information_received",ctx,p["id"],"claim_submit:"+cid,dimensions={"claim_type":claim["claim_type"]})
-    conn.execute("delete from dino_dev.claim_contact_draft where claim_id=%s",(cid,))
+    conn.execute(f"delete from {database_schema()}.claim_contact_draft where claim_id=%s",(cid,))
     return 200,{"id":cid,"status":claim["status"],"submitted_at":_iso(claim["contact_submitted_at"])}
 
 CLIENT_EVENTS={"entry_viewed","participant_ready","loading_data_ready","loading_intro_completed","loading_ready","loading_checkpoint","screen_entered","screen_left","game_cta_clicked","draw_cta_clicked","game_start_approved","game_checkpoint","game_completed","game_coin_collected","game_heart_collected","game_revived","game_fault_reported","game_recovered","ranking_viewed","top3_profile_started","top3_profile_submitted","invite_cta_viewed","share_attempted","invite_visit_interacted","invite_visit_qualified","invite_visit_rejected","draw_entered","pouch_selected","scratch_reveal_requested","scratch_started","scratch_completed","draw_result_viewed","claim_form_started","claim_form_submitted","benefit_viewed","gemini_cta_viewed","gemini_cta_clicked","content_clicked","content_viewed","notion_redirect_requested","page_view"}
@@ -938,15 +1017,15 @@ def events_batch(conn,body,ctx):
         observation_id=event.get("observation_id");game_session_id=event.get("game_session_id");screen_view_id=event.get("screen_view_id")
         if screen_view_id is not None and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",str(screen_view_id)):reject(index,INVALID_CONTEXT);continue
         if observation_id:
-            observed=_one(conn,"select participant_id from dino_dev.observation where id=%s",(observation_id,))
+            observed=_one(conn,f"select participant_id from {database_schema()}.observation where id=%s",(observation_id,))
             if not observed or (p and observed["participant_id"] not in (None,p["id"])):reject(index,CONTEXT_OWNERSHIP);continue
             if not p and observed["participant_id"] is not None:reject(index,PARTICIPANT_NOT_READY);continue
         if game_session_id:
-            game=_one(conn,"select participant_id from dino_dev.game_session where id=%s",(game_session_id,))
+            game=_one(conn,f"select participant_id from {database_schema()}.game_session where id=%s",(game_session_id,))
             if not p or not game or game["participant_id"]!=p["id"]:reject(index,CONTEXT_OWNERSHIP);continue
         stored_name="client_"+event["name"] if event["name"] in SERVER_EVENT_NAMES else event["name"]
-        result=conn.execute("""insert into dino_dev.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,screen_view_id,visit_session_id,game_session_id,active_ms,dimensions,environment,deployment,event_version,synthetic,source,occurred_at)
-          values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,true,'client',%s) on conflict(event_id) do nothing""",(event["event_id"],ctx["campaign_id"],p["id"] if p else None,observation_id,stored_name,event["screen"],screen_view_id,str(event.get("visit_session_id") or "")[:128] or None,game_session_id,active,json.dumps(dims),ctx["environment"],ctx["deployment"],ctx["event_version"],occurred))
+        result=conn.execute(f"""insert into {database_schema()}.analytics_event(event_id,campaign_id,participant_id,observation_id,event_name,screen,screen_view_id,visit_session_id,game_session_id,active_ms,dimensions,environment,deployment,event_version,synthetic,source,occurred_at)
+          values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,'client',%s) on conflict(event_id) do nothing""",(event["event_id"],ctx["campaign_id"],p["id"] if p else None,observation_id,stored_name,event["screen"],screen_view_id,str(event.get("visit_session_id") or "")[:128] or None,game_session_id,active,json.dumps(dims),ctx["environment"],ctx["deployment"],ctx["event_version"],ctx["environment"]!="production",occurred))
         if result.rowcount:accepted+=1
         else:duplicates+=1
     response={"accepted":accepted,"duplicates":duplicates,"rejected":rejected}
@@ -963,24 +1042,30 @@ def admin_claims(conn,query,ctx):
     for key,column in (("status","c.status"),("type","c.claim_type"),("assignee","c.assignee_user_id::text")):
         if query.get(key):conditions.append(column+"=%s");params.append(str(query[key]))
     where=(" where "+" and ".join(conditions)) if conditions else ""
-    rows=_all(conn,"""select c.*,p.name prize_name,cc.recipient_name,cc.contact,cc.school,cc.address from dino_dev.claim c left join dino_dev.prize p on p.id=c.prize_id left join dino_dev.claim_contact cc on cc.claim_id=c.id"""+where+" order by c.updated_at desc limit 200",params)
+    rows=_all(conn,f"""select c.*,p.name prize_name,cc.recipient_name,cc.contact,cc.school,cc.address from {database_schema()}.claim c left join {database_schema()}.prize p on p.id=c.prize_id left join {database_schema()}.claim_contact cc on cc.claim_id=c.id"""+where+" order by c.updated_at desc limit 200",params)
     return 200,{"claims":[{**dict(r),"created_at":_iso(r["created_at"]),"updated_at":_iso(r["updated_at"]),"contact_submitted_at":_iso(r["contact_submitted_at"]),"contacted_at":_iso(r["contacted_at"]),"paid_at":_iso(r["paid_at"])} for r in rows]}
 def admin_claim_patch(conn,cid,body,ctx):
-    admin=_admin(conn,ctx,"claims:write"); claim=_one(conn,"select * from dino_dev.claim where id=%s for update",(cid,))
+    admin=_admin(conn,ctx,"claims:write"); claim=_one(conn,f"select * from {database_schema()}.claim where id=%s for update",(cid,))
     if not claim:raise DomainError("CLAIM_NOT_FOUND","수령 요청을 찾을 수 없습니다.",404)
     try:expected=int(body.get("expected_version"))
     except (TypeError,ValueError):expected=-1
     if expected!=claim["version"]:raise DomainError("VERSION_CONFLICT","다른 관리자가 먼저 변경했습니다.",409)
-    contact=_one(conn,"select claim_id from dino_dev.claim_contact where claim_id=%s",(cid,))
+    contact=_one(conn,f"select claim_id from {database_schema()}.claim_contact where claim_id=%s",(cid,))
     if not claim["contact_submitted_at"] or not contact:raise DomainError("CLAIM_INFORMATION_REQUIRED","당첨자가 수령 정보를 입력한 뒤에 처리할 수 있습니다.",409)
     status=str(body.get("status") or claim["status"]); changing_status=status!=claim["status"]
     transitions={"AWAITING_INFORMATION":set(),"INFORMATION_RECEIVED":{"PENDING_REVIEW","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"PENDING_REVIEW":{"CONTACTED","ON_HOLD","INELIGIBLE","NO_RESPONSE"},"CONTACTED":{"PAID","ON_HOLD","NO_RESPONSE"},"ON_HOLD":{"PENDING_REVIEW","INELIGIBLE","NO_RESPONSE"},"NO_RESPONSE":{"PENDING_REVIEW","INELIGIBLE"},"PAID":set(),"INELIGIBLE":set()}
     if changing_status and status not in transitions.get(claim["status"],set()):raise DomainError("INVALID_CLAIM_TRANSITION","현재 상태에서 해당 처리로 변경할 수 없습니다.",409)
-    if changing_status and claim["claim_type"]=="RANKING" and status=="PAID":raise DomainError("FINAL_RANKING_UNDECIDED","최종 순위·동점 정책 확정 전에는 랭킹 선물을 지급 완료로 처리할 수 없습니다.",409)
+    if changing_status and claim["claim_type"]=="RANKING" and status=="PAID":
+        award=_one(conn,f"""select a.claim_id from {database_schema()}.ranking_award a
+          join {database_schema()}.ranking_snapshot s on s.id=a.snapshot_id and s.status='FINAL'
+          where a.claim_id=%s and a.participant_id=%s and a.inventory_item_id=%s""",
+          (cid,claim["participant_id"],claim["inventory_item_id"]))
+        if not award:raise DomainError("FINAL_RANKING_UNDECIDED","최종 순위와 랭킹 경품이 확정된 수령 요청만 지급 완료로 처리할 수 있습니다.",409)
     reason=str(body.get("reason") or "").strip()
     if changing_status and status in {"ON_HOLD","INELIGIBLE","NO_RESPONSE"} and len(reason)<3:raise DomainError("VALIDATION_ERROR","처리 사유를 입력해 주세요.")
     verification=str(body.get("verification_status") or claim["verification_status"]);reference=body.get("verification_reference",claim["verification_reference"])
-    if verification not in {"NOT_REQUESTED","PENDING","VERIFIED","REJECTED"} or (reference is not None and not re.fullmatch(r"TEST_REF_[A-Za-z0-9_-]{1,100}",str(reference))):raise DomainError("VALIDATION_ERROR","합성 검증 상태와 참조를 확인해 주세요.")
+    reference_pattern=r"REF_[A-Za-z0-9_-]{1,100}" if ctx.get("environment")=="production" else r"TEST_REF_[A-Za-z0-9_-]{1,100}"
+    if verification not in {"NOT_REQUESTED","PENDING","VERIFIED","REJECTED"} or (reference is not None and not re.fullmatch(reference_pattern,str(reference))):raise DomainError("VALIDATION_ERROR","검증 상태와 참조 번호를 확인해 주세요.")
     external_delivery=body.get("external_delivery",claim["external_delivery"])
     paid_evidence_required=status=="PAID" or claim["status"]=="PAID"
     if paid_evidence_required and verification!="VERIFIED":raise DomainError("CLAIM_VERIFICATION_REQUIRED","자격 확인을 완료한 뒤 지급 완료로 처리해 주세요.",409)
@@ -990,34 +1075,34 @@ def admin_claim_patch(conn,cid,body,ctx):
     if changing_status and status=="PAID" and len(reason)<3:raise DomainError("DELIVERY_EVIDENCE_REQUIRED","실제 전달 확인 사유를 입력해 주세요.",409)
     if not isinstance(external_delivery,bool):raise DomainError("VALIDATION_ERROR","외부 전달 확인 값을 확인해 주세요.")
     assignee=body.get("assignee_user_id") or (str(claim["assignee_user_id"]) if claim["assignee_user_id"] else str(admin["auth_user_id"]))
-    assigned=_one(conn,"select auth_user_id from dino_dev.admin_member where auth_user_id=%s and active and 'claims:write'=any(permissions)",(assignee,))
+    assigned=_one(conn,f"select auth_user_id from {database_schema()}.admin_member where auth_user_id=%s and active and 'claims:write'=any(permissions)",(assignee,))
     if not assigned:raise DomainError("INVALID_ASSIGNEE","활성 수령 업무 담당자를 지정해 주세요.",409)
     if changing_status and status=="PAID" and claim["inventory_item_id"]:
-        inventory=_one(conn,"select status from dino_dev.inventory_item where id=%s for update",(claim["inventory_item_id"],))
+        inventory=_one(conn,f"select status from {database_schema()}.inventory_item where id=%s for update",(claim["inventory_item_id"],))
         if not inventory or inventory["status"]!="RESERVED":raise DomainError("INVENTORY_STATE_CONFLICT","경품 재고 상태가 일치하지 않습니다.",409)
-    updated=_one(conn,"""update dino_dev.claim set status=%s,assignee_user_id=%s,hold_reason=%s,external_delivery=%s,verification_status=%s,verification_reference=%s,version=version+1,
+    updated=_one(conn,f"""update {database_schema()}.claim set status=%s,assignee_user_id=%s,hold_reason=%s,external_delivery=%s,verification_status=%s,verification_reference=%s,version=version+1,
       contacted_at=case when %s='CONTACTED' then coalesce(contacted_at,clock_timestamp()) else contacted_at end,
       paid_at=case when %s='PAID' then coalesce(paid_at,clock_timestamp()) else paid_at end,updated_at=clock_timestamp() where id=%s returning *""",(status,assignee,reason or claim["hold_reason"],external_delivery,verification,reference,status,status,cid))
     if changing_status and status=="PAID" and claim["inventory_item_id"]:
-        result=conn.execute("update dino_dev.inventory_item set status='PAID',paid_at=clock_timestamp() where id=%s and status='RESERVED'",(claim["inventory_item_id"],))
+        result=conn.execute(f"update {database_schema()}.inventory_item set status='PAID',paid_at=clock_timestamp() where id=%s and status='RESERVED'",(claim["inventory_item_id"],))
         if result.rowcount!=1:raise DomainError("INVENTORY_STATE_CONFLICT","경품 재고 상태가 일치하지 않습니다.",409)
-        conn.execute("insert into dino_dev.inventory_history(inventory_item_id,from_status,to_status,reason,related_type,related_id) values(%s,'RESERVED','PAID','CLAIM_PAID','claim',%s)",(claim["inventory_item_id"],cid))
+        conn.execute(f"insert into {database_schema()}.inventory_history(inventory_item_id,from_status,to_status,reason,related_type,related_id) values(%s,'RESERVED','PAID','CLAIM_PAID','claim',%s)",(claim["inventory_item_id"],cid))
     before_evidence={"status":claim["status"],"verification_status":claim["verification_status"],"verification_reference":claim["verification_reference"],"external_delivery":claim["external_delivery"],"version":claim["version"]}
     after_evidence={"status":status,"verification_status":verification,"verification_reference":reference,"external_delivery":external_delivery,"version":updated["version"]}
-    conn.execute("insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'CLAIM_UPDATE','claim',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],cid,json.dumps(before_evidence),json.dumps(after_evidence),reason or None,str(body.get("event_id"))))
+    conn.execute(f"insert into {database_schema()}.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'CLAIM_UPDATE','claim',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],cid,json.dumps(before_evidence),json.dumps(after_evidence),reason or None,str(body.get("event_id"))))
     return 200,{"id":cid,"status":status,"verification_status":verification,"verification_reference":reference,"external_delivery":external_delivery,"version":updated["version"],"assignee_user_id":str(updated["assignee_user_id"])}
 def admin_events(conn,query,ctx):
-    _admin(conn,ctx,"analytics:read"); rows=_all(conn,"select event_id,event_name,screen,active_ms,dimensions,source,occurred_at,participant_id is not null connected from dino_dev.analytics_event order by received_at desc limit 200")
+    _admin(conn,ctx,"analytics:read"); rows=_all(conn,f"select event_id,event_name,screen,active_ms,dimensions,source,occurred_at,participant_id is not null connected from {database_schema()}.analytics_event order by received_at desc limit 200")
     return 200,{"events":[{**dict(r),"occurred_at":_iso(r["occurred_at"])} for r in rows]}
 def admin_faults(conn,query,ctx):
     _admin(conn,ctx,"faults:read");status=str(query.get("status") or "PENDING")
     if status not in {"PENDING","AUTO_APPROVED","APPROVED","DENIED"}:raise DomainError("VALIDATION_ERROR","장애 심사 상태를 확인해 주세요.")
-    rows=_all(conn,"""select id,participant_id,fault_reason,fault_reported_at,last_checkpoint_tick,fault_review_status,fault_review_version,
-      ticket_kind,ticket_refund_status,fault_reviewed_by,fault_reviewed_at,fault_review_reason from dino_dev.game_session
+    rows=_all(conn,f"""select id,participant_id,fault_reason,fault_reported_at,last_checkpoint_tick,fault_review_status,fault_review_version,
+      ticket_kind,ticket_refund_status,fault_reviewed_by,fault_reviewed_at,fault_review_reason from {database_schema()}.game_session
       where fault_review_status=%s order by fault_reported_at desc limit 200""",(status,))
     return 200,{"faults":[{**dict(r),"fault_reported_at":_iso(r["fault_reported_at"]),"fault_reviewed_at":_iso(r["fault_reviewed_at"])} for r in rows]}
 def admin_fault_patch(conn,sid,body,ctx):
-    admin=_admin(conn,ctx,"faults:write");s=_one(conn,"select * from dino_dev.game_session where id=%s for update",(sid,))
+    admin=_admin(conn,ctx,"faults:write");s=_one(conn,f"select * from {database_schema()}.game_session where id=%s for update",(sid,))
     if not s:raise DomainError("SESSION_NOT_FOUND","게임 기록을 찾을 수 없습니다.",404)
     try:expected=int(body.get("expected_version"))
     except (TypeError,ValueError):expected=-1
@@ -1026,55 +1111,126 @@ def admin_fault_patch(conn,sid,body,ctx):
     if decision not in {"APPROVE","DENY"} or len(reason)<3:raise DomainError("VALIDATION_ERROR","심사 결과와 사유를 입력해 주세요.")
     before={"status":s["fault_review_status"],"version":s["fault_review_version"]}
     if decision=="APPROVE":s=_refund_fault(conn,s,"APPROVED",admin["auth_user_id"],reason)
-    else:s=_one(conn,"""update dino_dev.game_session set status='ABORTED',ticket_refund_status='NOT_DUE',finished_at=clock_timestamp(),fault_review_status='DENIED',
+    else:s=_one(conn,f"""update {database_schema()}.game_session set status='ABORTED',ticket_refund_status='NOT_DUE',finished_at=clock_timestamp(),fault_review_status='DENIED',
       fault_review_version=fault_review_version+1,fault_reviewed_by=%s,fault_reviewed_at=clock_timestamp(),fault_review_reason=%s where id=%s returning *""",(admin["auth_user_id"],reason,sid))
-    conn.execute("insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'FAULT_REVIEW','game_session',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],sid,json.dumps(before),json.dumps({"status":s["fault_review_status"],"version":s["fault_review_version"]}),reason,str(body.get("event_id"))))
+    conn.execute(f"insert into {database_schema()}.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'FAULT_REVIEW','game_session',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],sid,json.dumps(before),json.dumps({"status":s["fault_review_status"],"version":s["fault_review_version"]}),reason,str(body.get("event_id"))))
     return 200,{"session_id":sid,"status":s["status"],"refund":{"status":s["ticket_refund_status"],"ticket_kind":s["ticket_kind"]},"fault_review":{"status":s["fault_review_status"],"version":s["fault_review_version"]}}
 def admin_campaign(conn,body,ctx):
     admin=_admin(conn,ctx,"campaign:write"); campaign=_campaign(conn,True); status=str(body.get("status") or "")
     if status not in {"ACTIVE","PAUSED","ENDED"} or int(body.get("expected_version") or -1)!=campaign["version"]:raise DomainError("VERSION_CONFLICT","행사 상태가 변경되었습니다.",409)
-    row=_one(conn,"update dino_dev.campaign set status=%s,version=version+1,updated_at=clock_timestamp() where id=%s returning *",(status,campaign["id"]))
-    conn.execute("insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,event_id) values(%s,'CAMPAIGN_STATUS','campaign',%s,%s::jsonb,%s::jsonb,%s)",(admin["auth_user_id"],campaign["id"],json.dumps({"status":campaign["status"]}),json.dumps({"status":status}),str(body.get("event_id"))))
+    row=_one(conn,f"update {database_schema()}.campaign set status=%s,version=version+1,updated_at=clock_timestamp() where id=%s returning *",(status,campaign["id"]))
+    conn.execute(f"insert into {database_schema()}.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,event_id) values(%s,'CAMPAIGN_STATUS','campaign',%s,%s::jsonb,%s::jsonb,%s)",(admin["auth_user_id"],campaign["id"],json.dumps({"status":campaign["status"]}),json.dumps({"status":status}),str(body.get("event_id"))))
     return 200,{"id":row["id"],"status":row["status"],"version":row["version"]}
 
 def admin_participant_patch(conn,pid,body,ctx):
-    admin=_admin(conn,ctx,"participants:write");participant=_one(conn,"select * from dino_dev.participant where id=%s for update",(pid,))
+    admin=_admin(conn,ctx,"participants:write");participant=_one(conn,f"select * from {database_schema()}.participant where id=%s for update",(pid,))
     if not participant:raise DomainError("PARTICIPANT_NOT_FOUND","참가자를 찾을 수 없습니다.",404)
     status=str(body.get("status") or participant["status"]);expected=str(body.get("expected_status") or "");revoke=body.get("revoke_session",False);reason=str(body.get("reason") or "").strip()
     if status not in {"ACTIVE","BLOCKED"} or expected!=participant["status"] or not isinstance(revoke,bool):raise DomainError("VERSION_CONFLICT","참가자 상태가 변경되었습니다.",409)
     if (status!=participant["status"] or revoke) and len(reason)<3:raise DomainError("VALIDATION_ERROR","제한 또는 세션 폐기 사유를 입력해 주세요.")
-    updated=_one(conn,"""update dino_dev.participant set status=%s,token_expires_at=case when %s then least(token_expires_at,clock_timestamp()) else token_expires_at end,
+    updated=_one(conn,f"""update {database_schema()}.participant set status=%s,token_expires_at=case when %s then least(token_expires_at,clock_timestamp()) else token_expires_at end,
       updated_at=clock_timestamp() where id=%s returning *""",(status,revoke,pid))
-    conn.execute("insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'PARTICIPANT_ACCESS','participant',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],pid,json.dumps({"status":participant["status"]}),json.dumps({"status":status,"session_revoked":revoke}),reason or None,str(body.get("event_id"))))
+    conn.execute(f"insert into {database_schema()}.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'PARTICIPANT_ACCESS','participant',%s,%s::jsonb,%s::jsonb,%s,%s)",(admin["auth_user_id"],pid,json.dumps({"status":participant["status"]}),json.dumps({"status":status,"session_revoked":revoke}),reason or None,str(body.get("event_id"))))
     return 200,{"participant_id":pid,"status":updated["status"],"session_revoked":revoke}
 
 def admin_ranking_snapshots(conn,ctx):
-    _admin(conn,ctx,"ranking:read");rows=_all(conn,"""select s.id,s.status,s.tie_policy,s.game_version,s.campaign_closes_at,s.captured_at,count(e.participant_id)::int entry_count
-      from dino_dev.ranking_snapshot s left join dino_dev.ranking_snapshot_entry e on e.snapshot_id=s.id group by s.id order by s.captured_at desc limit 50""")
-    return 200,{"snapshots":[{**dict(row),"campaign_closes_at":_iso(row["campaign_closes_at"]),"captured_at":_iso(row["captured_at"])} for row in rows]}
+    _admin(conn,ctx,"ranking:read");rows=_all(conn,f"""select s.id,s.status,s.tie_policy,s.game_version,s.campaign_closes_at,s.captured_at,s.finalized_at,
+      count(distinct e.participant_id)::int entry_count,count(distinct a.rank)::int final_awards_created
+      from {database_schema()}.ranking_snapshot s left join {database_schema()}.ranking_snapshot_entry e on e.snapshot_id=s.id
+      left join {database_schema()}.ranking_award a on a.snapshot_id=s.id group by s.id order by s.captured_at desc limit 50""")
+    return 200,{"snapshots":[{**dict(row),"campaign_closes_at":_iso(row["campaign_closes_at"]),"captured_at":_iso(row["captured_at"]),
+      "finalized_at":_iso(row["finalized_at"]),"final_awards_created":row["final_awards_created"]==3} for row in rows]}
 
 def admin_ranking_contacts(conn,ctx):
-    _admin(conn,ctx,"claims:read");rows=_all(conn,"""select r.participant_id,r.status ranking_status,r.game_version,r.requested_at,r.submitted_at,c.id claim_id,c.status claim_status,
+    _admin(conn,ctx,"claims:read");rows=_all(conn,f"""select r.participant_id,r.status ranking_status,r.game_version,r.requested_at,r.submitted_at,c.id claim_id,c.status claim_status,
       c.verification_status,c.assignee_user_id,c.version,cc.recipient_name,cc.contact,cc.school
-      from dino_dev.ranking_contact r left join dino_dev.claim c on c.participant_id=r.participant_id and c.claim_type='RANKING'
-      left join dino_dev.claim_contact cc on cc.claim_id=c.id order by r.requested_at desc limit 200""")
+      from {database_schema()}.ranking_contact r left join {database_schema()}.claim c on c.participant_id=r.participant_id and c.claim_type='RANKING'
+      left join {database_schema()}.claim_contact cc on cc.claim_id=c.id order by r.requested_at desc limit 200""")
     return 200,{"ranking_contacts":[{**dict(row),"requested_at":_iso(row["requested_at"]),"submitted_at":_iso(row["submitted_at"])} for row in rows]}
 
 def create_admin_ranking_snapshot(conn,body,ctx):
     admin=_admin(conn,ctx,"ranking:write");campaign=_campaign(conn,True);sid=_id("rank_snapshot");version=_game_version(conn,ctx);source=_score_source(version)
-    snapshot=_one(conn,"""insert into dino_dev.ranking_snapshot(id,campaign_id,campaign_closes_at,created_by,game_version)
-      values(%s,%s,%s,%s,%s) returning *""",(sid,campaign["id"],campaign["closes_at"],admin["auth_user_id"],version))
-    conn.execute(f"""insert into dino_dev.ranking_snapshot_entry(snapshot_id,participant_id,score,rank,tied,contact_status)
-      select %s,b.participant_id,b.score,dense_rank() over(order by b.score desc),count(*) over(partition by b.score)>1,coalesce(r.status,'NOT_REQUESTED')
-      from {source} b join dino_dev.participant p on p.id=b.participant_id
-      left join dino_dev.ranking_contact_version rv on rv.participant_id=b.participant_id and rv.game_version=%s
-      left join dino_dev.ranking_contact r on r.participant_id=rv.participant_id
+    snapshot=_one(conn,f"""insert into {database_schema()}.ranking_snapshot(id,campaign_id,status,tie_policy,campaign_closes_at,created_by,game_version)
+      values(%s,%s,'DRAFT','EARLIEST_ACHIEVED_AT',%s,%s,%s) returning *""",(sid,campaign["id"],campaign["closes_at"],admin["auth_user_id"],version))
+    conn.execute(f"""insert into {database_schema()}.ranking_snapshot_entry(snapshot_id,participant_id,score,rank,tied,contact_status,achieved_at)
+      select %s,b.participant_id,b.score,row_number() over(order by b.score desc,b.achieved_at asc,b.participant_id asc),
+        count(*) over(partition by b.score)>1,coalesce(r.status,'NOT_REQUESTED'),b.achieved_at
+      from {source} b join {database_schema()}.participant p on p.id=b.participant_id
+      left join {database_schema()}.ranking_contact_version rv on rv.participant_id=b.participant_id and rv.game_version=%s
+      left join {database_schema()}.ranking_contact r on r.participant_id=rv.participant_id
       where p.campaign_id=%s and p.status='ACTIVE'""",(sid,version,campaign["id"]))
-    count=_one(conn,"select count(*)::int n from dino_dev.ranking_snapshot_entry where snapshot_id=%s",(sid,))["n"]
-    conn.execute("insert into dino_dev.admin_audit(admin_user_id,action,target_type,target_id,after_value,event_id) values(%s,'RANKING_SNAPSHOT','ranking_snapshot',%s,%s::jsonb,%s)",(admin["auth_user_id"],sid,json.dumps({"status":"DRAFT","tie_policy":"UNDECIDED","entry_count":count}),str(body.get("event_id"))))
+    count=_one(conn,f"select count(*)::int n from {database_schema()}.ranking_snapshot_entry where snapshot_id=%s",(sid,))["n"]
+    conn.execute(f"insert into {database_schema()}.admin_audit(admin_user_id,action,target_type,target_id,after_value,event_id) values(%s,'RANKING_SNAPSHOT','ranking_snapshot',%s,%s::jsonb,%s)",(admin["auth_user_id"],sid,json.dumps({"status":"DRAFT","tie_policy":"EARLIEST_ACHIEVED_AT","entry_count":count}),str(body.get("event_id"))))
     return 201,{"id":sid,"status":snapshot["status"],"tie_policy":snapshot["tie_policy"],"campaign_closes_at":_iso(snapshot["campaign_closes_at"]),"captured_at":_iso(snapshot["captured_at"]),"entry_count":count,"game_version":version,"final_awards_created":False}
 
+def _ranking_cutoff(campaign):
+    settings=campaign.get("settings") or {}
+    if not isinstance(settings,dict) or settings.get("ranking_finalization_approved") is not True:
+        raise DomainError("RANKING_FINALIZATION_NOT_READY","랭킹 확정 승인 설정이 준비되지 않았습니다.",409)
+    raw=settings.get("ranking_finish_acceptance_cutoff")
+    if not isinstance(raw,str):raise DomainError("RANKING_FINALIZATION_NOT_READY","게임 완료 인정 마감 시각이 확정되지 않았습니다.",409)
+    try:cutoff=dt.datetime.fromisoformat(raw.replace("Z","+00:00"))
+    except ValueError:raise DomainError("RANKING_FINALIZATION_NOT_READY","게임 완료 인정 마감 시각을 확인해 주세요.",409)
+    closes=campaign.get("closes_at")
+    if cutoff.tzinfo is None or not isinstance(closes,dt.datetime) or closes.tzinfo is None or cutoff<closes:
+        raise DomainError("RANKING_FINALIZATION_NOT_READY","행사 종료와 게임 완료 인정 마감 시각을 확인해 주세요.",409)
+    return cutoff
+
+def _final_ranking_response(conn,snapshot):
+    awards=_all(conn,f"""select a.rank,a.participant_id,a.claim_id,a.prize_id,a.inventory_item_id,p.name prize_name
+      from {database_schema()}.ranking_award a join {database_schema()}.prize p on p.id=a.prize_id
+      where a.snapshot_id=%s order by a.rank""",(snapshot["id"],))
+    return {"id":snapshot["id"],"status":snapshot["status"],"tie_policy":snapshot["tie_policy"],
+      "campaign_closes_at":_iso(snapshot["campaign_closes_at"]),"captured_at":_iso(snapshot["captured_at"]),
+      "finalized_at":_iso(snapshot.get("finalized_at")),"game_version":snapshot["game_version"],
+      "final_awards_created":len(awards)==3,"awards":[dict(row) for row in awards]}
+
+def finalize_admin_ranking_snapshot(conn,sid,body,ctx):
+    admin=_admin(conn,ctx,"ranking:write")
+    snapshot=_one(conn,f"select * from {database_schema()}.ranking_snapshot where id=%s for update",(sid,))
+    if not snapshot:raise DomainError("RANKING_SNAPSHOT_NOT_FOUND","랭킹 스냅샷을 찾을 수 없습니다.",404)
+    if snapshot["status"]=="FINAL":return 200,_final_ranking_response(conn,snapshot)
+    campaign=_one(conn,f"select * from {database_schema()}.campaign where id=%s for update",(snapshot["campaign_id"],))
+    if not campaign or campaign["id"]!=_campaign(conn)["id"]:raise DomainError("CAMPAIGN_NOT_CONFIGURED","현재 행사의 랭킹만 확정할 수 있습니다.",409)
+    cutoff=_ranking_cutoff(campaign);settled_at=cutoff+dt.timedelta(seconds=30);now=_one(conn,"select clock_timestamp() as now")["now"]
+    if now<settled_at:raise DomainError("RANKING_FINALIZATION_TOO_EARLY","마감 직전 접수된 게임 기록을 처리한 뒤 최종 순위를 확정할 수 있습니다.",409)
+    if snapshot["campaign_closes_at"]!=campaign["closes_at"] or snapshot["captured_at"]<settled_at or snapshot["tie_policy"]!="EARLIEST_ACHIEVED_AT":
+        raise DomainError("RANKING_SNAPSHOT_STALE","마감 직전 접수 기록 처리가 끝난 후 새 스냅샷을 만들어 주세요.",409)
+    existing=_one(conn,f"select id from {database_schema()}.ranking_snapshot where campaign_id=%s and status='FINAL' for update",(campaign["id"],))
+    if existing:raise DomainError("RANKING_ALREADY_FINALIZED","이미 최종 랭킹이 확정되었습니다.",409)
+    winners=_all(conn,f"select * from {database_schema()}.ranking_snapshot_entry where snapshot_id=%s and rank<=3 order by rank",(sid,))
+    awards=_all(conn,f"select * from {database_schema()}.ranking_award where campaign_id=%s order by rank for update",(campaign["id"],))
+    if len(winners)!=3 or [r["rank"] for r in winners]!=[1,2,3]:raise DomainError("RANKING_ENTRIES_INCOMPLETE","상위 3명의 최종 기록이 필요합니다.",409)
+    if len(awards)!=3 or [r["rank"] for r in awards]!=[1,2,3] or any(r["snapshot_id"] for r in awards):
+        raise DomainError("RANKING_AWARDS_NOT_CONFIGURED","랭킹 1~3위 전용 경품 재고를 확인해 주세요.",409)
+    for winner,award in zip(winners,awards):
+        inventory=_one(conn,f"""select i.status,p.is_active,p.category,
+          exists(select 1 from {database_schema()}.draw_pool_slot d where d.inventory_item_id=i.id) in_draw_pool
+          from {database_schema()}.inventory_item i join {database_schema()}.prize p on p.id=i.prize_id
+          where i.id=%s and i.prize_id=%s for update of i""",(award["inventory_item_id"],award["prize_id"]))
+        if not inventory or inventory["status"]!="AVAILABLE" or not inventory["is_active"] or inventory["category"]=="NO_PRIZE" or inventory["in_draw_pool"]:
+            raise DomainError("RANKING_INVENTORY_CONFLICT","랭킹 경품 재고가 추첨 재고와 분리되어 있는지 확인해 주세요.",409)
+        claim=_one(conn,f"select * from {database_schema()}.claim where campaign_id=%s and participant_id=%s and claim_type='RANKING' for update",(campaign["id"],winner["participant_id"]))
+        if claim and (claim["status"] in {"PAID","INELIGIBLE"} or claim["prize_id"] not in {None,award["prize_id"]} or claim["inventory_item_id"] not in {None,award["inventory_item_id"]}):
+            raise DomainError("RANKING_CLAIM_CONFLICT","랭킹 수령 요청 상태를 확인해 주세요.",409)
+        claim_id=claim["id"] if claim else _id("claim")
+        if claim:
+            conn.execute(f"update {database_schema()}.claim set prize_id=%s,inventory_item_id=%s,updated_at=clock_timestamp() where id=%s",(award["prize_id"],award["inventory_item_id"],claim_id))
+        else:
+            conn.execute(f"insert into {database_schema()}.claim(id,campaign_id,participant_id,claim_type,prize_id,inventory_item_id) values(%s,%s,%s,'RANKING',%s,%s)",(claim_id,campaign["id"],winner["participant_id"],award["prize_id"],award["inventory_item_id"]))
+        conn.execute(f"update {database_schema()}.inventory_item set status='RESERVED',reserved_at=clock_timestamp() where id=%s",(award["inventory_item_id"],))
+        conn.execute(f"insert into {database_schema()}.inventory_history(inventory_item_id,from_status,to_status,reason,related_type,related_id) values(%s,'AVAILABLE','RESERVED','RANKING_FINALIZED','ranking_snapshot',%s)",(award["inventory_item_id"],sid))
+        conn.execute(f"""update {database_schema()}.ranking_award set snapshot_id=%s,participant_id=%s,claim_id=%s,finalized_at=clock_timestamp()
+          where campaign_id=%s and rank=%s""",(sid,winner["participant_id"],claim_id,campaign["id"],winner["rank"]))
+    snapshot=_one(conn,f"""update {database_schema()}.ranking_snapshot set status='FINAL',finalized_at=clock_timestamp(),finalized_by=%s
+      where id=%s returning *""",(admin["auth_user_id"],sid))
+    conn.execute(f"insert into {database_schema()}.admin_audit(admin_user_id,action,target_type,target_id,before_value,after_value,reason,event_id) values(%s,'RANKING_FINALIZE','ranking_snapshot',%s,%s::jsonb,%s::jsonb,%s,%s)",
+      (admin["auth_user_id"],sid,json.dumps({"status":"DRAFT"}),json.dumps({"status":"FINAL","tie_policy":"EARLIEST_ACHIEVED_AT","award_count":3}),str(body.get("reason") or "").strip() or None,str(body.get("event_id"))))
+    return 200,_final_ranking_response(conn,snapshot)
+
 def dispatch(conn,method,path,body,query,ctx):
+    if ctx.get("environment")=="production" and ctx.get("event_enabled") is not True and (method in {"POST","PATCH"} or path=="/api/webhooks/kakao-share"):
+        raise DomainError("EVENT_NOT_ENABLED","본행사 오픈을 준비하고 있습니다.",409)
     def call():
         if method=="POST" and path=="/api/observations":return create_observation(conn,body,ctx)
         if method=="POST" and path=="/api/participants/anonymous":return participant_init(conn,body,ctx)
@@ -1118,6 +1274,8 @@ def dispatch(conn,method,path,body,query,ctx):
         if method=="PATCH" and m:return admin_fault_patch(conn,m.group(1),body,ctx)
         if method=="GET" and path=="/api/admin/ranking-snapshots":return admin_ranking_snapshots(conn,ctx)
         if method=="POST" and path=="/api/admin/ranking-snapshots":return create_admin_ranking_snapshot(conn,body,ctx)
+        m=re.fullmatch(r"/api/admin/ranking-snapshots/([^/]+)/finalize",path)
+        if method=="POST" and m:return finalize_admin_ranking_snapshot(conn,m.group(1),body,ctx)
         if method=="GET" and path=="/api/admin/ranking-contacts":return admin_ranking_contacts(conn,ctx)
         m=re.fullmatch(r"/api/admin/participants/([^/]+)",path)
         if method=="PATCH" and m:return admin_participant_patch(conn,m.group(1),body,ctx)

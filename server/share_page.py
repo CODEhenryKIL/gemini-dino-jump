@@ -1,3 +1,4 @@
+from config import database_schema
 """Public invitation previews. Reading a card never creates a visit or reward."""
 from html import escape
 import json
@@ -31,11 +32,11 @@ def public_card(conn, code, kind, version, campaign_id):
     row = conn.execute(f'''select p.nickname,p.is_public,b.score,
       case when d.revealed and d.outcome_kind='PRIZE' then z.name end prize_name,
       (select count(*)::int from {_score_source(version)} scores
-        join dino_dev.participant counted on counted.id=scores.participant_id
+        join {database_schema()}.participant counted on counted.id=scores.participant_id
         where counted.campaign_id=%s and counted.status='ACTIVE') participant_count
-      from dino_dev.participant p left join {_score_source(version)} b on b.participant_id=p.id
-      left join lateral (select * from dino_dev.draw latest where latest.participant_id=p.id and latest.campaign_id=p.campaign_id order by latest.round_number desc limit 1) d on true
-      left join dino_dev.prize z on z.id=d.prize_id
+      from {database_schema()}.participant p left join {_score_source(version)} b on b.participant_id=p.id
+      left join lateral (select * from {database_schema()}.draw latest where latest.participant_id=p.id and latest.campaign_id=p.campaign_id order by latest.round_number desc limit 1) d on true
+      left join {database_schema()}.prize z on z.id=d.prize_id
       where p.referral_code=%s and p.campaign_id=%s and p.status='ACTIVE' ''', (campaign_id, code, campaign_id)).fetchone()
     title = DEFAULT_CARD['title']
     description = DEFAULT_CARD['description']
@@ -63,6 +64,6 @@ def render_share_page(card, base_url, code, target):
 <meta property="og:image:width" content="1254"><meta property="og:image:height" content="1254">
 <meta property="og:image:alt" content="삼텐바이미, 소니 헤드셋, 오쏘몰과 간식 경품">
 <meta name="twitter:card" content="summary_large_image"></head>
-<body><main><h1>{title}</h1><p>{description}</p><p>게임은 누구나 참여할 수 있고, 실제 경품 대상은 대학 재학생입니다.</p>
+<body><main><h1>{title}</h1><p>{description}</p><p>게임은 누구나 참여할 수 있고, 실제 경품 대상은 대학 재학생·휴학생입니다.</p>
 <a href="{escape(destination, quote=True)}">공룡 점프 시작하기</a></main>
 <script>window.location.replace({js_destination});</script></body></html>'''.encode('utf-8')

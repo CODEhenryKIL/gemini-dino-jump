@@ -26,7 +26,7 @@ function loadUi() {
   const toasts = [];
   const context = { document, sessionStorage: { getItem: () => '' }, api: { createRequestId: () => 'test-request' }, ui: { showToast: (message) => toasts.push(message) } };
   const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8').replace(/^import .*;\n/gm, '');
-  vm.runInNewContext(`${read('public/js/admin.js')}\n globalThis.admin = { claimEditor, renderDrawSummary, renderOperationalBreakdowns, setPermissions: (values) => { adminPermissions = new Set(values); }, setRequest: (handler) => { adminRequest = handler; } };`, context);
+  vm.runInNewContext(`${read('public/js/admin.js')}\n globalThis.admin = { claimEditor, renderDrawSummary, renderOperationalBreakdowns, setPermissions: (values) => { adminPermissions = new Set(values); }, setEnvironment: (value) => { adminEnvironment = value; }, setRequest: (handler) => { adminRequest = handler; } };`, context);
   vm.runInNewContext(`${read('public/js/views/prize_view.js').replace('export const PrizeView', 'const PrizeView')}\n globalThis.prize = PrizeView;`, context);
   return { ...context, nodes, toasts };
 }
@@ -75,6 +75,19 @@ test('submitted claims remove the entry form and preserve ranking and read-only 
   assert.equal(descendants(editor, 'button')[0].disabled, false);
   admin.setPermissions(['claims:read']);
   assert.equal(descendants(admin.claimEditor(claim), 'button')[0].disabled, true);
+});
+
+test('a finalized ranking claim can move through manual payment processing', () => {
+  const { admin } = loadUi();
+  admin.setPermissions(['claims:write']);
+  const editor = admin.claimEditor({
+    claim_type: 'RANKING', prize_id: 'ranking-prize-1', inventory_item_id: 'ranking-item-1', prize_name: '1위 경품',
+    status: 'CONTACTED', contact_submitted_at: '2026-10-02T15:01:00Z', recipient_name: 'TEST', contact: '01000000000', version: 4,
+  });
+  const options = descendants(editor, 'option');
+  assert.equal(options.find((option) => option.value === 'PAID').disabled, false);
+  assert.doesNotMatch(editor.textContent, /최종 수상 확정 전/);
+  assert.match(editor.textContent, /1위 경품/);
 });
 
 test('legacy claim without real contact cannot be processed even if its status progressed', () => {
@@ -128,6 +141,26 @@ test('administrator must confirm eligibility, delivery and evidence before recor
   assert.equal(body.external_delivery, true);
   assert.equal(body.reason, 'TEST_DELIVERY_CONFIRMED');
   assert.equal(body.expected_version, 7);
+});
+
+test('production claim evidence uses the production reference prefix', async () => {
+  const { admin, toasts } = loadUi();
+  admin.setPermissions(['claims:write']); admin.setEnvironment('production');
+  const requests = [];
+  admin.setRequest(async (url, options = {}) => { requests.push({ url, options }); return { claims: [] }; });
+  const editor = admin.claimEditor({ id: 'prod-payment', claim_type: 'DRAW', status: 'CONTACTED', version: 1,
+    contact_submitted_at: '2026-09-29T00:00:00Z', recipient_name: 'TEST', contact: '01000000000' });
+  const [state, verification] = descendants(editor, 'select');
+  const reference = descendants(editor, 'input').find((node) => node.ariaLabel === '자격 확인 참조');
+  const reason = descendants(editor, 'input').find((node) => node.placeholder === '변경 사유');
+  const external = descendants(editor, 'input').find((node) => node.type === 'checkbox');
+  const save = descendants(editor, 'button')[0];
+  assert.match(reference.placeholder, /REF_/); assert.doesNotMatch(reference.placeholder, /TEST_REF_/);
+  state.value = 'PAID'; state.onchange(); verification.value = 'VERIFIED'; external.checked = true; reason.value = '전달 확인 완료';
+  reference.value = 'TEST_REF_wrong'; await save.onclick();
+  assert.match(toasts.at(-1), /REF_/); assert.equal(requests.length, 0);
+  reference.value = 'REF_verified'; await save.onclick();
+  assert.equal(JSON.parse(requests[0].options.body).verification_reference, 'REF_verified');
 });
 
 test('paid evidence cannot be unchecked and verification remains disabled for read-only administrators', () => {
@@ -224,7 +257,7 @@ test('dashboard exposes draw outcomes and credits and stays safe for a legacy re
   assert.match(nodes.get('#draw-summary').textContent, /총 추첨 횟수0/);
 });
 
-test('claims load ordered draw history and links an actual prize claim to its round', async () => {
+test('claims omit pouch history and keep an actual prize focused on its claim action', async () => {
   const { api, prize } = loadUi();
   api.getClaims = async () => ({ claims: [{ id: 'claim-2', claim_type: 'DRAW', prize_name: '헤드셋', status: 'PAID', contact_submitted: true }] });
   api.getDraw = async () => ({ draws: [
@@ -234,16 +267,26 @@ test('claims load ordered draw history and links an actual prize claim to its ro
   const container = new Element('main');
   await prize.render(container, { isCurrent: () => true, state: { draw: { status: 'WON' } } }, 1);
   const history = container.children.find((child) => child.className === 'card draw-history-card');
-  assert.ok(history);
-  const rows = descendants(history, 'li').map((row) => row.children.map((child) => child.textContent));
-  assert.deepEqual(rows, [['2회차', '헤드셋', '확인 완료'], ['1회차', 'Gemini 혜택', '확인 완료']]);
+  assert.equal(history, undefined);
   const claimCard = container.children.find((child) => child.className === 'card claim-card');
-  assert.match(claimCard.textContent, /복주머니 2회차 경품/);
+  assert.match(claimCard.textContent, /헤드셋/);
+  assert.doesNotMatch(claimCard.textContent, /복주머니.*회차/);
 });
 
-test('claims history does not expose an unrevealed result', () => {
+test('a saved Gemini benefit exposes benefit and direct next-draw actions without history', () => {
   const { prize } = loadUi();
-  const history = prize.drawHistory([{ round_number: 3, outcome_kind: 'PRIZE', scratch_completed: false, revealed: false, prize: { name: '삼텐바이미' } }]);
-  assert.match(history.textContent, /3회차결과 확인 전확인 전/);
-  assert.doesNotMatch(history.textContent, /삼텐바이미/);
+  const routes = [];
+  const card = prize.benefitCard(
+    { used_count: 1, max_count: 10, available_credits: 1 },
+    { navigate: (route) => routes.push(route), isCurrent: () => true },
+    1,
+  );
+  assert.match(card.textContent, /Gemini 1년 무료 혜택/);
+  assert.doesNotMatch(card.textContent, /복주머니 기록/);
+  const buttons = descendants(card, 'button');
+  assert.equal(buttons[0].textContent, '혜택 보러 가기');
+  assert.equal(buttons[1].textContent, '한 번 더 뽑기');
+  buttons[0].onclick();
+  buttons[1].onclick();
+  assert.deepEqual(routes, ['benefit', 'draw']);
 });

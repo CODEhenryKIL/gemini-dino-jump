@@ -487,3 +487,17 @@ for (const view of ['draw', 'claims', 'ranking']) test(`refresh preserves an exp
   windowListeners.popstate({ state: { view } });
   assert.equal(router.currentView, view);
 });
+
+
+test('event lifecycle states are not shown as broken network connections', () => {
+  for (const [code, text, closed] of [
+    ['EVENT_NOT_ENABLED', '오픈을 준비', false],
+    ['CAMPAIGN_NOT_OPEN', '시작 전', false],
+    ['CAMPAIGN_CLOSED', '행사가 종료', true],
+  ]) {
+    const { router, context } = loadRouter('https://example.test/');
+    router.renderInitError({status: 409, data: {error: code}});
+    assert.ok(context.document.getElementById('splash-status-text').textContent.includes(text));
+    assert.equal(context.document.getElementById('splash-retry').hidden, closed);
+  }
+});

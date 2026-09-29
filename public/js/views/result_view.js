@@ -152,7 +152,6 @@ export const ResultView = {
       }
       if (status === 'CHASING') {
         const points = Number(gap.score_needed);
-        if (gap.tied && points === 0) return '현재 3위 점수와 동점이에요. 최종 동점 수상 기준은 이벤트 종료 시점에 확정돼요.';
         return Number.isFinite(points) && points > 0 ? this.retryGapCopy(points) : 'TOP3 기준을 계산하는 중이에요.';
       }
       return 'TOP3 기준을 계산하는 중이에요.';
@@ -160,7 +159,6 @@ export const ResultView = {
     if (result.rank && result.rank <= 3) return `현재 ${result.rank}위로 TOP3예요.\n최종 순위는 행사 종료 시 확정돼요.`;
     const points = Number(gap);
     if (Number.isFinite(points) && points > 0) return this.retryGapCopy(points);
-    if (points === 0) return '현재 3위 점수와 동점이에요. 최종 동점 수상 기준은 이벤트 종료 시점에 확정돼요.';
     return 'TOP3 기준을 계산하는 중이에요.';
   },
 
@@ -237,6 +235,9 @@ export const ResultView = {
     const accuracyNote = document.createElement('p'); accuracyNote.className = 'result-contact-accuracy';
     accuracyNote.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';
     form.appendChild(accuracyNote);
+    const eligibilityNote = document.createElement('p'); eligibilityNote.className = 'result-contact-accuracy';
+    eligibilityNote.textContent = '재학생·휴학생이 참여할 수 있어요. 개인정보는 지급 완료 후 30일 이내 삭제하며, 문의는 sea42471@naver.com으로 보내 주세요.';
+    form.appendChild(eligibilityNote);
     const feedback = document.createElement('p'); feedback.className = 'result-form-status'; feedback.setAttribute('role', 'status');
     const button = document.createElement('button'); button.type = 'submit'; button.className = 'btn btn-secondary'; button.textContent = '수령 정보 등록';
     form.append(feedback, button);

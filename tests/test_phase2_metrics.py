@@ -17,7 +17,7 @@ class Phase2MetricsTest(unittest.TestCase):
     def setUp(self):
         url = os.getenv("PHASE1_METRICS_DATABASE_URL", "postgresql://postgres@127.0.0.1:55433/dino_phase1_v2_browser")
         parsed = urlparse(url)
-        if parsed.hostname not in {"localhost", "127.0.0.1"} or not parsed.path.startswith("/dino_phase1_v2_"):
+        if parsed.hostname not in {"localhost", "127.0.0.1"} or not parsed.path.startswith(("/dino_phase1_v2_","/dino_phase1_audit_")):
             raise RuntimeError("Phase 2 metrics fixtures require an isolated local database")
         self.conn = psycopg.connect(url, row_factory=dict_row)
         self.addCleanup(self.conn.close)
