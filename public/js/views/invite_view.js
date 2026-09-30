@@ -6,6 +6,14 @@ import { prepareResultReferralShare } from '../referral_share.js';
 const campaignStatus = (router) => router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
 const shareRewardTypes = new WeakMap();
 const sharePrepareStates = new WeakMap();
+const sharePreparedKinds = new WeakMap();
+const retryShareKind = (router, requestedKind) => {
+  if (requestedKind === 'prize_share') return requestedKind;
+  const draw = router.state?.draw || {};
+  return Number(draw.used_count || 0) > 0 && draw.score_eligible !== false && draw.actual_prize_won !== true
+    ? 'benefit_retry'
+    : requestedKind;
+};
 
 export const InviteView = {
   renderGeneration: 0,
@@ -21,7 +29,7 @@ export const InviteView = {
       router.shareContext = null;
       container.innerHTML = `
         <section class="ranking-prizes"><h1>랭킹 TOP3 선물</h1><div class="ranking-rewards"><div class="ranking-reward ranking-reward-1"><span class="ranking-reward-medal" role="img" aria-label="1위">🥇</span><strong>5만원</strong></div><div class="ranking-reward ranking-reward-2"><span class="ranking-reward-medal" role="img" aria-label="2위">🥈</span><strong>2만원</strong></div><div class="ranking-reward ranking-reward-3"><span class="ranking-reward-medal" role="img" aria-label="3위">🥉</span><strong>1만원</strong></div></div></section>
-        <section class="card compact-card invite-hero"><h1>친구 초대하고 재도전하기</h1><p id="invite-gap" class="result-gap" role="status">3위 기록을 확인하고 있어요.</p><button id="btn-share-native" class="btn invite-kakao-share" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.58 2 11c0 2.79 1.79 5.25 4.5 6.68L5.36 21l4.22-2.25c.78.16 1.59.25 2.42.25 5.52 0 10-3.58 10-8S17.52 3 12 3Z"/></svg><span>카카오톡으로 친구 초대하기</span></button><p id="share-fallback" class="status-note" hidden></p><button id="btn-invite-draw" class="btn btn-prize-draw" hidden>🧧 경품 뽑기</button></section>
+        <section class="card compact-card invite-hero"><h1>친구 초대하고 재도전하기</h1><p id="invite-gap" class="result-gap" role="status">3위 기록을 확인하고 있어요.</p><button id="btn-share-native" class="btn invite-kakao-share" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.58 2 11c0 2.79 1.79 5.25 4.5 6.68L5.36 21l4.22-2.25c.78.16 1.59.25 2.42.25 5.52 0 10-3.58 10-8S17.52 3 12 3Z"/></svg><span>공유하고 한 판 더</span></button><p id="share-fallback" class="status-note" hidden></p><button id="btn-invite-draw" class="btn btn-prize-draw" hidden>🧧 경품 뽑기</button></section>
         <section class="card invite-stats"><div class="stat-grid"><div><small>현재 초대권</small><strong id="invite-balance"></strong></div><div><small>누적 지급</small><strong id="ticket-granted"></strong></div><div><small>카카오 전송</small><strong id="valid-visits"></strong></div></div><div class="ticket-ledger"><span id="ticket-used"></span><span id="ticket-refunded"></span></div><p id="invite-cooldown" class="status-note" role="status"></p></section>`;
       void this.loadGap(container, isActiveRender);
       this.updateSummary(container, data);
@@ -36,6 +44,8 @@ export const InviteView = {
       }
       const prepared = await prepareResultReferralShare(router, { kind: shareKind, referral: data });
       if (!isActiveRender()) return;
+      if (prepared.kind && prepared.kind !== retryShareKind(router, shareKind)) return this.render(container, router, renderToken);
+      sharePreparedKinds.set(button, { requestedKind: shareKind, kind: prepared.kind || shareKind });
       button.onclick = async () => {
         if (button.disabled || (shareRewardTypes.get(button) !== 'NONE' && campaignStatus(router) !== 'ACTIVE')) return;
         button.disabled = true;
@@ -82,6 +92,10 @@ export const InviteView = {
   async updateState(container, router, renderToken) {
     if (!router.isCurrent(renderToken)) return;
     const share = container.querySelector?.('#btn-share-native');
+    const preparedKind = sharePreparedKinds.get(share);
+    if (preparedKind && preparedKind.kind !== retryShareKind(router, preparedKind.requestedKind)) {
+      return this.render(container, router, renderToken);
+    }
     if (sharePrepareStates.get(share) === 'campaign-blocked' && campaignStatus(router) === 'ACTIVE') {
       return this.render(container, router, renderToken);
     }

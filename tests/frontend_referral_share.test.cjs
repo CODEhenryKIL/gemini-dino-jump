@@ -92,6 +92,50 @@ test('configured Kakao share initializes once and opens sendDefault with an attr
   assert.deepEqual(shareEvents(harness.events).map(({ dimensions }) => [dimensions.share_method, dimensions.status]), [['kakao', 'attempted']]);
 });
 
+test('retry sharing after a Gemini result requests the combined benefit reward across retry entry points', async () => {
+  const sent = [];
+  const requestedKinds = [];
+  const Kakao = { init() {}, isInitialized: () => true, Share: { sendDefault(payload) { sent.push(payload); } } };
+  for (const requestedKind of ['retry_invite', 'record_share', 'draw_retry']) {
+    const harness = loadShare({ key: 'key', Kakao });
+    harness.router.state.draw = { used_count: 1, actual_prize_won: false };
+    const create = harness.api.createReferralShareIntent;
+    harness.api.createReferralShareIntent = (kind, claimId) => {
+      requestedKinds.push(kind);
+      return create(kind, claimId);
+    };
+    const outcome = await (await harness.prepare(harness.router, { kind: requestedKind })).share();
+    assert.equal(outcome.status, 'pending');
+  }
+  assert.ok(requestedKinds.length >= 3);
+  assert.ok(requestedKinds.every((kind) => kind === 'benefit_retry'));
+  assert.ok(sent.every((payload) => payload.buttons[0].title === '상품 뽑으러 가기'));
+  assert.ok(sent.every((payload) => /(?:\?|&)link=benefit_retry(?:&|$)/.test(payload.content.link.webUrl)));
+});
+
+test('actual-prize and claim-bound shares never upgrade to a combined Gemini retry', async () => {
+  const requestedKinds = [];
+  const Kakao = { init() {}, isInitialized: () => true, Share: { sendDefault() {} } };
+  const actualPrize = loadShare({ key: 'key', Kakao });
+  actualPrize.router.state.draw = { used_count: 2, actual_prize_won: true };
+  const actualCreate = actualPrize.api.createReferralShareIntent;
+  actualPrize.api.createReferralShareIntent = (kind, claimId) => { requestedKinds.push(kind); return actualCreate(kind, claimId); };
+  await actualPrize.prepare(actualPrize.router, { kind: 'retry_invite' });
+
+  const claim = loadShare({ key: 'key', Kakao });
+  claim.router.state.draw = { used_count: 2, actual_prize_won: false };
+  const claimCreate = claim.api.createReferralShareIntent;
+  claim.api.createReferralShareIntent = (kind, claimId) => { requestedKinds.push(kind); return claimCreate(kind, claimId); };
+  await claim.prepare(claim.router, { kind: 'record_share', claimId: 'claim-ranking' });
+
+  const lowScore = loadShare({ key: 'key', Kakao });
+  lowScore.router.state.draw = { used_count: 1, score_eligible: false, actual_prize_won: false };
+  const lowScoreCreate = lowScore.api.createReferralShareIntent;
+  lowScore.api.createReferralShareIntent = (kind, claimId) => { requestedKinds.push(kind); return lowScoreCreate(kind, claimId); };
+  await lowScore.prepare(lowScore.router, { kind: 'benefit_retry' });
+  assert.deepEqual(requestedKinds, ['retry_invite', 'record_share', 'retry_invite']);
+});
+
 test('unconfigured Kakao opens native share directly and blocks duplicate clicks while pending', async () => {
   const native = deferred();
   const payloads = [];

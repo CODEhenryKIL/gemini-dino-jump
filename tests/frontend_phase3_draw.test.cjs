@@ -109,6 +109,27 @@ test('the approved compact B selection keeps the first and repeat prize titles w
   assert.match(css, /#btn-open-pouch \{[^}]*background: #188038/);
 });
 
+test('a legacy low-score Gemini result remains viewable but cannot expose another draw', () => {
+  const view = loadDraw(async () => ({}));
+  let rendered;
+  view.renderScratch = (_container, _router, draw, _token, state) => { rendered = { draw, state }; };
+  const router = { state: {}, isCurrent: () => true };
+  const draw = { draw_id: 'legacy-benefit', scratch_completed: true, prize: {} };
+  const state = { status: 'LOCKED', score_eligible: false, used_count: 1, available_credits: 1, draw };
+  view.renderResolvedState({}, router, 4, state);
+  assert.equal(rendered.draw.draw_id, 'legacy-benefit');
+  assert.equal(rendered.state.score_eligible, false);
+
+  const retrySource = fs.readFileSync(path.join(root, 'public/js/benefit_retry.js'), 'utf8').replace(/export function /g, 'function ');
+  const context = {};
+  vm.runInNewContext(`${retrySource}\nglobalThis.available = benefitRetryAvailability;`, context);
+  const available = context.available(state, { available_total: 0, invitation: 0, invitation_reserved: 0 }, 'ACTIVE');
+  assert.equal(available.drawGrant, false);
+  assert.equal(available.drawReady, false);
+  assert.equal(available.gameGrant, true);
+  assert.match(available.message, /101점/);
+});
+
 test('Gemini benefit result prepares combined benefit_retry and confirmed webhook exposes a direct next action', async () => {
   let options;
   const h = shareHarness(async (_router, received) => {
@@ -118,7 +139,7 @@ test('Gemini benefit result prepares combined benefit_retry and confirmed webhoo
   await h.view.preparePostDrawShare(h.container, h.router, 4, { round_number: 2, prize: {} }, { used_count: 2, max_count: 10 }, false);
   assert.equal(options.kind, 'benefit_retry');
   assert.equal(h.button.hidden, false);
-  assert.match(h.button.textContent, /공유하고\s+다시 도전하기/);
+  assert.equal(h.button.textContent, '공유하고 한 판 더');
   await h.button.onclick();
   assert.match(h.status.textContent, /전송 확인 중/);
   options.onReceipt({ status: 'confirmed', reward_status: 'granted', reward_type: 'BOTH', rewards: { game: { quantity: 1 }, draw: { quantity: 1 } }, tickets: { invitation: 1, available_total: 1 }, draw_state: { status: 'AVAILABLE', used_count: 2, max_count: 10, available_credits: 1 } });
@@ -228,6 +249,28 @@ test('the fixed draw dock keeps replay primary and prepares a secondary game sha
   assert.match(status.textContent, /게임권 1장/);
 });
 
+test('a selection reached with an earlier Gemini result keeps the combined retry hint', async () => {
+  let preparedKind;
+  const view = loadDraw(async (_router, options) => {
+    preparedKind = options.kind;
+    return { share: async () => ({ status: 'pending' }) };
+  }, { showGameGuide() {} });
+  const primary = node(); const secondary = node(); const status = node();
+  const container = { querySelector(selector) {
+    return selector === '#draw-dock-primary' ? primary : selector === '#draw-dock-secondary' ? secondary : selector === '#draw-dock-status' ? status : null;
+  } };
+  const router = {
+    state: { draw: { status: 'AVAILABLE', used_count: 1, max_count: 10, available_credits: 1, score_eligible: true }, tickets: { available_total: 1, invitation: 1, invitation_reserved: 0 } },
+    isCurrent: () => true, campaignStatus: () => 'ACTIVE',
+  };
+  await view.updateActionDock(container, router, 15);
+  assert.equal(preparedKind, 'benefit_retry');
+  assert.equal(primary.textContent, '한 판 더 하기');
+  assert.equal(secondary.hidden, false);
+  assert.equal(secondary.textContent, '공유하고 한 판 더');
+  assert.match(status.textContent, /게임권 1장 \+ 경품 뽑기 1회/);
+});
+
 test('a revealed Gemini result upgrades the fixed dock share to the combined retry reward', async () => {
   let preparedKind;
   const view = loadDraw(async (_router, options) => { preparedKind = options.kind; return { share: async () => ({ status: 'pending' }) }; });
@@ -244,8 +287,70 @@ test('a revealed Gemini result upgrades the fixed dock share to the combined ret
   view.activeDrawContext = { container, renderToken: 9, draw, drawState: router.state.draw, actualPrize: false, resultRevealed: true };
   await view.updateActionDock(container, router, 9);
   assert.equal(preparedKind, 'benefit_retry');
-  assert.match(primary.textContent, /친구에게 공유하고/);
+  assert.equal(primary.textContent, '공유하고 한 판 더');
   assert.match(status.textContent, /게임권 1장 \+ 경품 뽑기 1회/);
+});
+
+test('a confirmed combined benefit reward makes the fixed dock open the next draw while retaining replay', async () => {
+  let options;
+  const routes = [];
+  const view = loadDraw(async (_router, received) => {
+    options = received;
+    return { share: async () => ({ status: 'pending' }) };
+  }, { showGameGuide() {} });
+  const primary = node(); const secondary = node(); const status = node();
+  const container = { querySelector(selector) {
+    return selector === '#draw-dock-primary' ? primary : selector === '#draw-dock-secondary' ? secondary : selector === '#draw-dock-status' ? status : null;
+  } };
+  const draw = { draw_id: 'benefit-confirmed', scratch_completed: true };
+  const router = {
+    state: { draw: { status: 'AVAILABLE', used_count: 1, max_count: 10, available_credits: 0 }, tickets: { available_total: 0, invitation: 0, invitation_reserved: 0 } },
+    isCurrent: () => true,
+    campaignStatus: () => 'ACTIVE',
+    navigate: (route) => routes.push(route),
+  };
+  view.activeDrawContext = { container, renderToken: 13, draw, drawState: router.state.draw, actualPrize: false, resultRevealed: true };
+  await view.updateActionDock(container, router, 13);
+  options.onReceipt({
+    status: 'confirmed', reward_type: 'BOTH', reward_status: 'granted',
+    rewards: { game: { quantity: 1 }, draw: { quantity: 1 } },
+    tickets: { available_total: 1, invitation: 1, invitation_reserved: 0 },
+    draw_state: { status: 'AVAILABLE', used_count: 1, max_count: 10, available_credits: 1 },
+  });
+  await new Promise(setImmediate);
+  assert.equal(primary.textContent, '한 번 더 뽑기');
+  assert.equal(primary.disabled, false);
+  assert.equal(secondary.hidden, false);
+  assert.equal(secondary.textContent, '한 판 더 하기');
+  primary.onclick();
+  assert.deepEqual(routes, ['draw']);
+});
+
+test('a draw-only benefit reward during the game ticket cooldown still opens the next draw', async () => {
+  let options;
+  const routes = [];
+  const view = loadDraw(async (_router, received) => { options = received; return { share: async () => ({ status: 'pending' }) }; });
+  const primary = node(); const secondary = node(); const status = node();
+  const container = { querySelector(selector) {
+    return selector === '#draw-dock-primary' ? primary : selector === '#draw-dock-secondary' ? secondary : selector === '#draw-dock-status' ? status : null;
+  } };
+  const draw = { draw_id: 'benefit-draw-only', scratch_completed: true };
+  const router = {
+    state: { draw: { status: 'AVAILABLE', used_count: 2, max_count: 10, available_credits: 0 }, tickets: { available_total: 0, invitation: 3, invitation_reserved: 0, cooldown_until: '2999-01-01T00:00:00Z' } },
+    isCurrent: () => true, campaignStatus: () => 'ACTIVE', navigate: (route) => routes.push(route),
+  };
+  view.activeDrawContext = { container, renderToken: 14, draw, drawState: router.state.draw, actualPrize: false, resultRevealed: true };
+  await view.updateActionDock(container, router, 14);
+  options.onReceipt({
+    status: 'confirmed', reward_type: 'DRAW', reward_status: 'granted', rewards: { draw: { quantity: 1 }, game: { quantity: 0 } },
+    tickets: { available_total: 0, invitation: 3, invitation_reserved: 0, cooldown_until: '2999-01-01T00:00:00Z' },
+    draw_state: { status: 'AVAILABLE', used_count: 2, max_count: 10, available_credits: 1 },
+  });
+  await new Promise(setImmediate);
+  assert.equal(primary.textContent, '한 번 더 뽑기');
+  assert.equal(secondary.hidden, true);
+  primary.onclick();
+  assert.deepEqual(routes, ['draw']);
 });
 
 test('a failed dock share preparation exposes a working retry instead of a stuck disabled button', async () => {

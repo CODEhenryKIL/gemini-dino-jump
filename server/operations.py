@@ -241,7 +241,7 @@ def get_me(conn,ctx):
     p=_participant(conn,ctx,True);_reconcile_expired(conn,p["id"]);p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(p["id"],))
     ranking=_ranking_info(conn,p["id"],_game_version(conn,ctx),p["campaign_id"])
     live=_one(conn,f"select id,status,ticket_kind,expires_at,last_checkpoint_tick from {database_schema()}.game_session where participant_id=%s and status in ('RESERVED','ACTIVE','FAULT_REPORTED') order by reserved_at desc limit 1",(p["id"],))
-    eligible=_one(conn,f"select id from {database_schema()}.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
+    eligible=_eligible_draw_session(conn,p)
     contact=_one(conn,f"select status,game_version from {database_schema()}.ranking_contact where participant_id=%s",(p["id"],))
     claims=_one(conn,f"select count(*)::int n from {database_schema()}.claim where participant_id=%s",(p["id"],))["n"]
     draw_state=_draw_state(conn,p,eligible)
@@ -314,12 +314,14 @@ def create_share_intent(conn,body,ctx):
         _claim_submission_allowed(conn,_campaign(conn),ctx)
     elif reward_type in {"GAME","DRAW","BOTH"}:
         _mutable(campaign);_before_campaign_close(conn,campaign,ctx)
-    if reward_type in {"DRAW","BOTH"}:
+    if not claim_id and kind in {"retry_invite","record_share","draw_retry","benefit_retry"}:
         latest=_one(conn,f"select outcome_kind from {database_schema()}.draw where campaign_id=%s and participant_id=%s order by round_number desc limit 1",(p["campaign_id"],p["id"]))
-        state=_draw_state(conn,p)
-        unavailable=not latest or latest["outcome_kind"]!="BENEFIT" or state["actual_prize_won"]
-        if reward_type=="DRAW":unavailable=unavailable or state["used_count"]>=state["max_count"]
-        if unavailable:
+        eligible=_eligible_draw_session(conn,p)
+        state=_draw_state(conn,p,eligible)
+        benefit_retry_available=bool(eligible and latest and latest["outcome_kind"]=="BENEFIT" and not state["actual_prize_won"])
+        if benefit_retry_available:
+            kind="benefit_retry";reward_type="BOTH"
+        elif reward_type in {"DRAW","BOTH"}:
             raise DomainError("DRAW_SHARE_NOT_AVAILABLE","혜택 결과 확인 후 남은 횟수 안에서 추가 뽑기를 받을 수 있습니다.",409)
     raw_token=ctx.get("new_share_callback_token");token_hash=ctx.get("new_share_callback_token_hash")
     if not raw_token or not token_hash:raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
@@ -633,7 +635,7 @@ def finish_response(conn,s,ctx=None):
       exists(select 1 from {database_schema()}.ticket_ledger where participant_id=%s and source_type='LOW_SCORE_REFUND' and source_id=%s) low_score_refunded""",
       (s["participant_id"],s["id"],s["participant_id"],s["id"]))
     contact=_one(conn,f"select status,game_version from {database_schema()}.ranking_contact where participant_id=%s",(s["participant_id"],))
-    eligible=_one(conn,f"select id from {database_schema()}.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' limit 1",(s["participant_id"],s["campaign_id"]))
+    eligible=_eligible_draw_session(conn,p)
     draw_state=_draw_state(conn,p,eligible)
     return {"session_id":s["id"],"status":s["status"],"verification":s["verification_result"],"score":s["score"],**ranking,
       "summary":s.get("game_summary") or {},"end_reason":s.get("end_reason"),
@@ -802,8 +804,14 @@ def _draw_select():return f"""select d.*,p.name prize_name,p.category prize_cate
 def _draw_response(row):
     return {"draw_id":row["id"],"round_number":row.get("round_number") or 1,"pouch_index":row["pouch_index"],"is_won":row["is_won"],"outcome_kind":row.get("outcome_kind") or ("PRIZE" if row["is_won"] else "BENEFIT"),"is_actual_prize":bool(row["is_won"]),"prize":{"id":row["prize_id"],"name":row["prize_name"],"category":row["prize_category"],"image_url":row["image_url"]},"revealed":row["revealed"],"scratch_completed":row["scratch_completed"],"claim_id":row["claim_id"]}
 
+def _eligible_draw_session(conn,p,lock=False):
+    return _one(conn,f"""select * from {database_schema()}.game_session
+      where participant_id=%s and campaign_id=%s and status='FINISHED'
+      and verification_result='VERIFIED' and score>100
+      order by finished_at,id limit 1{" for update" if lock else ""}""",(p["id"],p["campaign_id"]))
+
 def _draw_state(conn,p,eligible=None):
-    if eligible is None:eligible=_one(conn,f"select id from {database_schema()}.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],p["campaign_id"]))
+    if eligible is None:eligible=_eligible_draw_session(conn,p)
     rows=_all(conn,_draw_select()+" where d.campaign_id=%s and d.participant_id=%s order by d.round_number",(p["campaign_id"],p["id"]))
     credits=_one(conn,f"select coalesce(sum(delta),0)::int balance from {database_schema()}.draw_credit_ledger where participant_id=%s and campaign_id=%s",(p["id"],p["campaign_id"]))["balance"]
     first_recorded=bool(_one(conn,f"select 1 from {database_schema()}.draw_credit_ledger where participant_id=%s and campaign_id=%s and source_type='FIRST_GRANT'",(p["id"],p["campaign_id"])))
@@ -818,15 +826,17 @@ def _draw_state(conn,p,eligible=None):
     # the append-only ledger.
     available=max(0,credits+(1 if eligible and not first_recorded else 0)-missing_consumes)
     won=any(bool(row["is_won"]) for row in rows);used=len(rows);latest=rows[-1] if rows else None
-    if not eligible:status="LOCKED"
-    elif won:status="WON"
+    if won:status="WON"
     elif used>=MAX_DRAW_COUNT:status="EXHAUSTED"
+    elif not eligible:status="LOCKED"
     elif available>0:status="AVAILABLE"
     elif latest:status="DRAWN"
     else:status="AVAILABLE"
-    return {"status":status,"draw_id":latest["id"] if latest else None,"used_count":used,"max_count":MAX_DRAW_COUNT,"available_credits":available,"remaining_possible":max(0,MAX_DRAW_COUNT-used-available),"actual_prize_won":won}
+    return {"status":status,"draw_id":latest["id"] if latest else None,"used_count":used,"max_count":MAX_DRAW_COUNT,"available_credits":available,"remaining_possible":max(0,MAX_DRAW_COUNT-used-available),"actual_prize_won":won,"score_eligible":bool(eligible)}
 
 def _ensure_first_draw_credit(conn,p,eligible):
+    if not eligible or eligible.get("status")!="FINISHED" or eligible.get("verification_result")!="VERIFIED" or int(eligible.get("score") or 0)<=100:
+        raise DomainError("DRAW_NOT_AVAILABLE","검증 점수 101점 이상 게임 완료 후 복주머니를 열 수 있습니다.",409)
     old=_one(conn,f"select 1 from {database_schema()}.draw_credit_ledger where participant_id=%s and campaign_id=%s and source_type='FIRST_GRANT'",(p["id"],p["campaign_id"]))
     balance=_one(conn,f"select coalesce(sum(delta),0)::int balance from {database_schema()}.draw_credit_ledger where participant_id=%s and campaign_id=%s",(p["id"],p["campaign_id"]))["balance"]
     if not old:
@@ -849,7 +859,7 @@ def _ensure_first_draw_credit(conn,p,eligible):
 
 def draw_me(conn,ctx):
     p=_participant(conn,ctx); rows=_all(conn,_draw_select()+" where d.campaign_id=%s and d.participant_id=%s order by d.round_number",(p["campaign_id"],p["id"]))
-    eligible=_one(conn,f"select id from {database_schema()}.game_session where participant_id=%s and status='FINISHED' order by finished_at limit 1",(p["id"],))
+    eligible=_eligible_draw_session(conn,p)
     state=_draw_state(conn,p,eligible)
     return 200,{**state,"eligible_session_id":eligible["id"] if eligible else None,"draw":_draw_response(rows[-1]) if rows else None,"draws":[_draw_response(row) for row in rows],"draw_state":state}
 
@@ -903,10 +913,8 @@ def create_draw(conn,body,ctx):
     try:pouch=int(body.get("pouch_index"))
     except (TypeError,ValueError):pouch=-1
     if pouch not in (0,1,2):raise DomainError("VALIDATION_ERROR","복주머니를 확인해 주세요.")
-    session=_one(conn,f"select * from {database_schema()}.game_session where participant_id=%s and campaign_id=%s and status='FINISHED' order by finished_at limit 1 for update",(p["id"],p["campaign_id"]))
-    if not session:raise DomainError("DRAW_NOT_AVAILABLE","정상 게임 완료 후 열 수 있습니다.",409)
     campaign=_campaign(conn);_mutable(campaign)
-    state=_draw_state(conn,p,session)
+    state=_draw_state(conn,p)
     raw_expected=body.get("expected_round_number")
     if raw_expected is None:
         if state["used_count"]:
@@ -921,7 +929,10 @@ def create_draw(conn,body,ctx):
     if existing:
         if existing["pouch_index"]!=pouch:
             raise DomainError("DRAW_ROUND_CONFLICT","이미 선택한 복주머니 결과가 있습니다.",409)
-        return 200,{**_draw_response(existing),"draw_state":_draw_state(conn,p,session),"replayed":True}
+        return 200,{**_draw_response(existing),"draw_state":_draw_state(conn,p),"replayed":True}
+    session=_eligible_draw_session(conn,p,lock=True)
+    if not session:raise DomainError("DRAW_NOT_AVAILABLE","검증 점수 101점 이상 게임 완료 후 복주머니를 열 수 있습니다.",409)
+    state=_draw_state(conn,p,session)
     next_round=state["used_count"]+1
     if expected_round!=next_round:
         raise DomainError("DRAW_ROUND_MISMATCH","추첨 상태가 바뀌었습니다. 결과를 다시 확인해 주세요.",409)

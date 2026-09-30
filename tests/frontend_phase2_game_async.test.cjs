@@ -63,7 +63,7 @@ function router(current = () => true) {
   };
 }
 
-const finishResult = { session_id: 'old', score: 10, best_score: 10, rank: 1, verification: 'VERIFIED' };
+const finishResult = { session_id: 'old', score: 110, best_score: 110, rank: 1, verification: 'VERIFIED', draw: { status: 'AVAILABLE' } };
 const gameResult = { version: '2.0.0', end_reason: 'COLLISION', score: 10, ticks: 100, jump_ticks: [], checkpoints: [], summary: {} };
 
 test('current game completion clears its durable pending finish and navigates', async () => {
@@ -75,6 +75,17 @@ test('current game completion clears its durable pending finish and navigates', 
   assert.equal(loaded.stored.has('dino_pending_result'), false);
   assert.deepEqual(appRouter.navigations, ['draw']);
   assert.equal(appRouter.state.lastResult.sessionId, 'old');
+});
+
+test('a server-verified score of 100 stays on the retry result instead of entering the draw', async () => {
+  const loaded = loadGameView({ finishSession: async () => ({ ...finishResult, score: 100, draw: { status: 'LOCKED' }, refund: { granted: true } }) });
+  const appRouter = router();
+  loaded.view.sessionId = 'old';
+  loaded.view.engine = { stop() {} };
+  await loaded.view.handleGameOver(gameResult, appRouter, {}, 1);
+  assert.deepEqual(appRouter.navigations, ['result']);
+  assert.equal(appRouter.state.lastResult.score, 100);
+  assert.equal(appRouter.state.lastResult.refund.granted, true);
 });
 
 test('late game completion cannot clear or navigate over a newer session', async () => {
@@ -197,7 +208,7 @@ test('finished-session and finish-retry recovery emit the same server-confirmed 
     const completion = loaded.events.find(([name]) => name === 'game_completed');
     assert.ok(completion, `${mode} must preserve game completion measurement`);
     assert.deepEqual(JSON.parse(JSON.stringify(completion[1])), {
-      game_version: '2.0.0', end_reason: 'COLLISION', score: 10, rank: 1,
+      game_version: '2.0.0', end_reason: 'COLLISION', score: 110, rank: 1,
       status: 'VERIFIED', duration_seconds: 3, coin_count: 2, coin_score: 20, revive_count: 1,
     });
     assert.equal(completion[2].gameSessionId, 'old');

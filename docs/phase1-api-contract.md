@@ -127,7 +127,7 @@ Body `{name,contact,school,event_id}`. Available only while the participant is a
 
 ### `GET /api/draws/me`
 
-Returns `{status:"LOCKED|AVAILABLE|DRAWN",eligible_session_id?,draw?}`. `draw` includes `{draw_id,pouch_index,is_won,prize:{id,name,category,image_url},revealed,scratch_completed,claim_id?}`.
+Returns `{status:"LOCKED|AVAILABLE|DRAWN",score_eligible,eligible_session_id?,draw?}`. `score_eligible` is true, and `eligible_session_id` exists, only after a current-campaign game finishes with server verification result `VERIFIED` and final score above 100. Scores 0 through 100 keep the existing low-score game-ticket refund but do not unlock or mint the first draw credit. A prior qualifying finish remains eligible after later low-score retries. Historical draw results and credits remain stored while `score_eligible:false`; the credits become usable after a qualifying finish. `draw` includes `{draw_id,pouch_index,is_won,prize:{id,name,category,image_url},revealed,scratch_completed,claim_id?}`.
 
 ### `POST /api/draws`
 

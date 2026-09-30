@@ -47,7 +47,7 @@ class BackendPhase1Test(unittest.TestCase):
         ctx=context(participant_token_hash=h(raw),idempotency_key=f"finished-session-{index}-{secrets.token_hex(8)}")
         with app_tx() as conn:
             _,created=operations.create_session(conn,{},ctx)
-            conn.execute("update dino_dev.game_session set status='FINISHED',score=10,valid_ticks=60,verification_result='VERIFIED',finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s",(created["session_id"],))
+            conn.execute("update dino_dev.game_session set status='FINISHED',score=101,valid_ticks=60,verification_result='VERIFIED',finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s",(created["session_id"],))
         return ctx
     def finish_verified(self,conn,raw,sid,score,valid=True,preview_unlimited_play=False):
         operations.start_session(conn,sid,context(participant_token_hash=h(raw)))
@@ -477,7 +477,7 @@ class BackendPhase1Test(unittest.TestCase):
         raw,_,res=self.make_participant();ctx=context(participant_token_hash=h(raw),idempotency_key="create-session-2")
         with app_tx() as conn:
             _,created=operations.create_session(conn,{},ctx);sid=created["session_id"]
-            conn.execute("update dino_dev.game_session set status='FINISHED',score=10,valid_ticks=60,verification_result='VERIFIED',finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s",(sid,))
+            conn.execute("update dino_dev.game_session set status='FINISHED',score=101,valid_ticks=60,verification_result='VERIFIED',finished_at=clock_timestamp(),ticket_refund_status='NOT_DUE' where id=%s",(sid,))
             _,first=operations.create_draw(conn,{"pouch_index":0,"expected_round_number":1},ctx)
             _,second=operations.create_draw(conn,{"pouch_index":0,"expected_round_number":1},ctx)
             with self.assertRaises(operations.DomainError) as conflicting_pouch:

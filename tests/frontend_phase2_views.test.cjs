@@ -207,7 +207,7 @@ test('result and empty claims draw buttons track their own source before enterin
   const result = loadView('public/js/views/result_view.js', 'ResultView', globals);
   const nodes = new Map();
   const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
-  const router = { state: { lastResult: { score: 32, bestScore: 32, top3_gap: { status: 'TOO_FEW' } }, draw: { status: 'AVAILABLE' } }, navigate: (route) => routes.push(route) };
+  const router = { state: { lastResult: { score: 132, bestScore: 132, top3_gap: { status: 'TOO_FEW' } }, draw: { status: 'AVAILABLE' } }, navigate: (route) => routes.push(route) };
   result.render(container, router, 1);
   nodes.get('#btn-go-pouch').onclick();
   const prize = loadView('public/js/views/prize_view.js', 'PrizeView', globals);
@@ -220,6 +220,28 @@ test('result and empty claims draw buttons track their own source before enterin
     { name: 'draw_cta_clicked', source: 'result', draw_status: 'AVAILABLE' },
     { name: 'draw_cta_clicked', source: 'claims', draw_status: 'DRAWN' },
   ]);
+});
+
+test('a score of 100 shows the retry result and hides a new draw while preserving an earned draw credit', () => {
+  const nodes = new Map();
+  const container = { innerHTML: '', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, node()); return nodes.get(selector); } };
+  const view = loadView('public/js/views/result_view.js', 'ResultView', {
+    analytics: { track() {} }, ui: { text: (target, value) => { target.textContent = String(value); } }, document: { createElement: () => node() },
+  });
+  const router = {
+    state: { lastResult: { score: 100, bestScore: 100, top3_gap: { status: 'NO_SCORE' } }, draw: { status: 'LOCKED', available_credits: 0 }, tickets: { initial: 1 } },
+    campaignStatus: () => 'ACTIVE', isCurrent: () => true, navigate() {},
+  };
+  view.render(container, router, 1);
+  assert.match(container.innerHTML, /다시 한번 도전해보세요!/);
+  assert.equal(nodes.get('#btn-go-pouch').hidden, true);
+  assert.equal(nodes.get('#btn-play-again').hidden, false);
+  router.state.draw = { status: 'AVAILABLE', available_credits: 1, score_eligible: true };
+  view.updateState(container, router, 1);
+  assert.equal(nodes.get('#btn-go-pouch').hidden, false, 'an earlier earned draw credit remains reachable');
+  router.state.draw = { status: 'AVAILABLE', available_credits: 1, score_eligible: false };
+  view.updateState(container, router, 1);
+  assert.equal(nodes.get('#btn-go-pouch').hidden, true, 'a preserved legacy count cannot bypass the new score gate');
 });
 
 test('prize claim preserves the form and rejects an empty school before sending the request', async () => {

@@ -86,7 +86,7 @@ export const PrizeView = {
     benefit.onclick = () => router.navigate?.('benefit');
     const again = document.createElement('button'); again.type = 'button'; again.className = 'btn btn-prize-draw btn-sm'; again.textContent = '한 번 더 뽑기';
     const game = document.createElement('button'); game.type = 'button'; game.className = 'btn btn-secondary btn-sm'; game.textContent = '게임 다시 하기';
-    const share = document.createElement('button'); share.type = 'button'; share.className = 'btn invite-kakao-share btn-sm'; share.textContent = '친구에게 공유하고\n다시 도전하기';
+    const share = document.createElement('button'); share.type = 'button'; share.className = 'btn invite-kakao-share btn-sm'; share.textContent = '공유하고 한 판 더';
     const feedback = document.createElement('p'); feedback.className = 'status-note'; feedback.setAttribute('role', 'status');
     const isCurrent = () => !router.isCurrent || router.isCurrent(renderToken);
     let prepared = null;
@@ -112,7 +112,7 @@ export const PrizeView = {
         const value = await prepareResultReferralShare(router, {
           kind: 'benefit_retry',
           onReceipt: (value) => {
-            if (!isCurrent() || !['BOTH', 'DRAW'].includes(value?.reward_type)) return;
+            if (!isCurrent() || !['BOTH', 'DRAW', 'GAME'].includes(value?.reward_type)) return;
             receipt = value;
             if (value.tickets) router.state.tickets = value.tickets;
             if (value.draw_state) { drawState = value.draw_state; router.state.draw = drawState; }
@@ -121,7 +121,7 @@ export const PrizeView = {
         });
         if (!isCurrent()) return;
         prepared = value;
-        share.textContent = '친구에게 공유하고\n다시 도전하기';
+        share.textContent = '공유하고 한 판 더';
       } catch (_) {
         if (!isCurrent()) return;
         prepared = null; share.textContent = '공유 다시 준비하기';
@@ -143,10 +143,15 @@ export const PrizeView = {
   renderEmpty(container, router) {
     const card = document.createElement('section'); card.className = 'card empty-state';
     const status = router.state?.draw?.status || 'LOCKED';
-    const title = document.createElement('h2'); title.textContent = status === 'LOCKED' ? '복주머니가 아직 잠겨 있어요' : '접수할 경품이 아직 없어요';
+    const scoreIneligible = router.state?.draw?.score_eligible === false;
+    const title = document.createElement('h2'); title.textContent = status === 'LOCKED'
+      ? scoreIneligible ? '경품 뽑기는 101점 이상부터 열려요' : '복주머니가 아직 잠겨 있어요'
+      : '접수할 경품이 아직 없어요';
     const detail = document.createElement('p');
     const hasDrawResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(status) || Boolean(router.state?.draw?.draw && router.state.draw.draw.scratch_completed !== true);
-    detail.textContent = status === 'LOCKED' ? '정상 검증된 게임을 한 번 완료하면 첫 복주머니를 열 수 있어요.' : hasDrawResult ? '이미 저장된 복주머니 결과를 다시 확인할 수 있어요.' : '첫 게임을 완료했으니 복주머니를 열 수 있어요.';
+    detail.textContent = status === 'LOCKED'
+      ? scoreIneligible ? '100점 이하는 게임권을 돌려드려요. 다시 한번 도전해 보세요.' : '정상 검증된 게임을 한 번 완료하면 첫 복주머니를 열 수 있어요.'
+      : hasDrawResult ? '이미 저장된 복주머니 결과를 다시 확인할 수 있어요.' : '첫 게임을 완료했으니 복주머니를 열 수 있어요.';
     const button = document.createElement('button'); button.className = status === 'LOCKED' ? 'btn btn-primary' : 'btn btn-prize-draw';
     button.textContent = status === 'LOCKED' ? '홈에서 게임 시작하기' : hasDrawResult ? '내 경품 결과 보기' : '🧧 경품 뽑기';
     button.disabled = status === 'AVAILABLE' && !hasDrawResult && campaignStatus(router) !== 'ACTIVE';

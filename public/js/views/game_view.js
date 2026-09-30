@@ -125,7 +125,7 @@ export const GameView = {
         this.acceptResult(result, router);
         this.trackCompletedResult(pending.payload, result, pending.sessionId);
         analytics.track('game_recovered', { status: 'FINISHED' }, { gameSessionId: pending.sessionId });
-        router.navigate(router.state.draw?.status === 'LOCKED' ? 'result' : 'draw');
+        router.navigate(this.nextRouteForResult(result, router));
         return true;
       }
       if (['ABORTED', 'EXPIRED', 'REJECTED'].includes(state.status)) {
@@ -140,7 +140,7 @@ export const GameView = {
       storageRemove(`${SNAPSHOT_PREFIX}${pending.sessionId}`);
       this.acceptResult(result, router);
       this.trackCompletedResult(pending.payload, result, pending.sessionId);
-      router.navigate(router.state.draw?.status === 'LOCKED' ? 'result' : 'draw');
+      router.navigate(this.nextRouteForResult(result, router));
       return true;
     } catch (error) {
       const terminalClientError = error.status && error.status < 500 && error.status !== 408 && error.status !== 429;
@@ -172,8 +172,9 @@ export const GameView = {
       const raw = storageGet(PENDING_RESULT_KEY);
       try { if (JSON.parse(raw)?.sessionId === id) storageRemove(PENDING_RESULT_KEY); } catch (_) {}
       if (state.status === 'FINISHED') {
-        this.acceptResult(state.result || state, router);
-        router.navigate(router.state.draw?.status === 'LOCKED' ? 'result' : 'draw');
+        const result = state.result || state;
+        this.acceptResult(result, router);
+        router.navigate(this.nextRouteForResult(result, router));
         return;
       }
       router.state.pendingGameSession = null;
@@ -521,7 +522,7 @@ export const GameView = {
       this.acceptResult(response, router);
       this.trackCompletedResult(payload, response, sessionId);
       router.announceStateChange();
-      router.navigate(router.state.draw?.status === 'LOCKED' ? 'result' : 'draw');
+      router.navigate(this.nextRouteForResult(response, router));
     } catch (error) {
       if (router.isCurrent(renderToken) && this.isOperationCurrent(lifecycleId, sessionId)) this.renderFinishRetry(container, router, error);
     }
@@ -540,6 +541,10 @@ export const GameView = {
       coin_score: Number(summary.coin_score || 0),
       revive_count: Number(summary.revives || 0),
     }, { gameSessionId: sessionId });
+  },
+
+  nextRouteForResult(result, router) {
+    return Number(result?.score) > 100 && router.state.draw?.status !== 'LOCKED' ? 'draw' : 'result';
   },
 
   acceptResult(result, router) {

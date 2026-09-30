@@ -13,7 +13,7 @@ const slides = [
   {
     title: '웃음 코인을 먹으면 +10점',
     description: '달리면서 코인을 모아 점수를 높여요.',
-    detail: '더 높은 점수로 랭킹에 도전하세요.',
+    detail: '101점부터 경품 뽑기 · 100점 이하는 게임권을 돌려드려요.',
     scene: `<div class="guide-item-demo guide-coin-demo" aria-hidden="true"><img class="guide-item-dino" src="/assets/icons/Dino-Dark.png" alt=""><img class="guide-pickup" src="/assets/icons/Smile-Light.png" alt=""><span class="guide-pickup-result">+10점</span><span class="guide-demo-ground"></span></div>`,
     className: 'guide-slide-coin',
   },

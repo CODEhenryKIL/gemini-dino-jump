@@ -65,29 +65,126 @@ class BackendPhase3Test(unittest.TestCase):
             result = self.confirm_share(conn, intent, token)
         return intent, result
 
-    def test_reward_purpose_is_server_fixed_and_draw_credit_is_separate(self):
+    def test_first_draw_requires_verified_score_above_100_at_all_boundaries(self):
+        self.seed_benefits(1)
+        for score in (0, 99, 100, 101):
+            with self.subTest(score=score):
+                raw, _, participant = self.make_participant()
+                with fixtures.app_tx() as conn:
+                    _, session = operations.create_session(
+                        conn, {}, self.ctx(raw, idempotency_key=secrets.token_urlsafe(24)),
+                    )
+                    _, finished = fixtures.BackendPhase1Test.finish_verified(
+                        self, conn, raw, session["session_id"], score,
+                    )
+                    me = operations.get_me(conn, self.ctx(raw))[1]
+                    draw_state = operations.draw_me(conn, self.ctx(raw))[1]
+                    if score <= 100:
+                        with self.assertRaises(operations.DomainError) as blocked:
+                            operations.create_draw(
+                                conn, {"pouch_index":0,"expected_round_number":1},
+                                self.ctx(raw, idempotency_key=secrets.token_urlsafe(24)),
+                            )
+                        first_grants = conn.execute("""select count(*)::int n
+                          from dino_dev.draw_credit_ledger where participant_id=%s
+                          and source_type='FIRST_GRANT'""",
+                          (participant["participant"]["id"],)).fetchone()["n"]
+                        self.assertEqual(blocked.exception.code, "DRAW_NOT_AVAILABLE")
+                        self.assertEqual((finished["draw"]["status"], me["draw"]["status"],
+                                          draw_state["status"], draw_state["eligible_session_id"],
+                                          draw_state["score_eligible"], first_grants),
+                                         ("LOCKED", "LOCKED", "LOCKED", None, False, 0))
+                    else:
+                        created = operations.create_draw(
+                            conn, {"pouch_index":0,"expected_round_number":1},
+                            self.ctx(raw, idempotency_key=secrets.token_urlsafe(24)),
+                        )[1]
+                        self.assertEqual((finished["draw"]["status"], me["draw"]["status"],
+                                          draw_state["status"], draw_state["eligible_session_id"],
+                                          draw_state["score_eligible"], created["round_number"]),
+                                         ("AVAILABLE", "AVAILABLE", "AVAILABLE", session["session_id"], True, 1))
+
+    def test_previous_qualifying_finish_keeps_combined_retry_credit_after_low_score_game(self):
+        self.seed_benefits(2)
+        raw, _, _participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-score-history-high")
+        first = self.draw(raw)
+        self.assertEqual(first["outcome_kind"], "BENEFIT")
+        _intent, combined = self.share(raw, "benefit_retry")
+        self.assertEqual(combined["rewards"], {
+            "game": {"status": "granted", "quantity": 1},
+            "draw": {"status": "granted", "quantity": 1},
+        })
+        with fixtures.app_tx() as conn:
+            _, session = operations.create_session(
+                conn, {}, self.ctx(raw, idempotency_key=secrets.token_urlsafe(24)),
+            )
+            _, low = fixtures.BackendPhase1Test.finish_verified(
+                self, conn, raw, session["session_id"], 100,
+            )
+            state = operations.draw_me(conn, self.ctx(raw))[1]
+        self.assertEqual(low["refund"]["status"], "REFUNDED")
+        self.assertEqual((state["status"], state["available_credits"]), ("AVAILABLE", 1))
+        second = self.draw(raw)
+        self.assertEqual((second["round_number"], second["draw_state"]["used_count"]), (2, 2))
+
+    def test_legacy_low_score_draw_and_credit_are_preserved_but_locked_until_qualified(self):
+        self.seed_benefits(2)
+        raw, _, participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-legacy-low-score")
+        self.draw(raw)
+        self.share(raw, "benefit_retry")
+        with fixtures.app_tx() as conn:
+            conn.execute("""update dino_dev.game_session set score=100
+              where participant_id=%s and status='FINISHED'""",
+              (participant["participant"]["id"],))
+            locked = operations.draw_me(conn, self.ctx(raw))[1]
+            preserved = conn.execute("""select coalesce(sum(delta),0)::int balance
+              from dino_dev.draw_credit_ledger where participant_id=%s""",
+              (participant["participant"]["id"],)).fetchone()["balance"]
+            conn.execute("""update dino_dev.game_session set score=101
+              where participant_id=%s and status='FINISHED'""",
+              (participant["participant"]["id"],))
+            unlocked = operations.draw_me(conn, self.ctx(raw))[1]
+        self.assertEqual((locked["status"], locked["score_eligible"], locked["used_count"],
+                          locked["available_credits"], preserved),
+                         ("LOCKED", False, 1, 1, 1))
+        self.assertEqual((unlocked["status"], unlocked["score_eligible"],
+                          unlocked["available_credits"]), ("AVAILABLE", True, 1))
+
+    def test_new_legacy_retry_kinds_canonicalize_to_combined_but_existing_intent_stays_game(self):
         self.seed_benefits(3)
         raw, _, participant = self.make_participant()
         self.make_finished_session(raw, "phase3-purpose")
-
-        first = self.draw(raw)
-        self.assertEqual((first["round_number"], first["outcome_kind"]), (1, "BENEFIT"))
-        self.assertEqual(first["draw_state"]["available_credits"], 0)
-
-        intent, confirmed = self.share(raw, "draw_retry")
-        self.assertEqual((intent["reward_type"], confirmed["reward_type"], confirmed["reward_status"]), ("DRAW", "DRAW", "granted"))
-        self.assertEqual(confirmed["draw_state"]["available_credits"], 1)
-        second = self.draw(raw, 1)
-        self.assertEqual((second["round_number"], second["draw_state"]["used_count"]), (2, 2))
-
-        _game_intent, game = self.share(raw, "record_share")
-        _none_intent, none = self.share(raw, "general_share")
         with fixtures.app_tx() as conn:
-            person = conn.execute("select invitation_balance from dino_dev.participant where id=%s", (participant["participant"]["id"],)).fetchone()
+            legacy, legacy_token = self.create_share_intent(conn, raw, kind="retry_invite")
+        self.assertEqual((legacy["reward_type"], legacy["reward_contract_version"]), ("GAME", 2))
+        self.assertEqual(self.draw(raw)["outcome_kind"], "BENEFIT")
+        canonical = []
+        with fixtures.app_tx() as conn:
+            for requested_kind in ("retry_invite", "record_share", "draw_retry"):
+                intent, token = self.create_share_intent(conn, raw, kind=requested_kind)
+                stored = conn.execute("""select kind,reward_type,reward_contract_version
+                  from dino_dev.kakao_share_intent where id=%s""", (intent["share_id"],)).fetchone()
+                self.assertEqual((intent["reward_type"], intent["reward_contract_version"],
+                                  tuple(stored.values())),
+                                 ("BOTH", 3, ("benefit_retry", "BOTH", 3)))
+                canonical.append((intent, token))
+            combined = self.confirm_share(conn, *canonical[0])
+            old_game = self.confirm_share(conn, legacy, legacy_token)
+            none, none_token = self.create_share_intent(conn, raw, kind="general_share")
+            no_reward = self.confirm_share(conn, none, none_token)
             state = operations.draw_me(conn, self.ctx(raw))[1]
-        self.assertEqual((game["reward_type"], game["reward_status"], person["invitation_balance"]), ("GAME", "granted", 1))
-        self.assertEqual((none["reward_type"], none["reward_status"]), ("NONE", "no_reward"))
-        self.assertEqual(state["available_credits"], 0)
+            person = conn.execute("select invitation_balance from dino_dev.participant where id=%s",
+                                  (participant["participant"]["id"],)).fetchone()
+        self.assertEqual(combined["rewards"], {
+            "game": {"status": "granted", "quantity": 1},
+            "draw": {"status": "granted", "quantity": 1},
+        })
+        self.assertEqual((old_game["reward_type"], old_game["reward_status"]), ("GAME", "granted"))
+        self.assertNotIn("rewards", old_game)
+        self.assertEqual((no_reward["reward_type"], no_reward["reward_status"]), ("NONE", "no_reward"))
+        self.assertEqual((person["invitation_balance"], state["available_credits"]), (2, 1))
 
     def test_benefit_retry_grants_both_once_and_replays_durable_outcomes(self):
         self.seed_benefits(2)
@@ -135,6 +232,11 @@ class BackendPhase3Test(unittest.TestCase):
         for _index in range(9):
             self.share(raw, "draw_retry")
             self.draw(raw)
+
+        with fixtures.app_tx() as conn:
+            conn.execute("""update dino_dev.participant set invitation_balance=0,
+              invitation_refund_pending=0,cooldown_until=null
+              where token_hash=%s""", (fixtures.h(raw),))
 
         intent, confirmed = self.share(raw, "benefit_retry")
         self.assertEqual(intent["draw_state"]["status"], "EXHAUSTED")
@@ -327,14 +429,15 @@ class BackendPhase3Test(unittest.TestCase):
         self.assertEqual(rounds, list(range(1, 11)))
         with fixtures.app_tx() as conn:
             state = operations.draw_me(conn, self.ctx(raw))[1]
-            with self.assertRaises(operations.DomainError) as limited:
-                self.create_share_intent(conn, raw, kind="draw_retry")
+            limited, limited_token = self.create_share_intent(conn, raw, kind="draw_retry")
+            blocked = self.confirm_share(conn, limited, limited_token)
             ledger = conn.execute("""select count(*) filter(where source_type='FIRST_GRANT') first_grants,
               count(*) filter(where source_type='SHARE_GRANT') share_grants,
               count(*) filter(where source_type='DRAW_CONSUME') consumes,coalesce(sum(delta),0)::int balance
               from dino_dev.draw_credit_ledger where participant_id=(select id from dino_dev.participant where token_hash=%s)""", (fixtures.h(raw),)).fetchone()
         self.assertEqual((state["status"], state["used_count"], state["available_credits"]), ("EXHAUSTED", 10, 0))
-        self.assertEqual(limited.exception.code, "DRAW_SHARE_NOT_AVAILABLE")
+        self.assertEqual((limited["reward_type"], blocked["rewards"]["draw"]),
+                         ("BOTH", {"status": "blocked_draw_limit", "quantity": 0}))
         self.assertEqual(tuple(ledger.values()), (1, 9, 10, 0))
 
     def test_concurrent_last_credit_webhooks_and_draw_requests_stop_at_ten(self):
@@ -352,7 +455,7 @@ class BackendPhase3Test(unittest.TestCase):
 
         def confirm(intent, token):
             with fixtures.app_tx() as conn:
-                return self.confirm_share(conn, intent, token)["reward_status"]
+                return self.confirm_share(conn, intent, token)["rewards"]["draw"]["status"]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             reward_statuses = list(executor.map(

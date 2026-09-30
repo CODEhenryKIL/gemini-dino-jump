@@ -180,7 +180,15 @@ async function watchInvitationShare(router, shareId, options = {}) {
 export async function prepareResultReferralShare(router, options = {}) {
   const allowedKinds = new Set(['record_share', 'retry_invite', 'draw_retry', 'benefit_retry', 'prize_share', 'general_share']);
   const requestedKind = options.kind || 'record_share';
-  const kind = allowedKinds.has(requestedKind) ? requestedKind : 'record_share';
+  const safeKind = allowedKinds.has(requestedKind) ? requestedKind : 'record_share';
+  const drawState = router?.state?.draw || {};
+  const hasGeminiRetry = !options.claimId
+    && Number(drawState.used_count || 0) > 0
+    && drawState.score_eligible !== false
+    && drawState.actual_prize_won !== true;
+  let kind = safeKind;
+  if (!options.claimId && drawState.score_eligible === false && ['benefit_retry', 'draw_retry'].includes(kind)) kind = 'retry_invite';
+  else if (hasGeminiRetry && ['record_share', 'retry_invite', 'draw_retry'].includes(kind)) kind = 'benefit_retry';
   const referral = options.referral || await api.getReferralInfo();
   const shareText = buildReferralShareText(kind, { ...referral, ...(options.info || {}) });
   const kakaoKey = router?.config?.share?.kakao_javascript_key
@@ -204,6 +212,7 @@ export async function prepareResultReferralShare(router, options = {}) {
   await prepareIntent();
 
   return {
+    kind,
     mode: kakao ? 'kakao' : (typeof navigator.share === 'function' ? 'native' : 'copy'),
     async share() {
       if (pending) return { status: 'pending' };

@@ -55,6 +55,10 @@ export const DrawView = {
     router.state.draw = state;
     const pending = pendingDrawGet();
     if (pendingDrawCommitted(state, pending)) pendingDrawClear();
+    if (state.status === 'LOCKED' && state.draw) {
+      this.renderScratch(container, router, state.draw, renderToken, state);
+      return;
+    }
     if (state.status === 'LOCKED') return this.renderLocked(container, router);
     const latestNeedsAttention = state.draw && state.draw.scratch_completed !== true;
     if ((['DRAWN', 'WON', 'EXHAUSTED'].includes(state.status) || latestNeedsAttention) && state.draw) {
@@ -73,8 +77,9 @@ export const DrawView = {
     container.replaceChildren();
     const card = document.createElement('section');
     card.className = 'card empty-state';
-    const title = document.createElement('h2'); title.textContent = '복주머니가 아직 잠겨 있어요';
-    const text = document.createElement('p'); text.textContent = '정상 검증된 게임을 한 번 완료하면 첫 복주머니를 열 수 있어요.';
+    const scoreIneligible = router.state?.draw?.score_eligible === false;
+    const title = document.createElement('h2'); title.textContent = scoreIneligible ? '경품 뽑기는 101점 이상부터 열려요' : '복주머니가 아직 잠겨 있어요';
+    const text = document.createElement('p'); text.textContent = scoreIneligible ? '100점 이하는 게임권을 돌려드려요. 다시 한번 도전해 보세요.' : '정상 검증된 게임을 한 번 완료하면 첫 복주머니를 열 수 있어요.';
     const button = document.createElement('button'); button.className = 'btn btn-primary'; button.textContent = '게임하러 가기'; button.onclick = () => router.navigate('home');
     card.append(title, text, button); container.appendChild(card);
   },
@@ -426,17 +431,22 @@ export const DrawView = {
     const cooldown = Date.parse(tickets.cooldown_until || '') > Date.now();
     const capped = Number(tickets.invitation || 0) + Number(tickets.invitation_reserved || 0) >= 3;
     const gameReady = tickets.unlimited_play === true || Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0))) > 0;
+    const hasGeminiRetry = Number(drawState.used_count || 0) > 0
+      && drawState.score_eligible !== false
+      && drawState.actual_prize_won !== true;
+    const combinedRetry = benefitResult || hasGeminiRetry;
+    const drawReady = benefitResult && availability.drawReady;
     const gameGrant = active && !cooldown && !capped;
-    const drawGrant = benefitResult && availability.drawGrant;
+    const drawGrant = combinedRetry && availability.drawGrant;
     const sharePossible = gameGrant || drawGrant;
-    const kind = benefitResult ? 'benefit_retry' : 'retry_invite';
-    const key = JSON.stringify([kind, context?.draw?.draw_id || 'before-draw', gameGrant, drawGrant]);
+    const kind = combinedRetry ? 'benefit_retry' : 'retry_invite';
+    const key = JSON.stringify([kind, context?.draw?.draw_id || 'before-draw', gameReady, drawReady, gameGrant, drawGrant]);
 
-    primary.textContent = gameReady ? '한 판 더 하기' : sharePossible ? '친구에게 공유하고\n다시 도전하기' : active ? '게임권 적립 대기 중' : '행사가 종료됐어요';
-    primary.className = `btn ${gameReady ? 'btn-primary' : sharePossible ? 'btn-share-retry' : 'btn-secondary'}`;
-    secondary.hidden = !gameReady || !sharePossible;
-    secondary.textContent = drawGrant && gameGrant ? '공유하고 게임권 + 뽑기권 받기' : gameGrant ? '공유하고 게임권 더 받기' : '공유하고 경품 한 번 더 뽑기';
-    ui.text(status, !active
+    primary.textContent = drawReady ? '한 번 더 뽑기' : gameReady ? '한 판 더 하기' : sharePossible ? '공유하고 한 판 더' : active ? '게임권 적립 대기 중' : '행사가 종료됐어요';
+    primary.className = `btn ${drawReady ? 'btn-prize-draw' : gameReady ? 'btn-primary' : sharePossible ? 'btn-share-retry' : 'btn-secondary'}`;
+    secondary.hidden = drawReady ? !gameReady : !gameReady || !sharePossible;
+    secondary.textContent = drawReady ? '한 판 더 하기' : drawGrant && gameGrant ? '공유하고 한 판 더' : gameGrant ? '공유하고 한 판 더' : '공유하고 경품 한 번 더 뽑기';
+    ui.text(status, context?.receipt ? benefitRewardMessage(context.receipt) : !active
       ? '새 게임과 추가 적립이 종료됐어요.'
       : drawGrant && gameGrant ? '카카오톡 전송 확인 시 게임권 1장 + 경품 뽑기 1회'
       : drawGrant ? '경품 뽑기 1회 지급 · 게임권은 적립 대기 중'
@@ -445,17 +455,18 @@ export const DrawView = {
 
     const mounted = () => router.isCurrent(renderToken) && container.querySelector('#draw-dock-primary') === primary;
     const runGame = () => { if (mounted() && active && gameReady) showGameGuide(router, true); };
+    const runDraw = () => { if (mounted() && active && drawReady) router.navigate('draw'); };
     const current = this.dockContext;
     if (current?.failed && current.key === key) {
       if (gameReady) secondary.textContent = '공유 다시 준비하기';
       else primary.textContent = '공유 다시 준비하기';
       ui.text(status, '공유 준비를 불러오지 못했어요. 버튼을 눌러 다시 시도해 주세요.');
     }
-    primary.onclick = gameReady ? runGame : () => current?.key === key && current.share?.();
-    secondary.onclick = () => current?.key === key && current.share?.();
-    primary.disabled = !gameReady && (!sharePossible || current?.key !== key || current.busy);
-    secondary.disabled = current?.key !== key || current.busy;
-    if (!sharePossible || current?.key === key || current?.preparingKey === key) return;
+    primary.onclick = drawReady ? runDraw : gameReady ? runGame : () => current?.key === key && current.share?.();
+    secondary.onclick = drawReady ? runGame : () => current?.key === key && current.share?.();
+    primary.disabled = drawReady ? !active : !gameReady && (!sharePossible || current?.key !== key || current.busy);
+    secondary.disabled = drawReady ? !active : current?.key !== key || current.busy;
+    if (drawReady || !sharePossible || current?.key === key || current?.preparingKey === key) return;
 
     const dock = { key: '', preparingKey: key, share: null, busy: false, failed: false };
     this.dockContext = dock;
@@ -466,6 +477,11 @@ export const DrawView = {
           if (!mounted()) return;
           if (receipt?.tickets) router.state.tickets = receipt.tickets;
           if (receipt?.draw_state) router.state.draw = receipt.draw_state;
+          if (context && this.activeDrawContext === context) {
+            context.drawState = { ...context.drawState, ...(receipt?.draw_state || {}) };
+            context.receipt = receipt;
+            void this.preparePostDrawShare(container, router, renderToken, context.draw, context.drawState, context.actualPrize, { prepareShare: context.actualPrize });
+          }
           ui.text(status, benefitRewardMessage(receipt));
           dock.busy = false;
           dock.key = '';
@@ -533,7 +549,7 @@ export const DrawView = {
     const actionVersion = ++this.postActionVersion;
     const isCurrent = () => isMounted() && actionVersion === this.postActionVersion;
     button.disabled = true;
-    button.textContent = actualPrize ? '카카오톡으로 당첨 자랑하기' : '친구에게 공유하고\n다시 도전하기';
+    button.textContent = actualPrize ? '카카오톡으로 당첨 자랑하기' : '공유하고 한 판 더';
     if (button.hidden) {
       if (context) { context.actionKey = actionKey; context.preparingActionKey = null; }
       return;

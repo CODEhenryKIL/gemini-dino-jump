@@ -10,6 +10,12 @@ const celebratedResults = new WeakSet();
 const preparedShares = new WeakMap();
 const top3Drafts = new WeakMap();
 const top3AutoPrompted = new WeakSet();
+const retryShareKind = (router) => {
+  const draw = router.state?.draw || {};
+  return Number(draw.used_count || 0) > 0 && draw.score_eligible !== false && draw.actual_prize_won !== true
+    ? 'benefit_retry'
+    : 'record_share';
+};
 
 export const ResultView = {
   render(container, router, renderToken) {
@@ -19,13 +25,13 @@ export const ResultView = {
     if (!result) { router.navigate('home'); return; }
     container.innerHTML = `
       <section class="card result-card">
-        <h1>게임 종료</h1>
+        <h1>${Number(result.score) <= 100 ? '다시 한번 도전해보세요!' : '게임 종료'}</h1>
         <div class="score-panel result-score-panel"><strong id="result-score"></strong><div><span id="result-best"></span><span id="result-rank"></span></div></div>
         <p id="result-top3-gap" class="result-gap" role="status"></p>
         <button id="btn-go-pouch" class="btn btn-prize-draw">🧧 경품 뽑기</button>
         <button id="btn-play-again" class="btn btn-primary" hidden>한 판 더 하기</button>
         <div class="result-retry">
-          <button id="btn-share-record" class="btn btn-share-retry" aria-label="카카오톡으로 친구한테 공유하고 한 판 더 하기" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.45 2 10.7c0 2.76 1.89 5.18 4.72 6.54l-.93 3.38c-.08.29.25.52.5.36l3.97-2.61c.57.08 1.15.12 1.74.12 5.52 0 10-3.46 10-7.79C22 6.45 17.52 3 12 3Z"/></svg><span>친구한테 공유하고 한 판 더 하기</span></button>
+          <button id="btn-share-record" class="btn btn-share-retry" aria-label="카카오톡으로 공유하고 한 판 더" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.45 2 10.7c0 2.76 1.89 5.18 4.72 6.54l-.93 3.38c-.08.29.25.52.5.36l3.97-2.61c.57.08 1.15.12 1.74.12 5.52 0 10-3.46 10-7.79C22 6.45 17.52 3 12 3Z"/></svg><span>공유하고 한 판 더</span></button>
           <p id="result-share-status" class="result-share-status" role="status"></p>
         </div>
         <div id="top3-request"></div>
@@ -64,8 +70,9 @@ export const ResultView = {
     try {
       const prepared = await prepareResultReferralShare(router);
       if (!isCurrent()) return;
+      if (prepared.kind && prepared.kind !== retryShareKind(router)) return this.prepareShare(container, router, renderToken);
       const readyMessage = prepared.mode === 'native' ? '' : prepared.mode === 'copy' ? '링크 복사는 게임권 지급 대상이 아니에요.' : '카카오톡 전송이 확인되면 재도전권이 적립돼요.';
-      preparedShares.set(container, { message: readyMessage, run: () => prepared.share() });
+      preparedShares.set(container, { kind: prepared.kind || 'record_share', message: readyMessage, run: () => prepared.share() });
       button.onclick = () => { if (isCurrent() && !button.disabled) return preparedShares.get(container)?.run(); };
       const campaignStatus = router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
       button.disabled = campaignStatus !== 'ACTIVE';
@@ -134,7 +141,12 @@ export const ResultView = {
       replay.disabled = status !== 'ACTIVE' && !router.state.pendingGameSession;
     }
     const share = container.querySelector('#btn-share-record');
-    const preparedShare = preparedShares.get(container);
+    let preparedShare = preparedShares.get(container);
+    if (preparedShare && preparedShare.kind !== retryShareKind(router)) {
+      preparedShares.delete(container);
+      preparedShare = null;
+      void this.prepareShare(container, router, renderToken);
+    }
     if (share) {
       share.disabled = status !== 'ACTIVE' || !preparedShare;
       const shareStatus = container.querySelector('#result-share-status');
@@ -146,8 +158,13 @@ export const ResultView = {
     }
     const pouch = container.querySelector('#btn-go-pouch');
     if (pouch) {
-      const drawStatus = router.state.draw?.status || 'LOCKED';
-      const hasSavedResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus) || Boolean(router.state.draw?.draw && router.state.draw.draw.scratch_completed !== true);
+      const drawState = router.state.draw || {};
+      const drawStatus = drawState.status || 'LOCKED';
+      const hasSavedResult = ['DRAWN', 'WON', 'EXHAUSTED'].includes(drawStatus) || Boolean(drawState.draw && drawState.draw.scratch_completed !== true);
+      const scoreEligible = drawState.score_eligible === true
+        || (drawState.score_eligible !== false && Number(router.state.lastResult?.score) > 100);
+      const hasDrawCredit = scoreEligible && Number(drawState.available_credits || 0) > 0;
+      pouch.hidden = !hasSavedResult && !hasDrawCredit && !scoreEligible;
       pouch.disabled = !hasSavedResult && drawStatus === 'AVAILABLE' && status !== 'ACTIVE';
       if (pouch.disabled) pouch.textContent = status === 'NOT_OPEN' ? '행사 시작 후 경품 뽑기' : status === 'ENDED' ? '경품 뽑기가 종료됐어요' : '경품 뽑기가 잠시 중단됐어요';
       else pouch.textContent = hasSavedResult ? '🧧 내 경품 결과 보기' : '🧧 경품 뽑기';

@@ -59,7 +59,7 @@ test('Gemini benefit card shares for a draw credit and then exposes the direct n
   const [benefit, again, game, share] = descendants(card, 'button');
   assert.equal(options.kind, 'benefit_retry');
   assert.equal(benefit.textContent, '혜택 보러 가기');
-  assert.equal(share.textContent, '친구에게 공유하고\n다시 도전하기');
+  assert.equal(share.textContent, '공유하고 한 판 더');
   await share.onclick();
   assert.equal(shares, 1);
   options.onReceipt({

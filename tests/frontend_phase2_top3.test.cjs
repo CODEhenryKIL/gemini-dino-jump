@@ -639,6 +639,7 @@ test('ranking bottom share button uses retry copy and opens sharing in place', a
   await new Promise(setImmediate);
   const button = container.querySelector('#btn-ranking-share');
   assert.equal(kind, 'retry_invite');
+  assert.match(button.innerHTML, /공유하고 한 판 더/);
   const dock = container.children.find((node) => node.className === 'ranking-share-dock');
   assert.ok(dock.children.includes(button));
   assert.ok(container.children.indexOf(dock) > container.children.findIndex((node) => node.className === 'card ranking-list'));

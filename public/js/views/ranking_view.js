@@ -54,7 +54,7 @@ export const RankingView = {
       }
       container.appendChild(list);
       const share = document.createElement('button'); share.type = 'button'; share.className = 'btn invite-kakao-share'; share.id = 'btn-ranking-share';
-      share.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.58 2 11c0 2.79 1.79 5.25 4.5 6.68L5.36 21l4.22-2.25c.78.16 1.59.25 2.42.25 5.52 0 10-3.58 10-8S17.52 3 12 3Z"/></svg><span>카카오톡으로 친구에게 공유하기</span>';
+      share.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.58 2 11c0 2.79 1.79 5.25 4.5 6.68L5.36 21l4.22-2.25c.78.16 1.59.25 2.42.25 5.52 0 10-3.58 10-8S17.52 3 12 3Z"/></svg><span>공유하고 한 판 더</span>';
       const feedback = document.createElement('p'); feedback.className = 'status-note'; feedback.setAttribute('role', 'status'); feedback.hidden = true;
       const dock = document.createElement('div'); dock.className = 'ranking-share-dock';
       dock.append(share, feedback);
