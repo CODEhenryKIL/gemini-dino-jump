@@ -882,6 +882,10 @@ def _legacy_prize(conn,campaign):
 
 def _pool_prize(conn,campaign):
     conn.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",("draw-pool:"+campaign["id"],))
+    # A live policy can change while a request waits for the pool lock.
+    fresh=_one(conn,f"select * from {database_schema()}.campaign where id=%s",(campaign["id"],))
+    if not fresh:raise DomainError("DRAW_CONFIG_INVALID","추첨 설정을 확인하고 있습니다.",503)
+    campaign.update(fresh)
     counts=_one(conn,f"""select count(*)::int total,
       count(*) filter(where outcome_kind='PRIZE')::int prizes
       from {database_schema()}.draw_pool_slot where campaign_id=%s""",(campaign["id"],))
@@ -891,14 +895,27 @@ def _pool_prize(conn,campaign):
     expected_prizes=settings.get("phase3_draw_prize_quantity",77)
     if finite_pool and (type(expected_prizes) is not int or expected_prizes<=0 or total!=5000 or counts["prizes"]!=expected_prizes):
         raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
+    policy=settings.get("draw_pool_policy")
+    ceiling=5000
+    if policy is not None:
+        if (not isinstance(policy,dict) or type(policy.get("active_slot_max")) is not int
+            or not 1<=policy["active_slot_max"]<=5000
+            or type(policy.get("initial_remaining")) is not int or policy["initial_remaining"]!=3000
+            or not isinstance(policy.get("version"),str) or not policy["version"]
+            or policy["version"]!=campaign["probability_version"] or not total):
+            raise DomainError("DRAW_CONFIG_INVALID","추첨 확률 설정을 확인하고 있습니다.",503)
+        ceiling=policy["active_slot_max"]
+        outside=_one(conn,f"select exists(select 1 from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null and outcome_kind='PRIZE' and slot_number>%s) invalid",(campaign["id"],ceiling))
+        if outside["invalid"]:raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
+        conn.execute("select set_config('dino.draw_policy_version',%s,true)",(policy["version"],))
     if not total:return _legacy_prize(conn,campaign)
-    remaining=_one(conn,f"select count(*)::int n from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null",(campaign["id"],))["n"]
+    remaining=_one(conn,f"select count(*)::int n from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null and slot_number<=%s",(campaign["id"],ceiling))["n"]
     if remaining<=0:
         prize=_one(conn,f"select * from {database_schema()}.prize where campaign_id=%s and category='NO_PRIZE' and is_active order by id limit 1",(campaign["id"],))
         if not prize:raise DomainError("DRAW_CONFIG_INVALID","추첨 재고 설정을 확인하고 있습니다.",503)
         return prize,None,1.0,None
     offset=secrets.randbelow(remaining)
-    slot=_one(conn,f"select * from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null order by slot_number offset %s limit 1 for update",(campaign["id"],offset))
+    slot=_one(conn,f"select * from {database_schema()}.draw_pool_slot where campaign_id=%s and allocated_draw_id is null and slot_number<=%s order by slot_number offset %s limit 1 for update",(campaign["id"],ceiling,offset))
     if not slot:raise DomainError("DRAW_POOL_BUSY","추첨 자리 확인이 지연되고 있습니다.",503,True)
     if slot["outcome_kind"]=="BENEFIT":
         prize=_one(conn,f"select * from {database_schema()}.prize where campaign_id=%s and category='NO_PRIZE' and is_active order by id limit 1",(campaign["id"],));inventory=None

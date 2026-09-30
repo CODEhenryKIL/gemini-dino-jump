@@ -50,5 +50,9 @@
   {
     "file": "20260929235536_benefit_retry_combined_reward.sql",
     "sha256": "e45bdf3f3f17e9ae1749b51a94238fee1a01bdebe26e6a7927828ac730382dc6"
+  },
+  {
+    "file": "20260930134926_draw_pool_active_policy.sql",
+    "sha256": "172e14f7a4e044ed12ee089653abfc0cf9f77a9d091254f3c3cad71e187dae2f"
   }
 ]
