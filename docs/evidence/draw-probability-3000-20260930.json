@@ -1,0 +1,148 @@
+{
+  "task": "remaining_prizes_next_3000_draws",
+  "confirmed_exposure": "3000 future draws including repeat draws; exclude previous draw count",
+  "source_sha": "6296eca651aa176fd77d71619e2472173dc81ab6",
+  "deployment_id": "dpl_GPuJmsTSVx38xveqeCQmCbUQSTAr",
+  "canonical": "https://google-korea-team-gemini.vercel.app/",
+  "migration": "20260930134926_draw_pool_active_policy",
+  "activation": {
+    "checked_at": "2026-09-30 23:02:16.595905",
+    "probability_version": "remaining-3000-20260930-v1",
+    "policy": {
+      "method": "UNIFORM_WITHOUT_REPLACEMENT",
+      "version": "remaining-3000-20260930-v1",
+      "fallback": "BENEFIT_ONLY",
+      "activated_at": "2026-09-30T14:02:16.53604+00:00",
+      "initial_prizes": 56,
+      "active_slot_max": 3309,
+      "initial_benefits": 2944,
+      "initial_remaining": 3000,
+      "physical_remaining_before": 4525,
+      "preserved_state_fingerprint": {
+        "draws": "e3fe9030c67e011d7b5c96da51712754",
+        "slots": "53c0d2cfc9b1504e66d333465503bea0",
+        "claims": "1e8ec64f0555c5f68a818c2459a9433a",
+        "credits": "feb1dfa30cad0d4290ef95af956ca24a",
+        "inventory": "5641bde8dce7ff79a9e4e1a9cbf97eef"
+      },
+      "previous_probability_version": "phase3-20260929-v6-preparation"
+    },
+    "active_remaining": 3000,
+    "remaining_prizes": 56
+  },
+  "readback": {
+    "checked_at": "2026-09-30 23:02:37.209742",
+    "probability_version": "remaining-3000-20260930-v1",
+    "policy": {
+      "method": "UNIFORM_WITHOUT_REPLACEMENT",
+      "version": "remaining-3000-20260930-v1",
+      "fallback": "BENEFIT_ONLY",
+      "activated_at": "2026-09-30T14:02:16.53604+00:00",
+      "initial_prizes": 56,
+      "active_slot_max": 3309,
+      "initial_benefits": 2944,
+      "initial_remaining": 3000,
+      "physical_remaining_before": 4525,
+      "preserved_state_fingerprint": {
+        "draws": "e3fe9030c67e011d7b5c96da51712754",
+        "slots": "53c0d2cfc9b1504e66d333465503bea0",
+        "claims": "1e8ec64f0555c5f68a818c2459a9433a",
+        "credits": "feb1dfa30cad0d4290ef95af956ca24a",
+        "inventory": "5641bde8dce7ff79a9e4e1a9cbf97eef"
+      },
+      "previous_probability_version": "phase3-20260929-v6-preparation"
+    },
+    "active_pool": {
+      "remaining": 3000,
+      "prizes": 56,
+      "benefits": 2944
+    },
+    "next_draw_prize_percent": "1.86667",
+    "prizes": [
+      {
+        "name": "GS 5천원권",
+        "quantity": 9,
+        "next_draw_percent": 0.3
+      },
+      {
+        "name": "가나초콜릿",
+        "quantity": 8,
+        "next_draw_percent": 0.26667
+      },
+      {
+        "name": "네이버페이 5만원권",
+        "quantity": 3,
+        "next_draw_percent": 0.1
+      },
+      {
+        "name": "무신사 5만원권",
+        "quantity": 2,
+        "next_draw_percent": 0.06667
+      },
+      {
+        "name": "배민 2만원권",
+        "quantity": 4,
+        "next_draw_percent": 0.13333
+      },
+      {
+        "name": "삼텐바이미",
+        "quantity": 1,
+        "next_draw_percent": 0.03333
+      },
+      {
+        "name": "소니 ULT WEAR 헤드셋",
+        "quantity": 1,
+        "next_draw_percent": 0.03333
+      },
+      {
+        "name": "스니커즈",
+        "quantity": 10,
+        "next_draw_percent": 0.33333
+      },
+      {
+        "name": "스타벅스 1만원권",
+        "quantity": 7,
+        "next_draw_percent": 0.23333
+      },
+      {
+        "name": "오쏘몰 이뮨 7일분",
+        "quantity": 2,
+        "next_draw_percent": 0.06667
+      },
+      {
+        "name": "츄파춥스",
+        "quantity": 9,
+        "next_draw_percent": 0.3
+      }
+    ],
+    "won_count": 7,
+    "paid_count": 0,
+    "physical_slots": 5000
+  },
+  "verification": {
+    "production_config_tests": 12,
+    "isolated_policy_tests": 7,
+    "full_depletion": {
+      "active": 3000,
+      "prizes": 56,
+      "benefits": 2944,
+      "next_draw": "BENEFIT",
+      "inactive_slots_allocated": 0
+    },
+    "activation_sql": [
+      "rendered production schema",
+      "waited for in-flight production lock",
+      "preserved draw/claim/slot/inventory/credit hashes",
+      "idempotent no-refill",
+      "corrupt policy rejected"
+    ],
+    "public_checks": 11,
+    "production_draws_consumed_for_validation": 0
+  },
+  "notes": [
+    "Uniform selection without replacement; next-draw odds change as remaining slots change.",
+    "Legacy deployments cannot create draws after policy activation. Existing result retrieval and claims remain available.",
+    "Physical pool remains5000; legacy prize.probability metadata is not used in finite-pool mode.",
+    "Scheduled report remains paused."
+  ]
+}
