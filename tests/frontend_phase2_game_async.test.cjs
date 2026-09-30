@@ -73,7 +73,7 @@ test('current game completion clears its durable pending finish and navigates', 
   loaded.view.engine = { stop() {} };
   await loaded.view.handleGameOver(gameResult, appRouter, {}, 1);
   assert.equal(loaded.stored.has('dino_pending_result'), false);
-  assert.deepEqual(appRouter.navigations, ['result']);
+  assert.deepEqual(appRouter.navigations, ['draw']);
   assert.equal(appRouter.state.lastResult.sessionId, 'old');
 });
 
@@ -150,7 +150,7 @@ test('current recovery keeps a pending finish after a 408 or 429 session read an
     assert.equal(JSON.parse(loaded.stored.get('dino_pending_result')).key, 'finish_old');
     assert.equal(await loaded.view.recoverPendingResult(appRouter, 1), true);
     assert.equal(loaded.stored.has('dino_pending_result'), false);
-    assert.deepEqual(appRouter.navigations, ['result']);
+    assert.deepEqual(appRouter.navigations, ['draw']);
   }
 });
 

@@ -327,6 +327,7 @@ def build_overview(conn, query, ctx):
       when e.dimensions->>'source'='gemini' then 'gemini'
       when i.id is null then 'unknown'
       when i.claim_id is not null then 'claim_share'
+      when i.kind='benefit_retry' and i.reward_type='BOTH' then 'benefit_retry'
       when i.kind='draw_retry' then 'draw_retry'
       when i.kind='record_share' and i.reward_type='GAME' then 'record_share'
       when i.kind='retry_invite' and i.reward_type='GAME' then 'retry_invite'
@@ -363,6 +364,7 @@ def build_overview(conn, query, ctx):
     verified_sharing = rows(f"""select purpose,count(*)::int intents,
       count(distinct participant_id)::int participants from (
         select case when i.claim_id is not null then 'claim_share'
+          when i.kind='benefit_retry' and i.reward_type='BOTH' then 'benefit_retry'
           when i.kind='draw_retry' then 'draw_retry'
           when i.kind='record_share' and i.reward_type='GAME' then 'record_share'
           when i.kind='retry_invite' and i.reward_type='GAME' then 'retry_invite'
@@ -400,7 +402,7 @@ def build_overview(conn, query, ctx):
     sharing_summary_all = sharing_summary(sharing, sharing_totals)
     purpose_summaries = {}
     purpose_totals = {row['purpose']: row for row in sharing_purpose_totals}
-    for purpose in ('gemini', 'draw_retry', 'retry_invite', 'record_share', 'prize_share', 'general_share', 'claim_share', 'unknown'):
+    for purpose in ('gemini', 'benefit_retry', 'draw_retry', 'retry_invite', 'record_share', 'prize_share', 'general_share', 'claim_share', 'unknown'):
         grouped = [{k: v for k, v in row.items() if k != 'purpose'}
                    for row in sharing_by_purpose if row['purpose'] == purpose]
         purpose_total = purpose_totals.get(purpose, {'linked_participants': 0, 'unlinked_events': 0})
@@ -540,6 +542,7 @@ def build_overview(conn, query, ctx):
       stages=stages,result_dwell=result_dwell,invitation=invitation,
       sharing={'by_purpose':sharing_by_purpose,
         'gemini_sharing':purpose_summaries['gemini'],
+        'benefit_retry_sharing':purpose_summaries['benefit_retry'],
         'draw_retry_sharing':purpose_summaries['draw_retry'],
         'invitation_sharing':invitation_sharing_summary,
         'retry_invite_sharing':purpose_summaries['retry_invite'],

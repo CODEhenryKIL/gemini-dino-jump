@@ -105,7 +105,7 @@ class AppRouter {
     const requestedViewValue = url.searchParams.get('view');
     const requestedView = ['home', 'ranking', 'claims', 'invite', 'benefit', 'draw'].includes(requestedViewValue) ? requestedViewValue : null;
     const requestedLinkKind = url.searchParams.get('link');
-    const attributedKinds = new Set(['retry_invite', 'record_share', 'draw_retry', 'prize_share', 'general_share']);
+    const attributedKinds = new Set(['retry_invite', 'record_share', 'draw_retry', 'benefit_retry', 'prize_share', 'general_share']);
     const linkKind = inviteCode
       ? (attributedKinds.has(requestedLinkKind) ? requestedLinkKind : 'retry_invite')
       : (requestedLinkKind === 'initial' ? 'initial' : 'direct');

@@ -152,7 +152,7 @@ def create_observation(conn,body,ctx):
     if not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",oid) or not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",eid): raise DomainError("VALIDATION_ERROR","관측 식별자를 확인해 주세요.")
     link=str(body.get("link_kind") or "unknown");channel=str(body.get("channel_code") or "unknown");campaign_code=str(body.get("campaign_code") or "");share_id=str(body.get("share_id") or "")
     code_pattern=r"(?:unknown|[A-Za-z][A-Za-z0-9_-]{0,31})"
-    if link not in {"initial","retry_invite","record_share","draw_retry","prize_share","general_share","direct","unknown"} or not re.fullmatch(code_pattern,channel) or (campaign_code and not re.fullmatch(code_pattern,campaign_code)) or (share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id)): raise DomainError("VALIDATION_ERROR","유입 값을 확인해 주세요.")
+    if link not in {"initial","retry_invite","record_share","draw_retry","benefit_retry","prize_share","general_share","direct","unknown"} or not re.fullmatch(code_pattern,channel) or (campaign_code and not re.fullmatch(code_pattern,campaign_code)) or (share_id and not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}",share_id)): raise DomainError("VALIDATION_ERROR","유입 값을 확인해 주세요.")
     referrer=str(body.get("referrer_origin") or "");parsed=urlparse(referrer) if referrer else None
     if parsed and (parsed.scheme not in {"http","https"} or not parsed.hostname or parsed.path not in {"","/"} or parsed.query or parsed.fragment or parsed.username): raise DomainError("VALIDATION_ERROR","유입 출처는 origin만 허용합니다.")
     key=ctx.get("idempotency_key")
@@ -275,14 +275,27 @@ def share_reward(conn,body,ctx):
     _participant(conn,ctx,active=True)
     raise DomainError("SHARE_WEBHOOK_REQUIRED","카카오톡 전송이 확인된 공유만 게임권을 받을 수 있습니다.",409)
 
-SHARE_REWARD_TYPES={"record_share":"GAME","retry_invite":"GAME","draw_retry":"DRAW","prize_share":"NONE","general_share":"NONE"}
+SHARE_REWARD_TYPES={"record_share":"GAME","retry_invite":"GAME","draw_retry":"DRAW","benefit_retry":"BOTH","prize_share":"NONE","general_share":"NONE"}
 SHARE_KINDS=set(SHARE_REWARD_TYPES)
 KAKAO_FRIEND_CHAT_TYPES={"DirectChat","MultiChat","OpenDirectChat","OpenMultiChat"}
 
 def _share_intent_response(row,tickets=None):
-    data={"share_id":row["id"],"status":str(row["status"]).lower(),"reward_status":str(row["reward_status"]).lower(),"reward_type":row.get("reward_type") or SHARE_REWARD_TYPES.get(row.get("kind"),"NONE"),"expires_at":_iso(row["expires_at"]),"confirmed_at":_iso(row["confirmed_at"])}
+    data={"share_id":row["id"],"status":str(row["status"]).lower(),"reward_status":str(row["reward_status"]).lower(),"reward_type":row.get("reward_type") or SHARE_REWARD_TYPES.get(row.get("kind"),"NONE"),"reward_contract_version":int(row.get("reward_contract_version") or 1),"expires_at":_iso(row["expires_at"]),"confirmed_at":_iso(row["confirmed_at"])}
+    if data["reward_type"]=="BOTH":
+        data["rewards"]={
+          "game":{"status":str(row.get("game_reward_status") or "PENDING").lower(),"quantity":int(row.get("game_reward_quantity") or 0)},
+          "draw":{"status":str(row.get("draw_reward_status") or "PENDING").lower(),"quantity":int(row.get("draw_reward_quantity") or 0)},
+        }
     if tickets is not None:data["tickets"]=tickets
     return data
+
+def _combined_reward_status(game_status,draw_status):
+    statuses=(game_status,draw_status)
+    if "GRANTED" in statuses:return "GRANTED"
+    if game_status==draw_status:return game_status
+    for status in ("NOT_ELIGIBLE","BLOCKED_PRIZE_WON","BLOCKED_COOLDOWN","BLOCKED_CAP","BLOCKED_DRAW_LIMIT"):
+        if status in statuses:return status
+    return "NOT_ELIGIBLE"
 
 def create_share_intent(conn,body,ctx):
     if ctx.get("share_webhook_enabled") is not True:
@@ -299,24 +312,31 @@ def create_share_intent(conn,body,ctx):
         if kind not in allowed:raise DomainError("CLAIM_SHARE_KIND_INVALID","수령 접수용 공유 유형을 확인해 주세요.",409)
         reward_type="NONE"
         _claim_submission_allowed(conn,_campaign(conn),ctx)
-    elif reward_type in {"GAME","DRAW"}:
+    elif reward_type in {"GAME","DRAW","BOTH"}:
         _mutable(campaign);_before_campaign_close(conn,campaign,ctx)
-    if reward_type=="DRAW":
+    if reward_type in {"DRAW","BOTH"}:
         latest=_one(conn,f"select outcome_kind from {database_schema()}.draw where campaign_id=%s and participant_id=%s order by round_number desc limit 1",(p["campaign_id"],p["id"]))
         state=_draw_state(conn,p)
-        if not latest or latest["outcome_kind"]!="BENEFIT" or state["used_count"]>=state["max_count"] or state["actual_prize_won"]:
+        unavailable=not latest or latest["outcome_kind"]!="BENEFIT" or state["actual_prize_won"]
+        if reward_type=="DRAW":unavailable=unavailable or state["used_count"]>=state["max_count"]
+        if unavailable:
             raise DomainError("DRAW_SHARE_NOT_AVAILABLE","혜택 결과 확인 후 남은 횟수 안에서 추가 뽑기를 받을 수 있습니다.",409)
     raw_token=ctx.get("new_share_callback_token");token_hash=ctx.get("new_share_callback_token_hash")
     if not raw_token or not token_hash:raise DomainError("SHARE_WEBHOOK_UNAVAILABLE","카카오톡 전송 확인 연결을 준비하고 있습니다.",503,True)
     share_id=_id("share")
+    contract_version=3 if reward_type=="BOTH" else 2
+    game_reward_status="PENDING" if reward_type=="BOTH" else "NOT_APPLICABLE"
+    draw_reward_status="PENDING" if reward_type=="BOTH" else "NOT_APPLICABLE"
     row=_one(conn,f"""insert into {database_schema()}.kakao_share_intent
-      (id,participant_id,campaign_id,claim_id,kind,reward_type,reward_contract_version,callback_token_hash,environment,expires_at)
-      values(%s,%s,%s,%s,%s,%s,2,%s,%s,clock_timestamp()+interval '30 minutes') returning *""",
-      (share_id,p["id"],p["campaign_id"],claim_id,kind,reward_type,token_hash,ctx["environment"]))
+      (id,participant_id,campaign_id,claim_id,kind,reward_type,reward_contract_version,
+       game_reward_status,draw_reward_status,callback_token_hash,environment,expires_at)
+      values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp()+interval '30 minutes') returning *""",
+      (share_id,p["id"],p["campaign_id"],claim_id,kind,reward_type,contract_version,
+       game_reward_status,draw_reward_status,token_hash,ctx["environment"]))
     callback_args={"share_id":share_id,"callback_token":raw_token}
     if ctx.get("kakao_app_id"):callback_args["app_id"]=ctx["kakao_app_id"]
     response={**_share_intent_response(row),"callback_args":callback_args}
-    if reward_type=="DRAW":response["draw_state"]=_draw_state(conn,p)
+    if reward_type in {"DRAW","BOTH"}:response["draw_state"]=_draw_state(conn,p)
     return 201,response
 
 def get_share_intent(conn,share_id,ctx):
@@ -324,9 +344,15 @@ def get_share_intent(conn,share_id,ctx):
     row=_one(conn,f"select * from {database_schema()}.kakao_share_intent where id=%s and participant_id=%s",(share_id,p["id"]))
     if not row:raise DomainError("SHARE_INTENT_NOT_FOUND","공유 확인 요청을 찾을 수 없습니다.",404)
     status="EXPIRED" if row["status"]=="PENDING" and row["expires_at"]<=dt.datetime.now(UTC) else row["status"]
-    if status!=row["status"]:row={**dict(row),"status":status,"reward_status":"NOT_ELIGIBLE"}
+    if status!=row["status"]:
+        row=_one(conn,f"""update {database_schema()}.kakao_share_intent set
+          status='EXPIRED',reward_status='NOT_ELIGIBLE',
+          game_reward_status=case when reward_type='BOTH' then 'NOT_ELIGIBLE' else game_reward_status end,
+          draw_reward_status=case when reward_type='BOTH' then 'NOT_ELIGIBLE' else draw_reward_status end,
+          updated_at=clock_timestamp()
+          where id=%s and participant_id=%s and status='PENDING' returning *""",(share_id,p["id"])) or row
     response=_share_intent_response(row,_tickets(p,ctx))
-    if response["reward_type"]=="DRAW":response["draw_state"]=_draw_state(conn,p)
+    if response["reward_type"] in {"DRAW","BOTH"}:response["draw_state"]=_draw_state(conn,p)
     return 200,response
 
 def kakao_share_webhook(conn,body,ctx):
@@ -349,31 +375,75 @@ def kakao_share_webhook(conn,body,ctx):
     if row["status"]!="PENDING":
         p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(row["participant_id"],))
         response={"accepted":True,"duplicate":True,**_share_intent_response(row,_tickets(p,ctx))}
-        if response["reward_type"]=="DRAW":response["draw_state"]=_draw_state(conn,p)
+        if response["reward_type"] in {"DRAW","BOTH"}:response["draw_state"]=_draw_state(conn,p)
         return 200,response
     now=dt.datetime.now(UTC);chat_type=str(body.get("CHAT_TYPE") or "");hash_chat_id=str(body.get("HASH_CHAT_ID") or "")
     single_room=body.get("IS_SINGLE_CHATROOM") is True or str(body.get("IS_SINGLE_CHATROOM") or "").lower()=="true"
     claim_memo_chat=bool(row.get("claim_id")) and row.get("reward_type")=="NONE" and chat_type=="MemoChat" and bool(hash_chat_id)
     if row["expires_at"]<=now:
-        row=_one(conn,f"update {database_schema()}.kakao_share_intent set status='EXPIRED',reward_status='NOT_ELIGIBLE',resource_id=%s,updated_at=clock_timestamp() where id=%s returning *",(resource_id,share_id))
-        return 200,{"accepted":True,**_share_intent_response(row)}
+        row=_one(conn,f"""update {database_schema()}.kakao_share_intent set status='EXPIRED',reward_status='NOT_ELIGIBLE',
+          game_reward_status=case when reward_type='BOTH' then 'NOT_ELIGIBLE' else game_reward_status end,
+          draw_reward_status=case when reward_type='BOTH' then 'NOT_ELIGIBLE' else draw_reward_status end,
+          resource_id=%s,updated_at=clock_timestamp() where id=%s returning *""",(resource_id,share_id))
+        p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(row["participant_id"],))
+        response={"accepted":True,**_share_intent_response(row,_tickets(p,ctx))}
+        if row.get("reward_type")=="BOTH":response["draw_state"]=_draw_state(conn,p)
+        return 200,response
     if not claim_memo_chat and (chat_type not in KAKAO_FRIEND_CHAT_TYPES or single_room or not hash_chat_id):
         row=_one(conn,f"""update {database_schema()}.kakao_share_intent set status='REJECTED',reward_status='NOT_ELIGIBLE',resource_id=%s,
+          game_reward_status=case when reward_type='BOTH' then 'NOT_ELIGIBLE' else game_reward_status end,
+          draw_reward_status=case when reward_type='BOTH' then 'NOT_ELIGIBLE' else draw_reward_status end,
           chat_type=%s,hash_chat_id=%s,updated_at=clock_timestamp() where id=%s returning *""",(resource_id,chat_type,hash_chat_id or None,share_id))
-        return 200,{"accepted":True,**_share_intent_response(row)}
+        p=_one(conn,f"select * from {database_schema()}.participant where id=%s",(row["participant_id"],))
+        response={"accepted":True,**_share_intent_response(row,_tickets(p,ctx))}
+        if row.get("reward_type")=="BOTH":response["draw_state"]=_draw_state(conn,p)
+        return 200,response
     p=_one(conn,f"select * from {database_schema()}.participant where id=%s for update",(row["participant_id"],));campaign=_campaign(conn)
     reward_type=row.get("reward_type") or SHARE_REWARD_TYPES.get(row["kind"],"NONE")
     reward_status="NOT_ELIGIBLE"
     draw_state=None
     reward_window_open=True
-    if reward_type in {"GAME","DRAW"}:
+    if reward_type in {"GAME","DRAW","BOTH"}:
         try:_before_campaign_close(conn,campaign,ctx)
         except DomainError as error:
             if error.code not in {"CAMPAIGN_CLOSED","CAMPAIGN_NOT_OPEN"}:raise
             reward_window_open=False
-    if not p or p["status"]!="ACTIVE":reward_status="NOT_ELIGIBLE"
+    game_reward_status=draw_reward_status="NOT_APPLICABLE"
+    if not p or p["status"]!="ACTIVE":
+        reward_status="NOT_ELIGIBLE"
+        if reward_type=="BOTH":game_reward_status=draw_reward_status="NOT_ELIGIBLE"
     elif reward_type=="NONE":reward_status="NO_REWARD"
-    elif campaign["status"]!="ACTIVE" or not reward_window_open:reward_status="NOT_ELIGIBLE"
+    elif campaign["status"]!="ACTIVE" or not reward_window_open:
+        reward_status="NOT_ELIGIBLE"
+        if reward_type=="BOTH":game_reward_status=draw_reward_status="NOT_ELIGIBLE"
+    elif reward_type=="BOTH":
+        draw_state=_draw_state(conn,p)
+        if draw_state["actual_prize_won"]:
+            game_reward_status=draw_reward_status="BLOCKED_PRIZE_WON"
+        else:
+            if draw_state["used_count"]+draw_state["available_credits"]>=draw_state["max_count"]:
+                draw_reward_status="BLOCKED_DRAW_LIMIT"
+            else:
+                new_draw_balance=draw_state["available_credits"]+1
+                conn.execute(f"""insert into {database_schema()}.draw_credit_ledger
+                  (participant_id,campaign_id,delta,source_type,source_id,balance_after)
+                  values(%s,%s,1,'SHARE_GRANT',%s,%s)""",(p["id"],p["campaign_id"],share_id,new_draw_balance))
+                draw_reward_status="GRANTED"
+                _event(conn,"draw_share_granted",ctx,p["id"],"draw_share_granted:"+share_id,dimensions={"balance":new_draw_balance,"method":"kakao"})
+                draw_state=_draw_state(conn,p)
+            if p["cooldown_until"] and p["cooldown_until"]>now:game_reward_status="BLOCKED_COOLDOWN"
+            elif p["invitation_balance"]+p["invitation_refund_pending"]>=3:game_reward_status="BLOCKED_CAP"
+            else:
+                new_game_balance=p["invitation_balance"]+1;cooldown=now+dt.timedelta(hours=10) if new_game_balance==3 else p["cooldown_until"]
+                p=_one(conn,f"""update {database_schema()}.participant set invitation_balance=%s,cooldown_until=%s,
+                  cooldown_notice_pending=case when %s=3 then true else cooldown_notice_pending end,updated_at=clock_timestamp()
+                  where id=%s returning *""",(new_game_balance,cooldown,new_game_balance,p["id"]))
+                conn.execute(f"""insert into {database_schema()}.ticket_ledger
+                  (participant_id,ticket_kind,delta,source_type,source_id,balance_after,cooldown_until)
+                  values(%s,'INVITATION',1,'SHARE_GRANT',%s,%s,%s)""",(p["id"],share_id,new_game_balance,cooldown))
+                game_reward_status="GRANTED"
+                _event(conn,"invitation_share_granted",ctx,p["id"],"invitation_share_granted:"+share_id,dimensions={"balance":new_game_balance,"method":"kakao"})
+        reward_status=_combined_reward_status(game_reward_status,draw_reward_status)
     elif reward_type=="DRAW":
         draw_state=_draw_state(conn,p)
         if draw_state["actual_prize_won"]:reward_status="BLOCKED_PRIZE_WON"
@@ -398,11 +468,15 @@ def kakao_share_webhook(conn,body,ctx):
           values(%s,'INVITATION',1,'SHARE_GRANT',%s,%s,%s)""",(p["id"],share_id,new_balance,cooldown))
         reward_status="GRANTED"
         _event(conn,"invitation_share_granted",ctx,p["id"],"invitation_share_granted:"+share_id,dimensions={"balance":new_balance,"method":"kakao"})
-    row=_one(conn,f"""update {database_schema()}.kakao_share_intent set status='CONFIRMED',reward_status=%s,resource_id=%s,chat_type=%s,
-      hash_chat_id=%s,confirmed_at=clock_timestamp(),updated_at=clock_timestamp() where id=%s returning *""",
-      (reward_status,resource_id,chat_type,hash_chat_id,share_id))
+    row=_one(conn,f"""update {database_schema()}.kakao_share_intent set status='CONFIRMED',reward_status=%s,
+      game_reward_status=%s,game_reward_quantity=case when %s='GRANTED' then 1 else 0 end,
+      draw_reward_status=%s,draw_reward_quantity=case when %s='GRANTED' then 1 else 0 end,
+      resource_id=%s,chat_type=%s,hash_chat_id=%s,confirmed_at=clock_timestamp(),updated_at=clock_timestamp()
+      where id=%s returning *""",
+      (reward_status,game_reward_status,game_reward_status,draw_reward_status,draw_reward_status,
+       resource_id,chat_type,hash_chat_id,share_id))
     response={"accepted":True,"duplicate":False,**_share_intent_response(row,_tickets(p,ctx))}
-    if reward_type=="DRAW":response["draw_state"]=draw_state or _draw_state(conn,p)
+    if reward_type in {"DRAW","BOTH"}:response["draw_state"]=draw_state or _draw_state(conn,p)
     return 200,response
 
 def qualify_referral(conn,body,ctx):
@@ -934,11 +1008,6 @@ def submit_claim(conn,cid,body,ctx):
     if claim["status"] in {"PAID","INELIGIBLE"}:raise DomainError("CLAIM_CLOSED","종료된 수령 요청은 접수할 수 없습니다.",409)
     draft=_one(conn,f"select * from {database_schema()}.claim_contact_draft where claim_id=%s for update",(cid,))
     if not draft or not draft["consent_at"] or draft["consent_version"]!="claim-contact-v1":raise DomainError("CLAIM_DRAFT_REQUIRED","먼저 수령 정보를 저장하고 동의해 주세요.",409)
-    share_intent_id=str(body.get("share_intent_id") or "")
-    intent=_one(conn,f"""select id from {database_schema()}.kakao_share_intent where id=%s and participant_id=%s and claim_id=%s
-      and status='CONFIRMED' and confirmed_at is not null
-      and (reward_contract_version=1 or (reward_type='NONE' and kind in ('prize_share','record_share')))""",(share_intent_id,p["id"],cid))
-    if not intent:raise DomainError("SHARE_STEP_REQUIRED","카카오톡 전송이 확인된 뒤 접수해 주세요.",409)
     conn.execute(f"""insert into {database_schema()}.claim_contact
       (claim_id,recipient_name,contact,school,address,synthetic,consent_at,consent_version)
       values(%s,%s,%s,%s,%s,%s,%s,'claim-contact-v1')""",
@@ -960,7 +1029,7 @@ INTEGER_DIMENSION_RANGES={"score":(0,9000),"rank":(0,100000),"checkpoint":(0,360
 ENUM_DIMENSIONS={
   "previous_screen":SCREENS|{"unknown"},
   "source":{"home","result","invite","claims","gemini","phase1_load","phase2_load","unknown"},
-  "link_kind":{"initial","retry_invite","record_share","draw_retry","prize_share","general_share","direct","unknown"},
+  "link_kind":{"initial","retry_invite","record_share","draw_retry","benefit_retry","prize_share","general_share","direct","unknown"},
   "content":{"study","photo","study_note","job_photo","other","unknown"},
   "position":{"benefit_main","benefit_guides","unknown"},
   "action":{"pouch_0","pouch_1","pouch_2","accessibility_button","keyboard"},

@@ -47,13 +47,13 @@ test('empty claims send a locked participant home to finish the first game witho
 
 test('empty claims distinguish available and drawn pouch actions', () => {
   const available = harness('AVAILABLE');
-  assert.equal(available.button.textContent.normalize('NFD'), '복주머니 열기');
+  assert.equal(available.button.textContent.normalize('NFD'), '🧧 경품 뽑기');
   available.button.onclick();
   assert.deepEqual(available.routes, ['draw']);
   assert.deepEqual(available.events, [{ name: 'draw_cta_clicked', source: 'claims', draw_status: 'AVAILABLE' }]);
 
   const drawn = harness('DRAWN');
-  assert.equal(drawn.button.textContent.normalize('NFD'), '내 복주머니 결과 보기');
+  assert.equal(drawn.button.textContent.normalize('NFD'), '내 경품 결과 보기');
   drawn.button.onclick();
   assert.deepEqual(drawn.routes, ['draw']);
   assert.deepEqual(drawn.events, [{ name: 'draw_cta_clicked', source: 'claims', draw_status: 'DRAWN' }]);

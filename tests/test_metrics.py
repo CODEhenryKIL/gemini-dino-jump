@@ -64,14 +64,19 @@ class MetricsTest(unittest.TestCase):
               (id,campaign_id,participant_id,claim_type,status)
               values(%s,%s,%s,'RANKING','AWAITING_INFORMATION')''',
               (claim_id,self.campaign,pid))
-        reward_status = 'GRANTED' if reward_type in {'GAME','DRAW'} else 'NO_REWARD'
+        reward_status = 'GRANTED' if reward_type in {'GAME','DRAW','BOTH'} else 'NO_REWARD'
+        contract_version = 3 if reward_type == 'BOTH' else 2
+        game_reward_status = 'GRANTED' if reward_type == 'BOTH' else 'NOT_APPLICABLE'
+        draw_reward_status = 'GRANTED' if reward_type == 'BOTH' else 'NOT_APPLICABLE'
         self.conn.execute('''insert into dino_dev.kakao_share_intent
           (id,participant_id,campaign_id,claim_id,kind,reward_type,reward_contract_version,
+           game_reward_status,game_reward_quantity,draw_reward_status,draw_reward_quantity,
            callback_token_hash,environment,status,reward_status,resource_id,chat_type,
            hash_chat_id,expires_at,confirmed_at,created_at,updated_at)
-          values(%s,%s,%s,%s,%s,%s,2,%s,'local','CONFIRMED',%s,%s,'DirectChat',%s,
+          values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'local','CONFIRMED',%s,%s,'DirectChat',%s,
             %s+interval '1 hour',%s,%s,%s)''',
-          (share_id,pid,self.campaign,claim_id,kind,reward_type,secrets.token_hex(32),
+          (share_id,pid,self.campaign,claim_id,kind,reward_type,contract_version,
+           game_reward_status,int(reward_type == 'BOTH'),draw_reward_status,int(reward_type == 'BOTH'),secrets.token_hex(32),
            reward_status,self.prefix+'resource_'+suffix,self.prefix+'chat_'+suffix,
            self.base,self.base,self.base,self.base))
         return share_id
@@ -301,6 +306,7 @@ class MetricsTest(unittest.TestCase):
         shares = {
           'retry_invite': self.share_intent(linked,'retry','retry_invite','GAME'),
           'record_share': self.share_intent(linked,'record','record_share','GAME'),
+          'benefit_retry': self.share_intent(linked,'benefit','benefit_retry','BOTH'),
           'draw_retry': self.share_intent(linked,'draw','draw_retry','DRAW'),
           'prize_share': self.share_intent(linked,'prize','prize_share','NONE'),
           'general_share': self.share_intent(linked,'general','general_share','NONE'),
@@ -315,7 +321,7 @@ class MetricsTest(unittest.TestCase):
                    {'link_kind':'retry_invite','share_id':'missing_intent','share_method':'kakao','status':'confirmed'},
                    screen='invite')
         data = self.report()
-        expected = {'retry_invite','record_share','draw_retry','prize_share','general_share','claim_share','unknown'}
+        expected = {'retry_invite','record_share','benefit_retry','draw_retry','prize_share','general_share','claim_share','unknown'}
         self.assertEqual({row['purpose'] for row in data['sharing']['by_purpose']},expected)
         invitation = data['sharing']['invitation_sharing']
         self.assertEqual((invitation['event_count'],invitation['linked_participants'],
@@ -324,6 +330,8 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(data['sharing']['claim_share_sharing']['event_count'],1)
         self.assertEqual(data['sharing']['claim_share_sharing']['server_confirmed_intents'],1)
         self.assertEqual(data['sharing']['general_share_sharing']['event_count'],1)
+        self.assertEqual(data['sharing']['benefit_retry_sharing']['event_count'],1)
+        self.assertEqual(data['sharing']['benefit_retry_sharing']['server_confirmed_intents'],1)
         self.assertEqual(data['sharing']['draw_retry_sharing']['event_count'],1)
         self.assertEqual(data['sharing']['prize_share_sharing']['event_count'],1)
         self.assertEqual(data['sharing']['unknown_sharing']['event_count'],2)

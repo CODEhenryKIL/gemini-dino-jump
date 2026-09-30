@@ -5,7 +5,7 @@ import json
 import re
 from urllib.parse import urlencode
 
-KINDS = {'initial', 'record_share', 'draw_retry', 'prize_share', 'retry_invite', 'general_share'}
+KINDS = {'initial', 'record_share', 'draw_retry', 'benefit_retry', 'prize_share', 'retry_invite', 'general_share'}
 IMAGE_PATH = '/assets/prizes/prize-lineup-cutout-v2.png'
 DEFAULT_CARD = {'title':'삼탠바이미 그냥 뿌립니다. 🎁','description':'게임 한 판 하고 꽝 없는 상품 받아가자!'}
 
@@ -14,7 +14,7 @@ def share_target(code, query):
     if not re.fullmatch(r'[A-Za-z0-9_-]{12,64}', code):
         raise ValueError('invalid invite code')
     target = {'invite': code}
-    rules = {'link': r'initial|record_share|draw_retry|prize_share|retry_invite|general_share',
+    rules = {'link': r'initial|record_share|draw_retry|benefit_retry|prize_share|retry_invite|general_share',
              'share': r'[A-Za-z0-9:_-]{8,128}',
              'channel': r'[A-Za-z][A-Za-z0-9_-]{0,31}',
              'campaign': r'[A-Za-z][A-Za-z0-9_-]{0,31}'}

@@ -32,7 +32,12 @@ function loadView(file, exportName, globals = {}) {
     .replace(/^import .*;$/gm, '')
     .replace(`export const ${exportName} =`, 'globalThis.__view =');
   const context = { console, ...globals };
+  context.ui = { text(node, value) { if (node) node.textContent = String(value ?? ''); }, ...(context.ui || {}) };
   context.globalThis = context;
+  if (file.endsWith('draw_view.js')) {
+    const retrySource = fs.readFileSync(path.join(root, 'public/js/benefit_retry.js'), 'utf8').replace(/export function /g, 'function ');
+    vm.runInNewContext(retrySource, context, { filename: 'public/js/benefit_retry.js' });
+  }
   vm.runInNewContext(source, context, { filename: file });
   return context.__view;
 }
@@ -264,7 +269,7 @@ test('an old pouch request cannot pass after leaving and re-entering draw', asyn
   });
   const container = {
     innerHTML: '',
-    querySelector: () => open,
+    querySelector: (selector) => selector === '#btn-open-pouch' ? open : null,
     querySelectorAll: () => pouches,
   };
   const view = loadView('public/js/views/draw_view.js', 'DrawView', {
@@ -291,7 +296,7 @@ test('an old pouch request cannot pass after leaving and re-entering draw', asyn
 test('a newly committed draw updates current state before rendering scratch', async () => {
   const open = element('button');
   const pouch = element('button'); pouch.dataset.index = '1';
-  const container = { innerHTML: '', querySelector: () => open, querySelectorAll: () => [pouch] };
+  const container = { innerHTML: '', querySelector: (selector) => selector === '#btn-open-pouch' ? open : null, querySelectorAll: () => [pouch] };
   const draw = { draw_id: 'draw-new', pouch_index: 1, is_won: false };
   const view = loadView('public/js/views/draw_view.js', 'DrawView', {
     api: { drawPouch: async () => draw }, analytics: { track() {} },

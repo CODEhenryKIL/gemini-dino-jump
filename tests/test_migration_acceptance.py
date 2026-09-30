@@ -29,6 +29,7 @@ KAKAO_SHARE_WEBHOOK = ROOT / "supabase/migrations/20260927091037_kakao_share_web
 INTERRUPTED_AND_SHARE = ROOT / "supabase/migrations/20260927140000_incomplete_refund_and_share_grant.sql"
 PHASE3 = ROOT / "supabase/migrations/20260928151903_phase3_draw_rounds_and_reward_purposes.sql"
 RANKING_FINALIZATION = ROOT / "supabase/migrations/20260929021923_finalize_ranking_awards.sql"
+BENEFIT_RETRY = ROOT / "supabase/migrations/20260929235536_benefit_retry_combined_reward.sql"
 
 def _guard_admin_dsn():
     parsed = urlsplit(ADMIN_DSN)
@@ -140,6 +141,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(INTERRUPTED_AND_SHARE)
         self.database.apply(PHASE3)
         self.database.apply(RANKING_FINALIZATION)
+        self.database.apply(BENEFIT_RETRY)
 
         with psycopg.connect(self.database.dsn) as conn:
             versions = conn.execute(
@@ -153,10 +155,40 @@ class MigrationAcceptanceTest(unittest.TestCase):
                 "join pg_namespace n on n.oid=c.relnamespace "
                 "where n.nspname='dino_dev' and c.relname='participant'"
             ).fetchone()
+            combined_columns = conn.execute(
+                "select column_name from information_schema.columns "
+                "where table_schema='dino_dev' and table_name='kakao_share_intent' "
+                "and column_name in ('game_reward_status','game_reward_quantity',"
+                "'draw_reward_status','draw_reward_quantity') order by column_name"
+            ).fetchall()
+            combined_constraint = conn.execute(
+                "select count(*) from pg_constraint c join pg_class t on t.oid=c.conrelid "
+                "join pg_namespace n on n.oid=t.relnamespace where n.nspname='dino_dev' "
+                "and t.relname='kakao_share_intent' "
+                "and c.conname='kakao_share_intent_combined_outcome_check'"
+            ).fetchone()[0]
+            conn.execute("""insert into dino_dev.campaign
+              (id,title,game_version,benefit_url,probability_version)
+              values('combined-constraint-test','Combined constraint test','2.1.0',
+                'https://gemini.google.com/students','test')""")
+            conn.execute("""insert into dino_dev.participant
+              (id,campaign_id,token_hash,token_expires_at,nickname,referral_code,environment)
+              values('p_combined_constraint_test','combined-constraint-test',repeat('a',64),
+                clock_timestamp()+interval '1 day','constraint','CombinedC001','test')""")
+            conn.commit()
+            with self.assertRaises(psycopg.errors.CheckViolation), conn.transaction():
+                conn.execute("""insert into dino_dev.kakao_share_intent
+                  (id,participant_id,campaign_id,kind,callback_token_hash,environment,
+                   status,reward_status,expires_at,reward_type,reward_contract_version,
+                   game_reward_status,game_reward_quantity,draw_reward_status,draw_reward_quantity)
+                  values('share_00000000000000000000000000000000',
+                    'p_combined_constraint_test','combined-constraint-test','benefit_retry',
+                    repeat('b',64),'test','REJECTED','GRANTED',clock_timestamp()+interval '1 hour',
+                    'BOTH',3,'GRANTED',1,'NOT_ELIGIBLE',0)""")
 
         self.assertEqual(
             versions,
-            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",), ("20260926215000",), ("20260927090000",), ("20260927091037",), ("20260927140000",), ("20260928151903",), ("20260929021923",)],
+            [("20260925083548",), ("20260925092759",), ("20260925125939",), ("20260925140902",), ("20260926093414",), ("20260926103809",), ("20260926215000",), ("20260927090000",), ("20260927091037",), ("20260927140000",), ("20260928151903",), ("20260929021923",), ("20260929235536",)],
         )
         self.assertTrue(
             {"participant", "game_session", "ranking_snapshot"}.issubset(
@@ -164,6 +196,11 @@ class MigrationAcceptanceTest(unittest.TestCase):
             )
         )
         self.assertEqual(rls, (True, True))
+        self.assertEqual(combined_columns, [
+            ("draw_reward_quantity",), ("draw_reward_status",),
+            ("game_reward_quantity",), ("game_reward_status",),
+        ])
+        self.assertEqual(combined_constraint, 1)
         self.assert_sentinel_preserved()
 
     def test_additions_apply_to_foundation_only_and_are_idempotent(self):
@@ -180,6 +217,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
         self.database.apply(INTERRUPTED_AND_SHARE)
         self.database.apply(PHASE3)
         self.database.apply(RANKING_FINALIZATION)
+        self.database.apply(BENEFIT_RETRY)
         self.database.apply(CLAIM_FIX)
         self.database.apply(PHASE2)
         self.database.apply(GAME_V21)
@@ -218,6 +256,7 @@ class MigrationAcceptanceTest(unittest.TestCase):
                 ("20260927140000", 1),
                 ("20260928151903", 1),
                 ("20260929021923", 1),
+                ("20260929235536", 1),
             ],
         )
         self.assertIn(("fault_review_status",), columns)

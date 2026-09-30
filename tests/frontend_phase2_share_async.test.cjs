@@ -33,6 +33,7 @@ function loadView(file, exportName, globals) {
   const source = fs.readFileSync(path.join(root, file), 'utf8')
     .replace(/^import .*;$/gm, '')
     .replace(`export const ${exportName} =`, 'globalThis.__view =');
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/js/benefit_retry.js'), 'utf8').replace(/export function /g, 'function '), context);
   vm.runInNewContext(source, context, { filename: file });
   return context.__view;
 }

@@ -526,7 +526,7 @@ test('game completion forwards verifier version, terminal reason, and item summa
     version: '2.0.0', end_reason: 'TIME_LIMIT', score: 130, ticks: 36000, jump_ticks: [], checkpoints: [],
     summary: { coins: 3, coin_score: 30, hearts: 2, revives: 2 },
   });
-  assert.deepEqual(navigations, ['result']);
+  assert.deepEqual(navigations, ['draw']);
   const completion = tracked.find(([name]) => name === 'game_completed');
   assert.equal(completion[1].duration_seconds, 600);
   assert.equal(completion[2].gameSessionId, 'session-1');

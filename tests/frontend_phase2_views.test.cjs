@@ -12,6 +12,7 @@ function loadView(file, exportName, globals = {}) {
     .replace(`export const ${exportName} =`, 'globalThis.__view =');
   const context = { console, URL, api: {}, prepareResultReferralShare: async () => ({ share: async () => ({ status: 'cancelled' }) }), ...globals };
   context.globalThis = context;
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/js/benefit_retry.js'), 'utf8').replace(/export function /g, 'function '), context);
   vm.runInNewContext(source, context, { filename: file });
   return context.__view;
 }
@@ -398,7 +399,7 @@ test('restored scratched draw reveals the same server result without another dra
   assert.equal(restored, true, 'restoring a server result must not count as a new scratch');
   assert.match(nodes.get('#restored-pouch').textContent, /3번 주머니/);
   assert.equal(nodes.get('#post-reveal-actions').hidden, false);
-  assert.equal(nodes.get('#scratch-title').textContent, '복주머니 결과를 확인하세요');
+  assert.equal(nodes.get('#scratch-title').textContent, 'Gemini 혜택을 받았어요!');
   assert.equal(nodes.get('#scratch-instruction').textContent, '');
   assert.equal(nodes.get('#scratch-instruction').hidden, true);
   assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);
@@ -448,15 +449,16 @@ test('scratch result enters the accessibility tree only when revealed and canvas
   assert.equal(canvas.tabIndex, -1);
   assert.equal(canvas.getAttribute('aria-hidden'), 'true');
   assert.equal(document.activeElement, nodes.get('#btn-after-draw'));
-  assert.equal(nodes.get('#scratch-title').textContent, '복주머니 결과를 확인하세요');
+  assert.equal(nodes.get('#scratch-title').textContent, '경품 당첨을 축하드려요!');
   assert.equal(nodes.get('#scratch-instruction').textContent, '');
   assert.equal(nodes.get('#scratch-instruction').hidden, true);
   assert.doesNotMatch(nodes.get('#scratch-instruction').textContent, /긁/);
-  assert.equal(nodes.get('#btn-after-draw').textContent, '수령함에서 확인하기');
+  assert.equal(nodes.get('#btn-after-draw').textContent, '수령 정보 입력');
+  assert.equal(nodes.get('#btn-after-draw').disabled, true, '저장이 실패한 결과는 수령 팝업으로 진행하지 않는다');
   assert.equal(nodes.get('#scratch-save-status').textContent, '결과는 그대로 유지됩니다. 저장 연결을 다시 시도해 주세요.');
   assert.equal(nodes.get('#btn-instant-reveal').textContent, '저장 다시 시도');
   nodes.get('#btn-after-draw').onclick();
-  assert.deepEqual(routes, ['claims']);
+  assert.deepEqual(routes, []);
   assert.deepEqual(JSON.parse(JSON.stringify(exposureStates)), [{ hidden: 'false', inert: false, tabIndex: -1 }]);
 });
 

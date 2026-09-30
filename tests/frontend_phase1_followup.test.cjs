@@ -12,6 +12,7 @@ class Element {
   appendChild(node) { this.append(node); return node; }
   replaceChildren(...nodes) { this._text = ''; this.children = nodes; }
   addEventListener() {}
+  setAttribute(name, value) { this[name] = String(value); }
 }
 
 function loadUi() {
@@ -26,6 +27,7 @@ function loadUi() {
   const toasts = [];
   const context = { document, sessionStorage: { getItem: () => '' }, api: { createRequestId: () => 'test-request' }, ui: { showToast: (message) => toasts.push(message) } };
   const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8').replace(/^import .*;\n/gm, '');
+  vm.runInNewContext(read('public/js/benefit_retry.js').replace(/export function /g, 'function '), context);
   vm.runInNewContext(`${read('public/js/admin.js')}\n globalThis.admin = { claimEditor, renderDrawSummary, renderOperationalBreakdowns, setPermissions: (values) => { adminPermissions = new Set(values); }, setEnvironment: (value) => { adminEnvironment = value; }, setRequest: (handler) => { adminRequest = handler; } };`, context);
   vm.runInNewContext(`${read('public/js/views/prize_view.js').replace('export const PrizeView', 'const PrizeView')}\n globalThis.prize = PrizeView;`, context);
   return { ...context, nodes, toasts };
@@ -209,7 +211,7 @@ test('claim forms are not offered for finalized claims with missing legacy conta
 test('legacy nonterminal claims can submit missing contact without showing an incorrect new status', () => {
   const { prize } = loadUi();
   const opened = [];
-  prize.claimModal = (claim) => opened.push(claim);
+  prize.directClaimModal = (claim) => opened.push(claim);
   for (const status of ['CONTACTED', 'ON_HOLD', 'NO_RESPONSE']) {
     const claim = { id: `legacy-${status}`, status, claim_type: 'DRAW', contact_submitted: false };
     const card = prize.claimCard(claim, {});

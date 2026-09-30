@@ -29,6 +29,7 @@ function loadView(file, exportName, globals = {}) {
     .replace(`export const ${exportName} =`, 'globalThis.__view =');
   const context = { console, Date, Math, JSON, Number, Promise, setTimeout, clearTimeout, ...globals };
   context.globalThis = context;
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/js/benefit_retry.js'), 'utf8').replace(/export function /g, 'function '), context);
   vm.runInNewContext(source, context, { filename: file });
   return context.__view;
 }
@@ -209,7 +210,8 @@ test('claims benefit card does not prepare or reopen DRAW actions after campaign
 
   status = 'PAUSED';
   const paused = view.benefitCard({ available_credits: 1, used_count: 1, max_count: 10 }, router, 1);
-  assert.match(paused.children.at(-1).children[1].textContent, /잠시 중단/);
+  assert.equal(paused.children.at(-1).children[1].disabled, true);
+  assert.match(paused.children.at(-1).children.at(-1).textContent, /현재 추가 뽑기/);
 
   status = 'ACTIVE';
   const late = deferred();

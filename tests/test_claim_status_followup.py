@@ -1,5 +1,6 @@
 import concurrent.futures
 import contextlib
+import datetime as dt
 import hashlib
 import hmac
 import os
@@ -319,22 +320,10 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
                     )
                 except operations.DomainError as error:
                     if error.code!="CLAIM_ALREADY_SUBMITTED":raise
-            intent = conn.execute(
-                "select id from dino_dev.kakao_share_intent where claim_id=%s and participant_id=(select id from dino_dev.participant where token_hash=%s) and status='CONFIRMED' limit 1",
-                (claim_id,token_hash),
-            ).fetchone()
-            if not intent:
-                share_id=f"share_{uuid.uuid4().hex}"
-                conn.execute("""insert into dino_dev.kakao_share_intent
-                  (id,participant_id,campaign_id,claim_id,kind,callback_token_hash,environment,status,reward_status,resource_id,chat_type,hash_chat_id,expires_at,confirmed_at)
-                  select %s,id,campaign_id,%s,'prize_share',%s,'test','CONFIRMED','GRANTED',%s,'DirectChat',%s,clock_timestamp()+interval '30 minutes',clock_timestamp()
-                  from dino_dev.participant where token_hash=%s""",
-                  (share_id,claim_id,_participant_hash(share_id),"resource_"+uuid.uuid4().hex,"chat_"+uuid.uuid4().hex,token_hash))
-            else:share_id=intent["id"]
             return operations.submit_claim(
                 conn,
                 claim_id,
-                {"share_intent_id": share_id},
+                {},
                 _context(participant_token_hash=token_hash),
             )[1]
 
@@ -385,29 +374,29 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
                 }, ctx)
         self.assertEqual((get_error.exception.code, post_error.exception.code), ("CLAIM_NOT_FOUND", "CLAIM_NOT_FOUND"))
 
-    def test_submit_requires_saved_draft_and_accepted_share_result(self):
-        self._insert_claim("claim_share_gate")
+    def test_submit_requires_saved_draft_but_not_a_share_result(self):
+        self._insert_claim("claim_direct")
         ctx = _context(participant_token_hash=self.token_hash)
         with self.app_tx() as conn:
             with self.assertRaises(operations.DomainError) as missing:
-                operations.submit_claim(conn, "claim_share_gate", {"share_status": "copied"}, ctx)
+                operations.submit_claim(conn, "claim_direct", {}, ctx)
         self.assertEqual(missing.exception.code, "CLAIM_DRAFT_REQUIRED")
         with self.app_tx() as conn:
-            operations.claim_draft_post(conn, "claim_share_gate", {
+            operations.claim_draft_post(conn, "claim_direct", {
                 "name": "김제미", "contact": "010-1234-5678", "school": "한국대학교",
                 "consent": True, "notice_version": "claim-contact-v1",
             }, ctx)
-        for status in ("cancelled", "failed", ""):
-            with self.subTest(status=status), self.app_tx() as conn:
-                with self.assertRaises(operations.DomainError) as blocked:
-                    operations.submit_claim(conn, "claim_share_gate", {"share_status": status}, ctx)
-                self.assertEqual(blocked.exception.code, "SHARE_STEP_REQUIRED")
+            submitted = operations.submit_claim(conn, "claim_direct", {}, ctx)[1]
         with psycopg.connect(self.dsn) as conn:
-            self.assertEqual(conn.execute(
-                "select count(*) from dino_dev.claim_contact where claim_id='claim_share_gate'"
-            ).fetchone()[0], 0)
+            shares = conn.execute(
+                "select count(*) from dino_dev.kakao_share_intent where claim_id='claim_direct'"
+            ).fetchone()[0]
+            contacts = conn.execute(
+                "select count(*) from dino_dev.claim_contact where claim_id='claim_direct'"
+            ).fetchone()[0]
+        self.assertEqual((submitted["status"], shares, contacts), ("INFORMATION_RECEIVED", 0, 1))
 
-    def test_accepted_share_finalizes_once_and_repeat_is_idempotent(self):
+    def test_legacy_share_payload_is_optional_and_repeat_is_idempotent(self):
         self._insert_claim("claim_shared")
         ctx = _context(participant_token_hash=self.token_hash)
         with self.app_tx() as conn:
@@ -435,6 +424,40 @@ class ClaimOperationsFollowupTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual(contact, ("김제미", False, "claim-contact-v1"))
         self.assertEqual(counts, (0, 1))
+
+    def test_direct_submit_rejects_forged_claim_and_expired_deadline(self):
+        other_id, _other_hash = None, None
+        with psycopg.connect(self.dsn) as conn:
+            other_id, _other_hash = _insert_participant(conn, "forged_claim_owner")
+        self._insert_claim("claim_forged_direct", participant_id=other_id)
+        ctx = _context(participant_token_hash=self.token_hash)
+        with self.app_tx() as conn:
+            with self.assertRaises(operations.DomainError) as forged:
+                operations.submit_claim(conn, "claim_forged_direct", {}, ctx)
+        self.assertEqual(forged.exception.code, "CLAIM_NOT_FOUND")
+
+        self._insert_claim("claim_expired_direct")
+        with self.app_tx() as conn:
+            operations.claim_draft_post(conn, "claim_expired_direct", {
+                "name":"김제미", "contact":"010-1234-5678", "school":"한국대학교",
+                "consent":True, "notice_version":"claim-contact-v1",
+            }, ctx)
+        with psycopg.connect(self.dsn) as conn:
+            conn.execute("""update dino_dev.campaign set settings=jsonb_set(
+              coalesce(settings,'{}'::jsonb),'{claim_submission_cutoff}',
+              '"2026-01-01T00:00:00+00:00"'::jsonb,true) where id=%s""", (CAMPAIGN_ID,))
+        try:
+            expired_ctx = _context(
+                participant_token_hash=self.token_hash,
+                request_received_at=dt.datetime(2026, 1, 2, tzinfo=dt.timezone.utc),
+            )
+            with self.app_tx() as conn:
+                with self.assertRaises(operations.DomainError) as expired:
+                    operations.submit_claim(conn, "claim_expired_direct", {}, expired_ctx)
+            self.assertEqual(expired.exception.code, "CLAIM_SUBMISSION_CLOSED")
+        finally:
+            with psycopg.connect(self.dsn) as conn:
+                conn.execute("update dino_dev.campaign set settings=settings-'claim_submission_cutoff' where id=%s", (CAMPAIGN_ID,))
 
     def test_shipping_draft_requires_address_and_closed_claim_rejects_new_data(self):
         with psycopg.connect(self.dsn) as conn:

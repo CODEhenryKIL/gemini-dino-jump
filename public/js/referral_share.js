@@ -1,3 +1,4 @@
+import { benefitRewardMessage } from './benefit_retry.js';
 import { api } from './api.js';
 import { analytics } from './analytics.js';
 import { ui } from './ui.js';
@@ -102,12 +103,16 @@ function resolveRewardType(kind, options = {}, intent = null) {
   if (intent?.reward_type) return intent.reward_type;
   if (options.rewardType) return options.rewardType;
   if (options.claimId) return 'NONE';
+  if (kind === 'benefit_retry') return 'BOTH';
   if (kind === 'draw_retry') return 'DRAW';
   if (kind === 'prize_share' || kind === 'general_share') return 'NONE';
   return 'GAME';
 }
 
 function fallbackRewardNotice(method, rewardType) {
+  if (rewardType === 'BOTH') return method === 'copy'
+    ? '링크를 복사했어요. 뽑기권·게임권은 카카오톡 전송이 확인돼야 지급돼요.'
+    : '뽑기권·게임권은 카카오톡 전송이 확인된 경우에만 지급돼요.';
   if (rewardType === 'DRAW') return method === 'copy'
     ? '링크를 복사했어요. 링크 복사로는 추가 뽑기가 지급되지 않아요.'
     : '추가 뽑기는 카카오톡 전송이 확인된 경우에만 지급돼요.';
@@ -145,14 +150,16 @@ async function watchInvitationShare(router, shareId, options = {}) {
         router?.announceStateChange?.();
         const rewardType = resolveRewardType(options.kind, options, receipt);
         if (receipt.status === 'confirmed') {
-          if (rewardType === 'DRAW') {
+          if (rewardType === 'BOTH') {
+            ui.showToast(benefitRewardMessage(receipt));
+          } else if (rewardType === 'DRAW') {
             ui.showToast(receipt.reward_status === 'granted' ? '전송이 확인되어 한 번 더 뽑을 수 있어요!' : '전송은 확인됐지만 복주머니 최대 횟수 또는 당첨 종료 상태예요.');
           } else if (rewardType === 'GAME') {
             ui.showToast(receipt.reward_status === 'granted' ? '전송이 확인되어 게임권 1장을 받았어요!' : '카카오톡 전송을 확인했어요. 초대권은 보유 한도와 대기 시간에 따라 지급돼요.');
           }
           void router?.refreshState?.({ quiet: true })?.catch?.(() => {});
         } else if (receipt.status === 'rejected') {
-          ui.showToast(rewardType === 'DRAW'
+          ui.showToast(rewardType === 'BOTH' ? benefitRewardMessage(receipt) : rewardType === 'DRAW'
             ? '친구에게 보낸 카카오톡 공유만 추가 뽑기로 인정돼요.'
             : rewardType === 'GAME'
               ? '친구에게 보낸 카카오톡 공유만 게임권을 받을 수 있어요.'
@@ -171,7 +178,7 @@ async function watchInvitationShare(router, shareId, options = {}) {
  * share() from the click handler keeps Kakao's popup inside the user gesture.
  */
 export async function prepareResultReferralShare(router, options = {}) {
-  const allowedKinds = new Set(['record_share', 'retry_invite', 'draw_retry', 'prize_share', 'general_share']);
+  const allowedKinds = new Set(['record_share', 'retry_invite', 'draw_retry', 'benefit_retry', 'prize_share', 'general_share']);
   const requestedKind = options.kind || 'record_share';
   const kind = allowedKinds.has(requestedKind) ? requestedKind : 'record_share';
   const referral = options.referral || await api.getReferralInfo();
@@ -227,9 +234,9 @@ export async function prepareResultReferralShare(router, options = {}) {
                 imageHeight: 1254,
                 link: { mobileWebUrl: inviteUrl, webUrl: inviteUrl },
               },
-              buttons: [{ title: kind === 'draw_retry' ? '상품 뽑으러 가기' : '한 판 도전하기', link: { mobileWebUrl: inviteUrl, webUrl: inviteUrl } }],
+              buttons: [{ title: ['draw_retry', 'benefit_retry'].includes(kind) ? '상품 뽑으러 가기' : '한 판 도전하기', link: { mobileWebUrl: inviteUrl, webUrl: inviteUrl } }],
             });
-            ui.showToast(rewardType === 'DRAW' ? '카카오톡 전송이 확인되면 한 번 더 뽑을 수 있어요.' : rewardType === 'GAME' ? '카카오톡으로 전송하면 확인 후 게임권이 적립돼요.' : '카카오톡 공유창을 열었어요.');
+            ui.showToast(rewardType === 'BOTH' ? '카카오톡 전송 확인 후 받을 수 있는 뽑기권·게임권이 적립돼요.' : rewardType === 'DRAW' ? '카카오톡 전송이 확인되면 한 번 더 뽑을 수 있어요.' : rewardType === 'GAME' ? '카카오톡으로 전송하면 확인 후 게임권이 적립돼요.' : '카카오톡 공유창을 열었어요.');
             if (!options.claimId) void watchInvitationShare(router, shareId, { ...options, kind, rewardType });
             return { method: 'kakao', status: 'pending', shareId };
 

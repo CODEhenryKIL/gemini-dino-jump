@@ -126,6 +126,7 @@ function modalHarness({ submit }) {
       return { label, input };
     },
     showModal(options) { modal = options; },
+    hideModal() {},
     showToast(message) { toasts.push(message); },
   };
   const analyticsEvents = [];
@@ -395,6 +396,25 @@ test('TOP3 direct form starts blank, accepts ordinary values, broadcasts and blo
   assert.deepEqual(harness.analyticsEvents, ['top3_profile_started', 'top3_profile_submitted']);
 });
 
+test('TOP3 auto prompt congratulates the current rank and submits directly to the draw flow', async () => {
+  const harness = modalHarness({ submit: async () => ({ status: 'SUBMITTED', submitted_at: '2026-09-30T00:00:00Z' }) });
+  const router = {
+    renderToken: 8,
+    state: { top3Profile: { status: 'REQUESTED', eligible: true }, lastResult: { rank: 2, top3_gap: { status: 'IN_TOP3', rank: 2 } } },
+    isCurrent: () => true,
+    announceStateChange() {},
+  };
+  assert.equal(harness.view.openTop3Modal(router, 8), true);
+  const modal = harness.getModal();
+  assert.equal(modal.confirmText, '저장하고 경품 뽑기');
+  assert.match(modal.content.textContent, /현재 2위로 TOP3/);
+  const form = descendants(modal.content).find((node) => node.tag === 'form');
+  fillContact(form);
+  assert.equal(await modal.onConfirm(), true);
+  assert.equal(router.state.top3Profile.status, 'SUBMITTED');
+  assert.equal(harness.view.openTop3Modal(router, 8), false, 'submitted contact never reopens');
+});
+
 test('TOP3 inline failure preserves entered values and allows retry', async () => {
   let calls = 0;
   const harness = modalHarness({ submit: async () => { calls++; if (calls === 1) throw new Error('temporary failure'); return { status: 'SUBMITTED' }; } });
@@ -411,17 +431,16 @@ test('TOP3 inline failure preserves entered values and allows retry', async () =
   assert.equal(router.state.top3Profile.status, 'SUBMITTED');
 });
 
-test('passive TOP3 refresh preserves in-progress contact values', () => {
+test('passive TOP3 refresh preserves the compact popup entry without replacing it', () => {
   const { view } = loadResult();
   const target = new Element();
   const router = { renderToken: 3, state: { lastResult: { rank: 1 } } };
   const profile = { status: 'REQUESTED', game_version: '2.1.0' };
   view.renderTop3Request(target, router, profile);
-  const field = descendants(target).find(node => node.name === 'name');
-  field.value = '작성 중';
+  const button = descendants(target).find(node => node.tag === 'button');
+  assert.match(button.textContent, /수령 정보 입력/);
   view.renderTop3Request(target, router, { ...profile });
-  assert.equal(descendants(target).find(node => node.name === 'name'), field);
-  assert.equal(field.value, '작성 중');
+  assert.equal(descendants(target).find(node => node.tag === 'button'), button);
 });
 
 test('result prioritizes the pouch before replay and sharing while sharing opens in place', async () => {

@@ -46,5 +46,9 @@
   {
     "file": "20260929021923_finalize_ranking_awards.sql",
     "sha256": "ad4bece12c0b6c7c9bed5f1542e7c767dd8a4b687213a92778c791a3a9fb8cd9"
+  },
+  {
+    "file": "20260929235536_benefit_retry_combined_reward.sql",
+    "sha256": "e45bdf3f3f17e9ae1749b51a94238fee1a01bdebe26e6a7927828ac730382dc6"
   }
 ]

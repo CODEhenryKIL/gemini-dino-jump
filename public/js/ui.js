@@ -18,7 +18,7 @@ export const ui = {
     clearTimeout(this._toastTimeout);
     this._toastTimeout = setTimeout(() => toast.classList.remove('show'), duration);
   },
-  showModal({ title, content, confirmText = '확인', onConfirm, cancelText = null, onCancel }) {
+  showModal({ title, content, confirmText = '확인', onConfirm, cancelText = null, onCancel, className = '' }) {
     this.hideModal();
     const opener = document.activeElement;
     const app = document.getElementById('app-container');
@@ -31,7 +31,7 @@ export const ui = {
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-labelledby', 'common-modal-title');
     const card = document.createElement('div');
-    card.className = 'modal-card';
+    card.className = ['modal-card', className].filter(Boolean).join(' ');
     card.tabIndex = -1;
     const heading = document.createElement('h3');
     heading.id = 'common-modal-title';

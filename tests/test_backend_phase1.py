@@ -243,7 +243,7 @@ class BackendPhase1Test(unittest.TestCase):
             with self.assertRaises(operations.DomainError) as hidden:operations.get_share_intent(conn,first["share_id"],context(participant_token_hash=h(other)))
             grants=conn.execute("select count(*)::int n from dino_dev.ticket_ledger where participant_id=%s and source_type='SHARE_GRANT'",(pid,)).fetchone()["n"]
         self.assertEqual((forged.exception.code,accepted["reward_status"],duplicate["duplicate"],hidden.exception.code,grants),("INVALID_WEBHOOK","granted",True,"SHARE_INTENT_NOT_FOUND",1))
-    def test_claim_submit_requires_confirmed_owned_claim_bound_share(self):
+    def test_claim_submit_accepts_saved_draft_without_share(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
         with app_tx() as conn:
             conn.execute("insert into dino_dev.claim(id,campaign_id,participant_id,claim_type) values('claim_webhook','gemini_dino_phase1_test',%s,'RANKING')",(pid,))
@@ -251,10 +251,9 @@ class BackendPhase1Test(unittest.TestCase):
               (claim_id,recipient_name,contact,school,synthetic,consent_at,consent_version)
               values('claim_webhook','TEST_user','01000000000','TEST_school',true,clock_timestamp(),'claim-contact-v1')""")
             intent,token=self.create_share_intent(conn,raw,"record_share","claim_webhook")
-            with self.assertRaises(operations.DomainError) as pending:operations.submit_claim(conn,"claim_webhook",{"share_intent_id":intent["share_id"]},context(participant_token_hash=h(raw)))
-            self.confirm_share(conn,intent,token);_,submitted=operations.submit_claim(conn,"claim_webhook",{"share_intent_id":intent["share_id"]},context(participant_token_hash=h(raw)))
+            _,submitted=operations.submit_claim(conn,"claim_webhook",{},context(participant_token_hash=h(raw)))
             _,draft=operations.claim_draft_get(conn,"claim_webhook",context(participant_token_hash=h(raw)))
-        self.assertEqual((pending.exception.code,submitted["status"],draft["share_intent_id"]),("SHARE_STEP_REQUIRED","INFORMATION_RECEIVED",intent["share_id"]))
+        self.assertEqual((submitted["status"],draft["share_intent_id"]),("INFORMATION_RECEIVED",intent["share_id"]))
     def test_concurrent_webhooks_grant_at_most_three(self):
         raw,_,created=self.make_participant();pid=created["participant"]["id"]
         with app_tx() as conn:intents=[self.create_share_intent(conn,raw) for _ in range(10)]

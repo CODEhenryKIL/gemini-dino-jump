@@ -26,7 +26,7 @@ function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null, r
     async getReferralInfo() { return referral || { invite_url: '/invite/referralcode123' }; },
     async createReferralShareIntent(kind, claimId) {
       requestIndex += 1;
-      const reward_type = claimId || kind === 'prize_share' || kind === 'general_share' ? 'NONE' : kind === 'draw_retry' ? 'DRAW' : 'GAME';
+      const reward_type = claimId || kind === 'prize_share' || kind === 'general_share' ? 'NONE' : kind === 'benefit_retry' ? 'BOTH' : kind === 'draw_retry' ? 'DRAW' : 'GAME';
       return { share_id: `share_${requestIndex}`, reward_type, callback_args: { share_id: `share_${requestIndex}`, callback_token: 'opaque_callback_token' }, expires_at: new Date(Date.now() + 60000).toISOString() };
     },
     async getReferralShareIntent() { return { status: 'confirmed', reward_status: 'blocked_cap' }; },
@@ -50,6 +50,7 @@ function loadShare({ key = '', Kakao, navigatorMock = {}, documentMock = null, r
     .replace('export function prepareKakaoPrizeImage', 'function prepareKakaoPrizeImage')
     .replace('export function buildReferralShareText', 'globalThis.buildReferralShareText = function')
     .replace('export async function prepareResultReferralShare', 'globalThis.prepareResultReferralShare = async function');
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/js/benefit_retry.js'), 'utf8').replace(/export function /g, 'function '), context);
   vm.runInNewContext(source, context, { filename: 'public/js/referral_share.js' });
   const router = { config: { share: { kakao_javascript_key: key, webhook_enabled: true } }, state: { bestScore: 4321 } };
   return { analytics, api, buildText: context.buildReferralShareText, context, events, prepare: context.prepareResultReferralShare, router, toasts };

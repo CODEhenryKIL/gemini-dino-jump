@@ -326,3 +326,88 @@ a[aria-disabled="true"] {
   100% { opacity: 0; transform: translate(var(--x), calc(var(--y) + 100px)) rotate(calc(var(--turn) + 90deg)); }
 }
 @media (prefers-reduced-motion: reduce) { .result-celebration { display: none; } }
+
+/* A compact score keeps the post-game path focused on the prize draw. */
+.draw-game-summary { position: sticky; top: 64px; z-index: 35; padding: 11px 14px; border: 1px solid #dbe7fb; border-radius: 12px; background: rgba(248, 250, 255, .96); color: #1967d2; text-align: center; backdrop-filter: blur(12px); }
+.draw-game-summary[hidden] { display: none; }
+.draw-action-dock {
+  position: fixed;
+  z-index: 60;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--app-max-width);
+  box-sizing: border-box;
+  padding: 12px 16px 10px;
+  background: rgba(248, 250, 255, .97);
+  border-top: 1px solid #dce6f5;
+  box-shadow: 0 -6px 20px rgba(35, 49, 71, .08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.draw-action-dock > .btn { width: 100%; min-height: 50px; margin: 0; padding: 12px 8px; border-radius: 13px; box-shadow: none; font-size: 15px; line-height: 1.5; white-space: pre-line; word-break: keep-all; }
+.draw-action-dock .btn-share-retry { background: #fee500; color: #191919; }
+.draw-dock-secondary { display: block; margin: 7px auto 0; padding: 4px 8px; border: 0; background: transparent; color: #1967d2; font: 600 12px/1.5 inherit; cursor: pointer; }
+.draw-dock-secondary[hidden] { display: none; }
+.draw-action-dock .status-note { margin: 7px 0 0; color: #667286; font-size: 11px; line-height: 1.5; text-align: center; word-break: keep-all; }
+.view-content:has(.draw-action-dock) + .site-privacy-footer { padding-bottom: calc(92px + 10rem + env(safe-area-inset-bottom, 0px)); }
+/* Approved B layout: keep the complete prize decision above the fixed retry dock. */
+.view-content:has(.draw-action-dock) { gap: 12px; padding: 14px 16px 0; }
+.view-content:has(.draw-action-dock) > .card { gap: 10px; padding: 18px; border: 1px solid #e2e8f0; box-shadow: 0 4px 18px rgba(35, 49, 71, .025); }
+.view-content:has(.draw-action-dock) > .card h2 { margin: 0; font-size: 19px; line-height: 1.4; letter-spacing: -.03em; text-align: center; }
+.view-content:has(.draw-action-dock) .sticker-badge { padding: 4px 9px; font-size: 11px; box-shadow: none; }
+.view-content:has(.draw-action-dock) .pouch-selection-container { gap: 10px; }
+.view-content:has(.draw-action-dock) .pouch-selection-description { display: none; }
+.view-content:has(.draw-action-dock) .draw-round-progress { margin: 0; color: #6b7280; font-size: 11px; }
+.view-content:has(.draw-action-dock) .pouch-grid { gap: 9px; margin: 5px 0; }
+.view-content:has(.draw-action-dock) .pouch-item { gap: 4px; padding: 9px 4px; border-radius: 14px; background: #f8faff; }
+.view-content:has(.draw-action-dock) .pouch-icon { width: 56px; height: 54px; font-size: 40px; }
+.view-content:has(.draw-action-dock) .pouch-label { font-size: 11px; }
+.view-content:has(.draw-action-dock) #btn-open-pouch { min-height: 46px; margin: 0; padding: 12px; border-radius: 12px; background: #188038; box-shadow: none; font-size: 15px; }
+.view-content:has(.draw-action-dock) #btn-open-pouch:disabled { background: #e6f4ea; color: #6f9177; opacity: 1; }
+.view-content:has(.draw-action-dock) .scratch-stage-container { gap: 11px; }
+.view-content:has(.draw-action-dock) .scratch-ticket { height: 180px; padding: 9px; border-radius: 16px; box-shadow: 0 5px 14px rgba(25, 103, 210, .1); }
+.view-content:has(.draw-action-dock) .ticket-header { font-size: 10px; }
+.view-content:has(.draw-action-dock) #scratch-instruction { margin: 0; font-size: 12px; line-height: 1.5; text-align: center; }
+.view-content:has(.draw-action-dock) #restored-pouch,
+.view-content:has(.draw-action-dock) #scratch-save-status { margin: 0; color: #77818b; font-size: 11px; line-height: 1.5; }
+.view-content:has(.draw-action-dock) #btn-instant-reveal,
+.view-content:has(.draw-action-dock) #btn-after-draw,
+.view-content:has(.draw-action-dock) #btn-draw-again { min-height: 43px; margin: 0; padding: 11px; border-radius: 12px; box-shadow: none; font-size: 15px; }
+.view-content:has(.draw-action-dock) #btn-after-draw { background: #e8f0fe; color: #1967d2; }
+.draw-score-line { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.draw-score-line strong { font-size: 27px; line-height: 1.2; letter-spacing: -.04em; }
+.draw-rank-pill { padding: 4px 9px; border-radius: 999px; background: #e8f0fe; font-size: 12px; font-weight: 750; }
+.draw-rank-target { margin: 6px 0 0; color: #202124; font-size: 14px; font-weight: 700; line-height: 1.45; white-space: pre-line; }
+.post-reveal-actions { display: flex; flex-direction: column; gap: 12px; }
+.post-reveal-actions[hidden] { display: none; }
+.post-reveal-actions > .btn { margin: 0; white-space: pre-line; }
+.post-reveal-actions #btn-draw-share,
+.post-reveal-actions #btn-draw-game,
+.post-reveal-actions #draw-share-status { display: none !important; }
+.actual-prize-result .post-reveal-actions #btn-draw-share { display: block !important; }
+.post-reveal-actions .status-note { margin: 0; font-size: 13px; line-height: 1.6; text-align: center; }
+.post-reveal-actions #btn-draw-share { order: 1; }
+.post-reveal-actions #draw-share-status { order: 2; }
+.post-reveal-actions #btn-draw-again { order: 3; }
+.post-reveal-actions #btn-draw-game { order: 4; }
+.post-reveal-actions #draw-top3-note { order: 5; }
+.post-reveal-actions #draw-top3-request { order: 6; text-align: left; }
+
+.claim-contact-modal { padding: 20px; }
+.claim-contact-modal .modal-title { margin-bottom: 8px; color: #5f6368; font-size: 14px; font-weight: 650; }
+.claim-contact-modal .modal-body { margin-bottom: 14px; }
+.claim-contact-modal .modal-actions .btn { min-height: 50px; padding: 12px 10px; white-space: normal; word-break: keep-all; }
+.claim-contact-modal .modal-actions .btn-primary { flex: 1.8; }
+.claim-immediate-heading { display: grid; gap: 8px; margin-bottom: 8px; text-align: center; }
+.claim-immediate-heading h2 { margin: 0; color: #202124; font-size: 23px; line-height: 1.35; letter-spacing: -.04em; }
+.claim-immediate-heading p { margin: 0; color: #5f6368; font-size: 13px; line-height: 1.6; word-break: keep-all; }
+.claim-immediate-form .consent-row { align-items: center; line-height: 1.5; white-space: pre-line; }
+.claim-immediate-form .consent-row input { flex: 0 0 18px; width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
+.claim-immediate-form .contact-accuracy,.claim-immediate-form .result-contact-accuracy { margin: 0; text-align: center; font-size: 11px; line-height: 1.55; white-space: pre-line; }
+
+@media (max-width: 520px) {
+  .modal-overlay:has(.claim-contact-modal) { align-items: flex-end; padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
+  .claim-contact-modal { max-width: 440px; max-height: calc(100dvh - 24px); border-radius: 24px 24px 18px 18px; }
+}

@@ -1,3 +1,7 @@
+import { benefitRetryAvailability, benefitRewardMessage } from '../benefit_retry.js';
+import { showGameGuide } from '../components/game_guide.js';
+import { ResultView } from './result_view.js';
+import { PrizeView } from './prize_view.js';
 import { api } from '../api.js';
 import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
@@ -29,6 +33,7 @@ export const DrawView = {
   resultViewed: false,
   activeDrawContext: null,
   activeSelectionContext: null,
+  dockContext: null,
   postActionVersion: 0,
 
   async render(container, router, renderToken) {
@@ -53,9 +58,15 @@ export const DrawView = {
     if (state.status === 'LOCKED') return this.renderLocked(container, router);
     const latestNeedsAttention = state.draw && state.draw.scratch_completed !== true;
     if ((['DRAWN', 'WON', 'EXHAUSTED'].includes(state.status) || latestNeedsAttention) && state.draw) {
-      return this.renderScratch(container, router, state.draw, renderToken, state);
+      this.renderScratch(container, router, state.draw, renderToken, state);
+    } else {
+      this.renderSelection(container, router, renderToken);
     }
-    return this.renderSelection(container, router, renderToken);
+    Promise.resolve().then(() => {
+      // A confirmed physical prize owns the first modal. TOP3 remains available
+      // from the compact request card after the prize contact flow is closed.
+      if (router.isCurrent(renderToken) && typeof ResultView !== 'undefined' && !isActualPrizeDraw(state.draw)) ResultView.openTop3Modal(router, renderToken);
+    });
   },
 
   renderLocked(container, router) {
@@ -70,10 +81,12 @@ export const DrawView = {
 
   renderSelection(container, router, renderToken = this.renderToken) {
     const drawState = router.state?.draw || {};
+    const selectionTitle = Number(drawState.used_count || 0) === 0 ? '이번 판 경품도 받아가세요' : '경품을 한 번 더 뽑아보세요';
     container.innerHTML = `
+      <div id="draw-game-summary" class="draw-game-summary" hidden></div>
       <section class="card pouch-selection-container">
         <span class="sticker-badge badge-yellow">최대 10회</span>
-        <h2>복주머니 하나를 골라주세요</h2>
+        <h2>${selectionTitle}</h2>
         <p class="draw-round-progress">사용 ${Number(drawState.used_count || 0)}/${Number(drawState.max_count || 10)}회 · 남은 뽑기권 ${Number(drawState.available_credits || 0)}장</p>
         <p class="pouch-selection-description">하나를 고르면 결과가 정해져요.<br>정해진 결과는 새로고침해도 같아요.</p>
         <div class="pouch-grid">
@@ -82,7 +95,8 @@ export const DrawView = {
           <button class="pouch-item wiggle" data-index="2"><span class="pouch-icon">🧧</span><span class="pouch-label">3번</span></button>
         </div>
         <button id="btn-open-pouch" class="btn btn-primary" disabled>선택한 주머니 열기</button>
-      </section>`;
+      </section>
+      ${this.dockMarkup()}`;
     const open = container.querySelector('#btn-open-pouch');
     const pouches = [...container.querySelectorAll('.pouch-item')];
     const description = container.querySelector('.pouch-selection-description');
@@ -170,6 +184,8 @@ export const DrawView = {
         ui.showToast(error.message);
       }
     };
+    this.renderGameSummary(container, router);
+    this.updateActionDock(container, router, renderToken);
     this.updateSelectionCampaignState(container, router, renderToken);
   },
 
@@ -191,11 +207,13 @@ export const DrawView = {
       context.open.disabled = this.selectedPouch == null;
       if (context.description) context.description.innerHTML = '하나를 고르면 결과가 정해져요.<br>정해진 결과는 새로고침해도 같아요.';
     }
+    this.updateActionDock(container, router, renderToken);
   },
 
   renderScratch(container, router, draw, renderToken = this.renderToken, drawState = router.state?.draw || {}) {
     this.cleanup();
     container.innerHTML = `
+      <div id="draw-game-summary" class="draw-game-summary" hidden></div>
       <section class="card scratch-stage-container">
         <span class="sticker-badge badge-blue">${Number(draw.round_number || drawState.used_count || 1)}/${Number(drawState.max_count || 10)}회 결과</span>
         <h2 id="scratch-title">복권을 긁어 결과를 확인하세요</h2>
@@ -212,10 +230,17 @@ export const DrawView = {
         <p id="scratch-save-status" class="status-note" role="status"></p>
         <div id="post-reveal-actions" class="post-reveal-actions" hidden>
           <button id="btn-after-draw" class="btn btn-primary"></button>
+          <button id="btn-draw-again" class="btn btn-prize-draw" type="button" hidden>🧧 한 번 더 뽑기</button>
+          <button id="btn-draw-game" class="btn btn-secondary" type="button" hidden>게임 다시 하기</button>
           <button id="btn-draw-share" class="btn btn-share-retry" type="button" hidden></button>
           <p id="draw-share-status" class="status-note" role="status"></p>
+          <p id="draw-top3-note" class="result-gap" hidden></p>
+          <div id="draw-top3-request"></div>
         </div>
-      </section>`;
+      </section>
+      ${this.dockMarkup()}`;
+    this.renderGameSummary(container, router);
+    this.updateActionDock(container, router, renderToken);
     const prize = draw.prize || {};
     const resultContent = container.querySelector('#scratch-result-content');
     resultContent.setAttribute('aria-hidden', 'true');
@@ -224,23 +249,30 @@ export const DrawView = {
     scratchCanvas.tabIndex = 0;
     const img = container.querySelector('#result-prize-img');
     const actualPrize = draw.is_actual_prize === true || draw.outcome_kind === 'PRIZE' || draw.is_won === true;
+    container.querySelector('.scratch-stage-container')?.classList.toggle('actual-prize-result', actualPrize);
     img.src = prize.image_url || (actualPrize ? '/assets/icons/Heart-Dark.png' : '/assets/icons/Rocket-Dark.png');
     img.alt = actualPrize ? '당첨 경품' : 'Gemini 1년 무료 혜택';
     ui.text(container.querySelector('#result-prize-title'), actualPrize ? prize.name : '축하드려요!');
     ui.text(container.querySelector('#result-prize-sub'), actualPrize ? '운영자가 정보를 확인하고 직접 연락해 지급합니다.' : 'Gemini 1년 무료 당첨');
     if (Number.isInteger(draw.pouch_index)) ui.text(container.querySelector('#restored-pouch'), `${draw.pouch_index + 1}번 주머니에서 정해진 결과예요. 새로고침해도 같아요.`);
     const after = container.querySelector('#btn-after-draw');
-    after.textContent = actualPrize ? '수령함에서 확인하기' : '혜택 적용하기';
-    after.onclick = () => router.navigate(actualPrize ? 'claims' : 'benefit');
+    after.textContent = actualPrize ? '수령 정보 입력' : '혜택 적용하기';
+    after.disabled = actualPrize && !draw.scratch_completed;
+    after.onclick = () => {
+      if (after.disabled) return;
+      return actualPrize ? this.maybeOpenActualPrizeClaim(container, router, renderToken, draw, { force: true }) : router.navigate('benefit');
+    };
     this.activeDrawContext = { container, router, renderToken, draw, drawState, actualPrize, resultRevealed: false };
     const preparePostActions = () => {
       const context = this.activeDrawContext;
       if (!context || context.renderToken !== renderToken || !context.resultRevealed || context.draw.scratch_completed !== true) return;
-      void this.preparePostDrawShare(container, router, renderToken, draw, context.drawState, actualPrize);
+      if (actualPrize) void this.maybeOpenActualPrizeClaim(container, router, renderToken, draw);
+      void this.preparePostDrawShare(container, router, renderToken, draw, context.drawState, actualPrize, { prepareShare: actualPrize });
+      void this.updateActionDock(container, router, renderToken);
     };
     const showResult = () => {
       if (!router.isCurrent(renderToken)) return;
-      ui.text(container.querySelector('#scratch-title'), '복주머니 결과를 확인하세요');
+      ui.text(container.querySelector('#scratch-title'), actualPrize ? '경품 당첨을 축하드려요!' : 'Gemini 혜택을 받았어요!');
       const instruction = container.querySelector('#scratch-instruction');
       ui.text(instruction, '');
       instruction.hidden = true;
@@ -258,6 +290,8 @@ export const DrawView = {
         analytics.track('draw_result_viewed', { result_type: actualPrize ? 'prize' : 'benefit', round_number: Number(draw.round_number || 1) }, { dedupKey: `draw-result:${draw.draw_id}` });
       }
       if (this.activeDrawContext?.renderToken === renderToken) this.activeDrawContext.resultRevealed = true;
+      this.renderTop3Result(container, router);
+      this.updateActionDock(container, router, renderToken);
       router.announceStateChange();
     };
     const persistReveal = async () => {
@@ -272,9 +306,11 @@ export const DrawView = {
       const revealButton = container.querySelector('#btn-instant-reveal');
       status.textContent = '결과 확인 상태를 저장하는 중...';
       try {
-        await api.completeScratch(draw.draw_id, eventId);
+        const completed = await api.completeScratch(draw.draw_id, eventId);
         if (!router.isCurrent(requestToken)) return;
         draw.scratch_completed = true;
+        if (completed?.claim_id) draw.claim_id = completed.claim_id;
+        after.disabled = false;
         storageRemove(storageKey);
         status.textContent = '결과 확인이 저장됐습니다.';
         analytics.track('scratch_completed', { result_type: actualPrize ? 'prize' : 'benefit', prize_kind: prize.category || 'NONE', round_number: Number(draw.round_number || 1) }, { dedupKey: `scratch:${draw.draw_id}` });
@@ -305,60 +341,220 @@ export const DrawView = {
     }
   },
 
-  async preparePostDrawShare(container, router, renderToken, draw, drawState, actualPrize) {
+  renderGameSummary(container, router) {
+    const summary = container.querySelector('#draw-game-summary');
+    const result = router.state?.lastResult;
+    if (!summary || !result) return;
+    summary.hidden = false;
+    summary.replaceChildren();
+    const line = document.createElement('div'); line.className = 'draw-score-line';
+    const score = document.createElement('strong'); score.textContent = `${Number(result.score || 0).toLocaleString('ko-KR')}점`;
+    const rank = document.createElement('span'); rank.className = 'draw-rank-pill'; rank.textContent = result.rank ? `현재 ${result.rank}위` : '순위 집계 중';
+    line.append(score, rank); summary.appendChild(line);
+    const target = document.createElement('p'); target.className = 'draw-rank-target'; target.textContent = ResultView.top3GapMessage(result);
+    summary.appendChild(target);
+  },
+
+  renderTop3Result(container, router) {
+    const target = container.querySelector('#draw-top3-request');
+    if (!target) return;
+    const profile = router.state.top3Profile || router.state.lastResult?.top3Profile;
+    ResultView.renderTop3Request(target, router, profile);
+    const note = container.querySelector('#draw-top3-note');
+    if (note) {
+      note.hidden = target.hidden;
+      if (!target.hidden) note.textContent = ResultView.top3GapMessage(router.state.lastResult || {});
+    }
+  },
+
+  async maybeOpenActualPrizeClaim(container, router, renderToken, draw, { force = false } = {}) {
+    if (!router.isCurrent(renderToken) || !draw?.scratch_completed) return false;
+    let claim = draw.claim_id ? {
+      id: draw.claim_id,
+      claim_type: 'DRAW',
+      prize_name: prizeName(draw),
+      category: draw.prize?.category || draw.category,
+      status: 'AWAITING_INFORMATION',
+      contact_submitted: false,
+    } : null;
+    try {
+      const response = await api.getClaims();
+      if (!router.isCurrent(renderToken)) return false;
+      const claims = response?.claims || [];
+      claim = draw.claim_id
+        ? claims.find((item) => item.id === draw.claim_id) || claim
+        : claims.find((item) => (item.claim_type || item.type) === 'DRAW' && Boolean(item.draw_id) && item.draw_id === draw.draw_id && !item.contact_submitted) || null;
+    } catch (_) { /* A claim id returned with the draw is enough to keep the immediate flow usable. */ }
+    if (!claim?.id) {
+      ui.showToast('수령 정보 준비가 덜 끝났어요. 수령함에서 다시 시도해 주세요.');
+      return false;
+    }
+    if (claim.contact_submitted || ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID'].includes(claim.status)) {
+      const after = container.querySelector?.('#btn-after-draw');
+      if (after) {
+        after.textContent = '혜택 보러 가기';
+        after.onclick = () => router.navigate('benefit');
+      }
+      if (force) router.navigate('benefit');
+      return true;
+    }
+    const options = { onSubmitted: () => router.navigate('benefit') };
+    return force
+      ? PrizeView.directClaimModal(claim, router, renderToken, options)
+      : PrizeView.openImmediateClaim(claim, router, renderToken, options);
+  },
+
+  dockMarkup() {
+    return `<aside class="draw-action-dock" aria-label="게임 재도전">
+      <button id="draw-dock-primary" class="btn btn-secondary" type="button" disabled>재도전 준비 중</button>
+      <button id="draw-dock-secondary" class="draw-dock-secondary" type="button" hidden></button>
+      <p id="draw-dock-status" class="status-note" role="status"></p>
+    </aside>`;
+  },
+
+  async updateActionDock(container, router, renderToken) {
+    const primary = container.querySelector('#draw-dock-primary');
+    const secondary = container.querySelector('#draw-dock-secondary');
+    const status = container.querySelector('#draw-dock-status');
+    if (!primary || !secondary || !status || !router.isCurrent(renderToken)) return;
+    const drawState = router.state?.draw || {};
+    const tickets = router.state?.tickets || {};
+    const active = campaignStatus(router) === 'ACTIVE';
+    const context = this.activeDrawContext?.renderToken === renderToken ? this.activeDrawContext : null;
+    const benefitResult = Boolean(context && !context.actualPrize && context.resultRevealed && context.draw?.scratch_completed === true);
+    const availability = benefitRetryAvailability(drawState, tickets, campaignStatus(router));
+    const cooldown = Date.parse(tickets.cooldown_until || '') > Date.now();
+    const capped = Number(tickets.invitation || 0) + Number(tickets.invitation_reserved || 0) >= 3;
+    const gameReady = tickets.unlimited_play === true || Number(tickets.available_total ?? (Number(tickets.initial || 0) + Number(tickets.invitation || 0))) > 0;
+    const gameGrant = active && !cooldown && !capped;
+    const drawGrant = benefitResult && availability.drawGrant;
+    const sharePossible = gameGrant || drawGrant;
+    const kind = benefitResult ? 'benefit_retry' : 'retry_invite';
+    const key = JSON.stringify([kind, context?.draw?.draw_id || 'before-draw', gameGrant, drawGrant]);
+
+    primary.textContent = gameReady ? '한 판 더 하기' : sharePossible ? '친구에게 공유하고\n다시 도전하기' : active ? '게임권 적립 대기 중' : '행사가 종료됐어요';
+    primary.className = `btn ${gameReady ? 'btn-primary' : sharePossible ? 'btn-share-retry' : 'btn-secondary'}`;
+    secondary.hidden = !gameReady || !sharePossible;
+    secondary.textContent = drawGrant && gameGrant ? '공유하고 게임권 + 뽑기권 받기' : gameGrant ? '공유하고 게임권 더 받기' : '공유하고 경품 한 번 더 뽑기';
+    ui.text(status, !active
+      ? '새 게임과 추가 적립이 종료됐어요.'
+      : drawGrant && gameGrant ? '카카오톡 전송 확인 시 게임권 1장 + 경품 뽑기 1회'
+      : drawGrant ? '경품 뽑기 1회 지급 · 게임권은 적립 대기 중'
+      : gameGrant ? '카카오톡 전송 확인 시 게임권 1장'
+      : gameReady ? '보유 중인 게임권으로 바로 도전할 수 있어요.' : availability.message);
+
+    const mounted = () => router.isCurrent(renderToken) && container.querySelector('#draw-dock-primary') === primary;
+    const runGame = () => { if (mounted() && active && gameReady) showGameGuide(router, true); };
+    const current = this.dockContext;
+    if (current?.failed && current.key === key) {
+      if (gameReady) secondary.textContent = '공유 다시 준비하기';
+      else primary.textContent = '공유 다시 준비하기';
+      ui.text(status, '공유 준비를 불러오지 못했어요. 버튼을 눌러 다시 시도해 주세요.');
+    }
+    primary.onclick = gameReady ? runGame : () => current?.key === key && current.share?.();
+    secondary.onclick = () => current?.key === key && current.share?.();
+    primary.disabled = !gameReady && (!sharePossible || current?.key !== key || current.busy);
+    secondary.disabled = current?.key !== key || current.busy;
+    if (!sharePossible || current?.key === key || current?.preparingKey === key) return;
+
+    const dock = { key: '', preparingKey: key, share: null, busy: false, failed: false };
+    this.dockContext = dock;
+    try {
+      const prepared = await prepareResultReferralShare(router, {
+        kind,
+        onReceipt: (receipt) => {
+          if (!mounted()) return;
+          if (receipt?.tickets) router.state.tickets = receipt.tickets;
+          if (receipt?.draw_state) router.state.draw = receipt.draw_state;
+          ui.text(status, benefitRewardMessage(receipt));
+          dock.busy = false;
+          dock.key = '';
+          void this.updateActionDock(container, router, renderToken);
+        },
+      });
+      if (!mounted() || this.dockContext !== dock) return;
+      dock.key = key;
+      dock.preparingKey = '';
+      dock.share = async () => {
+        if (dock.busy || !mounted()) return;
+        dock.busy = true;
+        primary.disabled = true;
+        secondary.disabled = true;
+        try {
+          const outcome = await prepared.share();
+          if (mounted() && outcome?.status === 'pending') ui.text(status, '전송 확인 중이에요. 확인되면 보상이 지급돼요.');
+        } finally {
+          dock.busy = false;
+          if (mounted()) void this.updateActionDock(container, router, renderToken);
+        }
+      };
+      this.updateActionDock(container, router, renderToken);
+    } catch (_) {
+      if (!mounted() || this.dockContext !== dock) return;
+      dock.preparingKey = '';
+      dock.key = key;
+      dock.failed = true;
+      dock.share = () => {
+        if (!mounted()) return;
+        dock.key = '';
+        this.dockContext = null;
+        void this.updateActionDock(container, router, renderToken);
+      };
+      ui.text(status, '공유 준비를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.');
+      this.updateActionDock(container, router, renderToken);
+    }
+  },
+
+  async preparePostDrawShare(container, router, renderToken, draw, drawState, actualPrize, { prepareShare = true } = {}) {
     const button = container.querySelector('#btn-draw-share');
     const status = container.querySelector('#draw-share-status');
     if (!button || !status) return;
-    const used = Number(drawState.used_count ?? draw.round_number ?? 1);
-    const max = Number(drawState.max_count || 10);
-    const availableCredits = Number(drawState.available_credits || 0);
-    const statusNow = campaignStatus(router);
-    const actionKey = actualPrize ? 'prize' : `${availableCredits > 0 ? `direct:${availableCredits}` : used >= max ? `exhausted:${max}` : `share:${used}:${max}`}:${statusNow}`;
+    const available = benefitRetryAvailability(drawState, router.state.tickets, campaignStatus(router));
+    const isMounted = () => !router.isCurrent || router.isCurrent(renderToken);
+    const again = container.querySelector('#btn-draw-again');
+    if (again) {
+      again.hidden = actualPrize || !available.drawReady;
+      again.disabled = !available.active;
+      again.onclick = () => { if (isMounted() && !again.disabled && !again.hidden) router.navigate('draw'); };
+    }
+    const game = container.querySelector('#btn-draw-game');
+    if (game) {
+      game.hidden = !available.gameReady;
+      game.disabled = !available.active;
+      game.onclick = () => { if (isMounted() && !game.disabled && !game.hidden) showGameGuide(router, true); };
+    }
+    if (!prepareShare) return;
     const context = this.activeDrawContext?.renderToken === renderToken ? this.activeDrawContext : null;
+    const actionKey = JSON.stringify([actualPrize, available.drawGrant, available.gameGrant, available.active]);
+    button.hidden = !actualPrize && !available.drawGrant && !available.gameGrant;
+    ui.text(status, context?.receipt ? benefitRewardMessage(context.receipt) : actualPrize ? '' : available.message);
     if (context?.actionKey === actionKey || context?.preparingActionKey === actionKey) return;
     if (context) context.preparingActionKey = actionKey;
     const actionVersion = ++this.postActionVersion;
-    const isCurrent = () => (!router.isCurrent || router.isCurrent(renderToken)) && actionVersion === this.postActionVersion;
-    if (!actualPrize && availableCredits > 0) {
-      button.hidden = false;
-      button.disabled = statusNow !== 'ACTIVE';
-      button.textContent = button.disabled ? (statusNow === 'NOT_OPEN' ? '행사 시작 후 한 번 더 뽑기' : statusNow === 'ENDED' ? '추가 뽑기가 종료됐어요' : '추가 뽑기가 잠시 중단됐어요') : '한 번 더 뽑기';
-      ui.text(status, button.disabled ? '저장된 결과는 계속 확인할 수 있어요.' : `사용 가능한 복주머니가 ${availableCredits}개 있어요.`);
-      button.onclick = () => {
-        if (!isCurrent() || campaignStatus(router) !== 'ACTIVE') return;
-        router.state.draw = { ...drawState };
-        router.navigate('draw');
-      };
-      if (context) { context.actionKey = actionKey; context.preparingActionKey = null; }
-      return;
-    }
-    if (!actualPrize && used >= max) {
-      ui.text(status, `${max}회 복주머니를 모두 확인했어요.`);
-      if (context) { context.actionKey = actionKey; context.preparingActionKey = null; }
-      return;
-    }
-    button.hidden = false;
+    const isCurrent = () => isMounted() && actionVersion === this.postActionVersion;
     button.disabled = true;
-    button.textContent = actualPrize ? '카카오톡으로 당첨 자랑하기' : '카카오톡으로 공유하고\n한 번 더 뽑기';
-    if (!actualPrize && statusNow !== 'ACTIVE') {
-      button.textContent = statusNow === 'NOT_OPEN' ? '행사 시작 후 공유하기' : statusNow === 'ENDED' ? '추가 뽑기 공유가 종료됐어요' : '추가 뽑기 공유가 잠시 중단됐어요';
-      ui.text(status, '저장된 혜택 결과는 계속 확인할 수 있어요.');
+    button.textContent = actualPrize ? '카카오톡으로 당첨 자랑하기' : '친구에게 공유하고\n다시 도전하기';
+    if (button.hidden) {
       if (context) { context.actionKey = actionKey; context.preparingActionKey = null; }
       return;
     }
     try {
       const prepared = await prepareResultReferralShare(router, {
-        kind: actualPrize ? 'prize_share' : 'draw_retry',
+        kind: actualPrize ? 'prize_share' : 'benefit_retry',
         info: actualPrize ? { won_prize_name: prizeName(draw) } : {},
         onReceipt: (receipt) => {
-          if (!isCurrent() || actualPrize || receipt?.reward_type !== 'DRAW') return;
-          if (receipt.draw_state) {
-            router.state.draw = receipt.draw_state;
-            if (this.activeDrawContext?.renderToken === renderToken) this.activeDrawContext.drawState = receipt.draw_state;
+          // A balance refresh may replace the prepared action while Kakao is open.
+          if (!isMounted() || actualPrize || !['BOTH', 'DRAW'].includes(receipt?.reward_type)) return;
+          if (receipt.tickets) router.state.tickets = receipt.tickets;
+          if (receipt.draw_state) router.state.draw = receipt.draw_state;
+          if (context && this.activeDrawContext === context) {
+            context.drawState = { ...context.drawState, ...(receipt.draw_state || {}) };
+            context.receipt = receipt;
           }
-          if (receipt.status === 'confirmed' && receipt.reward_status === 'granted') {
-            void this.updateState(container, router, renderToken);
-          } else if (receipt.status !== 'pending') ui.text(status, '추가 뽑기권을 받을 수 없는 상태예요.');
+          if (receipt.status !== 'pending') {
+            void this.preparePostDrawShare(container, router, renderToken, draw, router.state.draw || drawState, actualPrize);
+            ui.text(status, benefitRewardMessage(receipt));
+          }
         },
       });
       if (!isCurrent()) return;
@@ -367,10 +563,11 @@ export const DrawView = {
       button.onclick = async () => {
         if (button.disabled || !isCurrent() || (!actualPrize && campaignStatus(router) !== 'ACTIVE')) return;
         button.disabled = true;
+        if (context) context.receipt = null;
         try {
           const outcome = await prepared.share();
           if (!isCurrent()) return;
-          if (outcome?.status === 'pending') ui.text(status, actualPrize ? '카카오톡 공유창을 열었어요.' : '전송 확인 후 새 복주머니가 열려요.');
+          if (outcome?.status === 'pending' && !context?.receipt) ui.text(status, actualPrize ? '카카오톡 공유창을 열었어요.' : '전송 확인 중이에요. 확인되면 받을 수 있는 재도전권이 적립돼요.');
           else if (outcome?.status === 'failed') ui.text(status, '공유를 열지 못했어요. 다시 시도해 주세요.');
         } finally { if (isCurrent()) button.disabled = !actualPrize && campaignStatus(router) !== 'ACTIVE'; }
       };
@@ -386,13 +583,18 @@ export const DrawView = {
   async updateState(container, router, renderToken) {
     if (this.activeSelectionContext?.container === container && this.activeSelectionContext?.renderToken === renderToken) {
       this.updateSelectionCampaignState(container, router, renderToken);
+      await this.updateActionDock(container, router, renderToken);
       return;
     }
     const context = this.activeDrawContext;
     if (!context || context.container !== container || context.renderToken !== renderToken || !router.isCurrent(renderToken)) return;
     context.drawState = { ...context.drawState, ...(router.state?.draw || {}) };
+    this.renderGameSummary(container, router);
+    await this.updateActionDock(container, router, renderToken);
     if (!context.resultRevealed || context.draw.scratch_completed !== true) return;
-    await this.preparePostDrawShare(container, router, renderToken, context.draw, context.drawState, context.actualPrize);
+    this.renderTop3Result(container, router);
+    await this.preparePostDrawShare(container, router, renderToken, context.draw, context.drawState, context.actualPrize, { prepareShare: context.actualPrize });
+    await this.updateActionDock(container, router, renderToken);
   },
 
   renderError(container, router, error) {
@@ -409,10 +611,15 @@ export const DrawView = {
     this.resultViewed = false;
     this.activeDrawContext = null;
     this.activeSelectionContext = null;
+    this.dockContext = null;
     this.postActionVersion += 1;
   },
 };
 
 function prizeName(draw) {
   return String(draw?.prize?.name || '상품').trim() || '상품';
+}
+
+function isActualPrizeDraw(draw) {
+  return draw?.is_actual_prize === true || draw?.outcome_kind === 'PRIZE' || draw?.is_won === true;
 }

@@ -103,14 +103,14 @@ for (const status of ['ACTIVE', 'RESERVED', 'FAULT_REPORTED']) test(`${status} i
   assert.equal(loaded.stored.has('dino_snapshot_session-1'), false);
 });
 
-test('a concurrently finished game shows its result instead of being restarted', async () => {
+test('a concurrently finished game enters the verified draw flow instead of being restarted', async () => {
   const result = { session_id: 'session-1', score: 300, best_score: 300, rank: 2 };
   const loaded = loadGameView({ abandonSession: async () => ({ status: 'FINISHED', result }) });
   const routes = [];
   const router = { isCurrent: () => true, state: { tickets: {} }, navigate: (route) => routes.push(route), announceStateChange() {}, updateNav() {} };
   loaded.view.startNewSession = () => assert.fail('finished game must not restart');
   await loaded.view.renderInterruptedSession({ replaceChildren() {}, appendChild() {} }, router, 1, { id: 'session-1' });
-  assert.deepEqual(routes, ['result']);
+  assert.deepEqual(routes, ['draw']);
   assert.equal(router.state.lastResult.score, 300);
 });
 

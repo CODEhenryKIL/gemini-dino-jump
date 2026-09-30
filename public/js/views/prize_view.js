@@ -1,9 +1,13 @@
+import { benefitRetryAvailability, benefitRewardMessage } from '../benefit_retry.js';
+import { showGameGuide } from '../components/game_guide.js';
 import { api } from '../api.js';
 import { analytics } from '../analytics.js';
 import { ui } from '../ui.js';
 import { prepareResultReferralShare } from '../referral_share.js';
 
 const campaignStatus = (router) => router.campaignStatus?.() || router.config?.campaign?.status || 'ACTIVE';
+const claimDrafts = new Map();
+const autoOpenedClaims = new Set();
 
 const STATUS_LABELS = {
   AWAITING_INFORMATION: '정보 입력 대기',
@@ -70,79 +74,70 @@ export const PrizeView = {
     return this.render(container, router, renderToken, { keepContent: true });
   },
 
-  benefitCard(drawState, router, renderToken) {
+  benefitCard(initialDrawState, router, renderToken) {
+    let drawState = initialDrawState;
     const card = document.createElement('section'); card.className = 'card claim-card claim-benefit-card';
     const header = document.createElement('div'); header.className = 'claim-card-header';
     const name = document.createElement('h2'); name.textContent = 'Gemini 1년 무료 혜택';
     const badge = document.createElement('span'); badge.className = 'sticker-badge badge-blue'; badge.textContent = '혜택';
     header.append(name, badge);
-    const help = document.createElement('p'); help.className = 'claim-help'; help.textContent = '공식 혜택을 확인하거나 친구에게 공유하고 복주머니를 한 번 더 열어 보세요.';
     const actions = document.createElement('div'); actions.className = 'claim-benefit-actions';
     const benefit = document.createElement('button'); benefit.type = 'button'; benefit.className = 'btn btn-secondary btn-sm'; benefit.textContent = '혜택 보러 가기';
     benefit.onclick = () => router.navigate?.('benefit');
-    const share = document.createElement('button'); share.type = 'button'; share.className = 'btn invite-kakao-share btn-sm';
-    const availableCredits = Number(drawState?.available_credits || 0);
-    const used = Number(drawState?.used_count || 0);
-    const max = Number(drawState?.max_count || 10);
-    if (availableCredits > 0) {
-      share.textContent = '한 번 더 뽑기';
-      share.disabled = campaignStatus(router) !== 'ACTIVE';
-      if (share.disabled) share.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 한 번 더 뽑기'
-        : campaignStatus(router) === 'ENDED' ? '추가 뽑기가 종료됐어요' : '추가 뽑기가 잠시 중단됐어요';
-      share.onclick = () => { if (campaignStatus(router) === 'ACTIVE' && (!router.isCurrent || router.isCurrent(renderToken))) router.navigate?.('draw'); };
-    } else if (used < max) {
-      share.textContent = '친구에게 공유하고\n한 번 더 뽑기';
-      share.disabled = true;
-      let prepared = null;
-      let preparing = false;
-      const isCurrent = () => !router.isCurrent || router.isCurrent(renderToken);
-      const prepare = async () => {
-        if (preparing || !isCurrent()) return;
-        if (campaignStatus(router) !== 'ACTIVE') {
-          share.disabled = true;
-          share.textContent = campaignStatus(router) === 'NOT_OPEN' ? '행사 시작 후 공유하기'
-            : campaignStatus(router) === 'ENDED' ? '추가 뽑기 공유가 종료됐어요' : '추가 뽑기 공유가 잠시 중단됐어요';
-          return;
-        }
-        preparing = true;
-        share.disabled = true;
-        try {
-          const value = await prepareResultReferralShare(router, {
-            kind: 'draw_retry',
-            onReceipt: (receipt) => {
-              if (!isCurrent() || receipt?.status !== 'confirmed' || receipt?.reward_type !== 'DRAW' || receipt?.reward_status !== 'granted') return;
-              if (receipt.draw_state && router?.state) router.state.draw = receipt.draw_state;
-              share.disabled = campaignStatus(router) !== 'ACTIVE';
-              share.textContent = '한 번 더 뽑기';
-              share.onclick = () => { if (campaignStatus(router) === 'ACTIVE') router.navigate?.('draw'); };
-              void router.refreshState?.({ quiet: true })?.catch?.(() => {});
-            },
-          });
-          if (!isCurrent()) return;
-          prepared = value;
-          share.textContent = '친구에게 공유하고\n한 번 더 뽑기';
-          share.disabled = campaignStatus(router) !== 'ACTIVE';
-        } catch (_) {
-          if (!isCurrent()) return;
-          prepared = null;
-          share.disabled = campaignStatus(router) !== 'ACTIVE';
-          share.textContent = '공유 다시 준비하기';
-        } finally { preparing = false; }
-      };
-      share.onclick = async () => {
-        if (share.disabled || !isCurrent()) return;
-        if (!prepared) { await prepare(); return; }
-        share.disabled = true;
-        try { await prepared.share(); }
-        catch (error) { ui.showToast(error.message || '공유를 시작하지 못했어요.'); }
-        finally { if (share.textContent !== '한 번 더 뽑기') share.disabled = campaignStatus(router) !== 'ACTIVE'; }
-      };
-      void prepare();
-    } else {
-      share.textContent = `${max}회 복주머니 확인 완료`;
-      share.disabled = true;
-    }
-    actions.append(benefit, share); card.append(header, help, actions); return card;
+    const again = document.createElement('button'); again.type = 'button'; again.className = 'btn btn-prize-draw btn-sm'; again.textContent = '한 번 더 뽑기';
+    const game = document.createElement('button'); game.type = 'button'; game.className = 'btn btn-secondary btn-sm'; game.textContent = '게임 다시 하기';
+    const share = document.createElement('button'); share.type = 'button'; share.className = 'btn invite-kakao-share btn-sm'; share.textContent = '친구에게 공유하고\n다시 도전하기';
+    const feedback = document.createElement('p'); feedback.className = 'status-note'; feedback.setAttribute('role', 'status');
+    const isCurrent = () => !router.isCurrent || router.isCurrent(renderToken);
+    let prepared = null;
+    let preparing = false;
+    let receipt = null;
+    const update = () => {
+      const available = benefitRetryAvailability(drawState, router.state?.tickets, campaignStatus(router));
+      again.hidden = !available.drawReady; again.disabled = !available.active;
+      game.hidden = !available.gameReady; game.disabled = !available.active;
+      share.hidden = !available.drawGrant && !available.gameGrant;
+      share.disabled = !available.active || preparing;
+      feedback.textContent = receipt ? benefitRewardMessage(receipt) : available.message;
+      return available;
+    };
+    again.onclick = () => { if (isCurrent() && !again.disabled && !again.hidden) router.navigate?.('draw'); };
+    game.onclick = () => { if (isCurrent() && !game.disabled && !game.hidden) showGameGuide(router, true); };
+    const prepare = async () => {
+      if (preparing || !isCurrent()) return;
+      const available = update();
+      if (!available.drawGrant && !available.gameGrant) return;
+      preparing = true; update();
+      try {
+        const value = await prepareResultReferralShare(router, {
+          kind: 'benefit_retry',
+          onReceipt: (value) => {
+            if (!isCurrent() || !['BOTH', 'DRAW'].includes(value?.reward_type)) return;
+            receipt = value;
+            if (value.tickets) router.state.tickets = value.tickets;
+            if (value.draw_state) { drawState = value.draw_state; router.state.draw = drawState; }
+            update();
+          },
+        });
+        if (!isCurrent()) return;
+        prepared = value;
+        share.textContent = '친구에게 공유하고\n다시 도전하기';
+      } catch (_) {
+        if (!isCurrent()) return;
+        prepared = null; share.textContent = '공유 다시 준비하기';
+      } finally { preparing = false; if (isCurrent()) update(); }
+    };
+    share.onclick = async () => {
+      if (share.disabled || share.hidden || !isCurrent() || campaignStatus(router) !== 'ACTIVE') return;
+      if (!prepared) { await prepare(); return; }
+      share.disabled = true; receipt = null;
+      try { await prepared.share(); }
+      catch (error) { ui.showToast(error.message || '공유를 시작하지 못했어요.'); }
+      finally { if (isCurrent()) update(); }
+    };
+    actions.append(benefit, again, game, share, feedback); card.append(header, actions);
+    update(); void prepare();
+    return card;
   },
 
   renderEmpty(container, router) {
@@ -173,7 +168,7 @@ export const PrizeView = {
     const card = document.createElement('article'); card.className = 'card claim-card';
     const header = document.createElement('div'); header.className = 'claim-card-header';
     const name = document.createElement('h2'); name.textContent = claim.prize_name || (claimType === 'RANKING' ? 'TOP3 접수 내역' : '경품');
-    const badge = document.createElement('span'); badge.className = 'sticker-badge badge-blue'; badge.textContent = claim.draft_saved && !claim.contact_submitted ? '공유 단계 대기' : STATUS_LABELS[claim.status] || claim.status;
+    const badge = document.createElement('span'); badge.className = 'sticker-badge badge-blue'; badge.textContent = claim.draft_saved && !claim.contact_submitted ? '정보 입력 대기' : STATUS_LABELS[claim.status] || claim.status;
     header.append(name, badge);
     const help = document.createElement('p'); help.className = 'claim-help'; help.textContent = STATUS_HELP[claim.status] || '운영팀 확인 상태를 표시하고 있어요.';
     if (claimType === 'RANKING' && !['PAID', 'INELIGIBLE'].includes(claim.status)) {
@@ -182,8 +177,8 @@ export const PrizeView = {
     card.append(header);
     if (claimType === 'RANKING' || !['AWAITING_INFORMATION', 'READY'].includes(claim.status)) card.append(help);
     if (!claim.contact_submitted && !['PAID', 'INELIGIBLE'].includes(claim.status)) {
-      const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = claim.draft_saved ? '친구 공유하고 접수 완료하기' : '수령 정보 입력';
-      button.onclick = () => claim.draft_saved ? this.claimShareModal(claim, router, renderToken) : this.claimModal(claim, router, renderToken); card.appendChild(button);
+      const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = '수령 정보 입력';
+      button.onclick = () => this.directClaimModal(claim, router, renderToken); card.appendChild(button);
     }
     if (claim.contact_submitted || ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID', 'ON_HOLD', 'NO_RESPONSE'].includes(claim.status)) {
       const benefit = document.createElement('a'); benefit.className = 'btn btn-secondary btn-sm'; benefit.href = '#benefit'; benefit.textContent = 'Gemini 혜택과 활용 가이드 보기'; benefit.onclick = (event) => { event?.preventDefault?.(); router.navigate?.('benefit'); }; card.appendChild(benefit);
@@ -353,5 +348,88 @@ export const PrizeView = {
       await poll();
     };
     void restore();
+  },
+
+  async directClaimModal(claim, router, renderToken = router.renderToken, { onSubmitted = null } = {}) {
+    let closed = false;
+    const active = () => !closed && (renderToken == null || !router.isCurrent || router.isCurrent(renderToken));
+    if (!claim?.id || claim.contact_submitted) return false;
+    let serverDraft = {};
+    try { ({ draft: serverDraft = {} } = await api.getClaimDraft(claim.id)); }
+    catch (error) {
+      if (active()) ui.showToast(error.message || '수령 정보를 불러오지 못했어요. 수령함에서 다시 시도해 주세요.');
+      return false;
+    }
+    if (!active()) return false;
+    const claimType = claim.claim_type || claim.type || 'DRAW';
+    const memory = claimDrafts.get(claim.id) || {};
+    const form = document.createElement('form'); form.className = 'stack-form claim-immediate-form';
+    const intro = document.createElement('div'); intro.className = 'claim-immediate-heading';
+    const heading = document.createElement('h2'); heading.textContent = `🎉 ${claim.prize_name || '경품'} 당첨!`;
+    const guide = document.createElement('p'); guide.textContent = '경품 수령을 위해 정보를 입력해 주세요. 운영팀이 확인한 뒤 연락드려요.';
+    intro.append(heading, guide); form.appendChild(intro);
+    const definitions = [
+      ['이름', 'text', 'name', 80, 'name'], ['연락처', 'tel', 'contact', 32, 'tel'], ['학교', 'text', 'school', 120, 'organization'],
+      ...(claim.category === 'SHIPPING' ? [['주소', 'text', 'address', 300, 'street-address']] : []),
+    ];
+    const fields = definitions.map(([label, type, name, maxlength, autocomplete]) => ui.formField(label, type, name, { required: true, maxlength, autocomplete }));
+    fields.forEach(({ label, input }) => {
+      input.value = memory[input.name] ?? serverDraft?.[input.name] ?? '';
+      input.addEventListener?.('input', () => claimDrafts.set(claim.id, { ...claimDrafts.get(claim.id), [input.name]: input.value }));
+      form.appendChild(label);
+    });
+    const consent = document.createElement('label'); consent.className = 'consent-row';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.required = true; checkbox.checked = memory.consent ?? serverDraft?.consent === true;
+    checkbox.addEventListener?.('change', () => claimDrafts.set(claim.id, { ...claimDrafts.get(claim.id), consent: checkbox.checked }));
+    const words = document.createElement('span'); words.textContent = `경품 안내와 수령 확인을 위한\n이름·연락처·학교${claim.category === 'SHIPPING' ? '·주소' : ''} 수집에 동의합니다.`;
+    consent.append(checkbox, words); form.appendChild(consent);
+    const accuracy = document.createElement('p'); accuracy.className = 'result-contact-accuracy'; accuracy.textContent = '정보 오기재로 인한 연락 불가 및 경품 미수령의 책임은\n본인에게 있습니다. 입력 내용을 꼭 확인해 주세요.';
+    const contact = document.createElement('p'); contact.className = 'contact-accuracy'; contact.textContent = '문의: sea42471@naver.com';
+    form.append(accuracy, contact);
+    analytics.track('claim_form_started', { claim_type: claimType });
+    let submitting = false;
+    const submitContact = async () => {
+      if (submitting) return false;
+      if (!checkbox.checked || fields.some(({ input }) => !input.value.trim())) { ui.showToast('필수 항목을 입력하고 수집에 동의해 주세요.'); return false; }
+      const payload = { ...Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])), consent: true, notice_version: 'claim-contact-v1' };
+      claimDrafts.set(claim.id, payload);
+      submitting = true;
+      try {
+        await api.saveClaimDraft(claim.id, payload);
+        analytics.trackGa4?.('claim_draft_saved', { claim_type: claimType }, { dedupKey: `claim-draft:${claim.id}` });
+        const submitted = await api.submitClaim(claim.id, {});
+        claim.contact_submitted = true; claim.status = submitted?.status || 'INFORMATION_RECEIVED';
+        claimDrafts.delete(claim.id); autoOpenedClaims.add(claim.id);
+        analytics.track('claim_form_submitted', { claim_type: claimType }, { dedupKey: `claim-submit:${claim.id}` });
+        router.announceStateChange?.();
+        void router.refreshState?.({ quiet: true })?.catch?.(() => {});
+        if (!active()) return true;
+        closed = true;
+        if (onSubmitted) onSubmitted(submitted);
+        else router.navigate?.('benefit');
+        return true;
+      } catch (error) {
+        if (active()) ui.showToast(error.message || '접수하지 못했어요. 입력 내용은 이 화면에 유지되어요.');
+        return false;
+      } finally { submitting = false; }
+    };
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      if (await submitContact()) ui.hideModal?.();
+    };
+    ui.showModal({
+      title: '수령 정보 입력', content: form, confirmText: '저장하고 혜택 보기', cancelText: '나중에 입력', className: 'claim-contact-modal',
+      onCancel: () => { closed = true; },
+      onConfirm: submitContact,
+    });
+    return true;
+  },
+
+  async openImmediateClaim(claim, router, renderToken = router.renderToken, options = {}) {
+    if (!claim?.id || claim.contact_submitted || ['INFORMATION_RECEIVED', 'PENDING_REVIEW', 'CONTACTED', 'PAID'].includes(claim.status) || autoOpenedClaims.has(claim.id)) return false;
+    autoOpenedClaims.add(claim.id);
+    const opened = await this.directClaimModal(claim, router, renderToken, options);
+    if (!opened) autoOpenedClaims.delete(claim.id);
+    return opened;
   },
 };

@@ -89,6 +89,199 @@ class BackendPhase3Test(unittest.TestCase):
         self.assertEqual((none["reward_type"], none["reward_status"]), ("NONE", "no_reward"))
         self.assertEqual(state["available_credits"], 0)
 
+    def test_benefit_retry_grants_both_once_and_replays_durable_outcomes(self):
+        self.seed_benefits(2)
+        raw, _, participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-combined")
+        self.draw(raw)
+
+        with fixtures.app_tx() as conn:
+            intent, token = self.create_share_intent(conn, raw, kind="benefit_retry")
+            self.assertEqual((intent["reward_type"], intent["reward_contract_version"], intent["reward_status"]), ("BOTH", 3, "pending"))
+            self.assertEqual(intent["rewards"], {
+                "game": {"status": "pending", "quantity": 0},
+                "draw": {"status": "pending", "quantity": 0},
+            })
+            stored = conn.execute(
+                "select reward_contract_version from dino_dev.kakao_share_intent where id=%s",
+                (intent["share_id"],),
+            ).fetchone()
+            first = self.confirm_share(conn, intent, token, resource_id="resource_combined_once")
+            duplicate = self.confirm_share(conn, intent, token, resource_id="resource_combined_replay")
+            polled = operations.get_share_intent(conn, intent["share_id"], self.ctx(raw))[1]
+            ledgers = conn.execute("""select
+              (select count(*)::int from dino_dev.ticket_ledger
+               where participant_id=%s and source_type='SHARE_GRANT' and source_id=%s) game_grants,
+              (select count(*)::int from dino_dev.draw_credit_ledger
+               where participant_id=%s and source_type='SHARE_GRANT' and source_id=%s) draw_grants""",
+              (participant["participant"]["id"], intent["share_id"], participant["participant"]["id"], intent["share_id"])).fetchone()
+
+        expected = {
+            "game": {"status": "granted", "quantity": 1},
+            "draw": {"status": "granted", "quantity": 1},
+        }
+        self.assertEqual(stored["reward_contract_version"], 3)
+        self.assertEqual((first["reward_status"], first["rewards"]), ("granted", expected))
+        self.assertEqual((duplicate["duplicate"], duplicate["rewards"]), (True, expected))
+        self.assertEqual(polled["rewards"], expected)
+        self.assertEqual((first["tickets"]["invitation"], first["draw_state"]["available_credits"]), (1, 1))
+        self.assertEqual(tuple(ledgers.values()), (1, 1))
+
+    def test_benefit_retry_at_draw_limit_still_grants_game_only(self):
+        self.seed_benefits(10)
+        raw, _, _participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-combined-limit")
+        self.draw(raw)
+        for _index in range(9):
+            self.share(raw, "draw_retry")
+            self.draw(raw)
+
+        intent, confirmed = self.share(raw, "benefit_retry")
+        self.assertEqual(intent["draw_state"]["status"], "EXHAUSTED")
+        self.assertEqual(confirmed["reward_status"], "granted")
+        self.assertEqual(confirmed["rewards"], {
+            "game": {"status": "granted", "quantity": 1},
+            "draw": {"status": "blocked_draw_limit", "quantity": 0},
+        })
+        self.assertEqual((confirmed["tickets"]["invitation"], confirmed["draw_state"]["available_credits"]), (1, 0))
+
+    def test_benefit_retry_grants_draw_when_game_cap_includes_pending_refund(self):
+        self.seed_benefits(2)
+        raw, _, participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-combined-cap")
+        self.draw(raw)
+        with fixtures.app_tx() as conn:
+            conn.execute("""update dino_dev.participant set initial_balance=0,
+              invitation_balance=2,invitation_refund_pending=1,cooldown_until=null where id=%s""",
+              (participant["participant"]["id"],))
+            intent, token = self.create_share_intent(conn, raw, kind="benefit_retry")
+            confirmed = self.confirm_share(conn, intent, token)
+        self.assertEqual(confirmed["rewards"], {
+            "game": {"status": "blocked_cap", "quantity": 0},
+            "draw": {"status": "granted", "quantity": 1},
+        })
+        self.assertEqual((confirmed["reward_status"], confirmed["tickets"]["invitation"],
+                          confirmed["draw_state"]["available_credits"]), ("granted", 2, 1))
+
+    def test_benefit_retry_grants_draw_when_game_is_on_cooldown(self):
+        self.seed_benefits(2)
+        raw, _, participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-combined-cooldown")
+        self.draw(raw)
+        with fixtures.app_tx() as conn:
+            conn.execute("""update dino_dev.participant set initial_balance=0,
+              invitation_balance=1,invitation_refund_pending=0,
+              cooldown_until=clock_timestamp()+interval '1 hour' where id=%s""",
+              (participant["participant"]["id"],))
+            intent, token = self.create_share_intent(conn, raw, kind="benefit_retry")
+            confirmed = self.confirm_share(conn, intent, token)
+        self.assertEqual(confirmed["rewards"], {
+            "game": {"status": "blocked_cooldown", "quantity": 0},
+            "draw": {"status": "granted", "quantity": 1},
+        })
+        self.assertEqual((confirmed["reward_status"], confirmed["tickets"]["invitation"],
+                          confirmed["draw_state"]["available_credits"]), ("granted", 1, 1))
+
+    def test_benefit_retry_blocks_both_after_prize_or_campaign_becomes_ineligible(self):
+        self.seed_benefits(1)
+        raw, _, _participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-combined-prize")
+        self.draw(raw)
+        with fixtures.app_tx() as conn:
+            draw_intent, draw_token = self.create_share_intent(conn, raw, kind="draw_retry")
+            self.confirm_share(conn, draw_intent, draw_token)
+            combined, combined_token = self.create_share_intent(conn, raw, kind="benefit_retry")
+        self.seed_prize(slot_number=2)
+        self.draw(raw)
+        with fixtures.app_tx() as conn:
+            blocked = self.confirm_share(conn, combined, combined_token)
+            with self.assertRaises(operations.DomainError) as unavailable:
+                self.create_share_intent(conn, raw, kind="benefit_retry")
+        expected_prize = {
+            "game": {"status": "blocked_prize_won", "quantity": 0},
+            "draw": {"status": "blocked_prize_won", "quantity": 0},
+        }
+        self.assertEqual((blocked["reward_status"], blocked["rewards"]), ("blocked_prize_won", expected_prize))
+        self.assertEqual(unavailable.exception.code, "DRAW_SHARE_NOT_AVAILABLE")
+
+        self.seed_benefits(1, start=3)
+        other_raw, _, _participant = self.make_participant()
+        self.make_finished_session(other_raw, "phase3-combined-paused")
+        self.draw(other_raw)
+        with fixtures.app_tx() as conn:
+            paused, paused_token = self.create_share_intent(conn, other_raw, kind="benefit_retry")
+        try:
+            with psycopg.connect(fixtures.DSN) as conn:
+                conn.execute("update dino_dev.campaign set status='PAUSED' where id='gemini_dino_phase1_test'")
+            with fixtures.app_tx() as conn:
+                paused_result = self.confirm_share(conn, paused, paused_token)
+        finally:
+            with psycopg.connect(fixtures.DSN) as conn:
+                conn.execute("update dino_dev.campaign set status='ACTIVE' where id='gemini_dino_phase1_test'")
+        self.assertEqual(paused_result["rewards"], {
+            "game": {"status": "not_eligible", "quantity": 0},
+            "draw": {"status": "not_eligible", "quantity": 0},
+        })
+
+    def test_concurrent_duplicate_benefit_retry_webhooks_grant_each_reward_once(self):
+        self.seed_benefits(2)
+        raw, _, participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-combined-race")
+        self.draw(raw)
+        with fixtures.app_tx() as conn:
+            intent, token = self.create_share_intent(conn, raw, kind="benefit_retry")
+
+        def confirm(index):
+            with fixtures.app_tx() as conn:
+                return self.confirm_share(conn, intent, token, resource_id=f"resource_combined_race_{index}")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(confirm, range(2)))
+        with fixtures.app_tx() as conn:
+            counts = conn.execute("""select
+              (select count(*)::int from dino_dev.ticket_ledger
+               where participant_id=%s and source_type='SHARE_GRANT' and source_id=%s) game_grants,
+              (select count(*)::int from dino_dev.draw_credit_ledger
+               where participant_id=%s and source_type='SHARE_GRANT' and source_id=%s) draw_grants""",
+              (participant["participant"]["id"], intent["share_id"], participant["participant"]["id"], intent["share_id"])).fetchone()
+        self.assertEqual(sorted(result["duplicate"] for result in results), [False, True])
+        self.assertEqual({str(result["rewards"]) for result in results}, {str(results[0]["rewards"])})
+        self.assertEqual(tuple(counts.values()), (1, 1))
+
+    def test_benefit_retry_rejection_and_expiry_persist_not_eligible_components(self):
+        self.seed_benefits(1)
+        raw, _, _participant = self.make_participant()
+        self.make_finished_session(raw, "phase3-combined-terminal-outcomes")
+        self.draw(raw)
+        with fixtures.app_tx() as conn:
+            rejected_intent, rejected_token = self.create_share_intent(conn, raw, kind="benefit_retry")
+            expired_intent, expired_token = self.create_share_intent(conn, raw, kind="benefit_retry")
+            rejected = self.confirm_share(
+                conn, rejected_intent, rejected_token,
+                chat_type="MemoChat", IS_SINGLE_CHATROOM=True,
+            )
+            conn.execute(
+                "update dino_dev.kakao_share_intent set expires_at=clock_timestamp()-interval '1 second' where id=%s",
+                (expired_intent["share_id"],),
+            )
+            expired = self.confirm_share(conn, expired_intent, expired_token)
+            stored = conn.execute("""select status,reward_status,game_reward_status,
+              game_reward_quantity,draw_reward_status,draw_reward_quantity
+              from dino_dev.kakao_share_intent where id=any(%s) order by status""",
+              ([rejected_intent["share_id"], expired_intent["share_id"]],)).fetchall()
+        expected = {
+            "game": {"status": "not_eligible", "quantity": 0},
+            "draw": {"status": "not_eligible", "quantity": 0},
+        }
+        self.assertEqual((rejected["status"], rejected["reward_status"], rejected["rewards"]),
+                         ("rejected", "not_eligible", expected))
+        self.assertEqual((expired["status"], expired["reward_status"], expired["rewards"]),
+                         ("expired", "not_eligible", expected))
+        self.assertEqual([tuple(row.values()) for row in stored], [
+            ("EXPIRED", "NOT_ELIGIBLE", "NOT_ELIGIBLE", 0, "NOT_ELIGIBLE", 0),
+            ("REJECTED", "NOT_ELIGIBLE", "NOT_ELIGIBLE", 0, "NOT_ELIGIBLE", 0),
+        ])
+
     def test_actual_prize_is_terminal_and_late_draw_share_is_not_replayed(self):
         self.seed_benefits(1)
         raw, _, _participant = self.make_participant()

@@ -8,6 +8,8 @@ const resultGapRequests = new WeakMap();
 const contactForms = new WeakMap();
 const celebratedResults = new WeakSet();
 const preparedShares = new WeakMap();
+const top3Drafts = new WeakMap();
+const top3AutoPrompted = new WeakSet();
 
 export const ResultView = {
   render(container, router, renderToken) {
@@ -247,8 +249,10 @@ export const ResultView = {
     card.appendChild(title);
     if (profile.status === 'REQUESTED') {
       const intro = document.createElement('p'); intro.className = 'result-contact-intro';
-      intro.textContent = 'TOP3에 진입한 참가자에게는 경품 안내를 위해 수령 정보를 미리 받고 있어요.';
-      card.append(intro, this.top3Form(router));
+      intro.textContent = 'TOP3 진입 안내와 수령 정보를 이어서 입력할 수 있어요.';
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-secondary'; button.textContent = '수령 정보 입력';
+      button.onclick = () => this.openTop3Modal(router, router.renderToken, { force: true });
+      card.append(intro, button);
     } else {
       const text = document.createElement('p'); text.textContent = '수령함에서 접수 상태를 확인할 수 있어요.';
       card.appendChild(text);
@@ -256,16 +260,22 @@ export const ResultView = {
     target.appendChild(card);
   },
 
-  top3Form(router, renderToken = router.renderToken) {
+  top3Form(router, renderToken = router.renderToken, { submitText = '수령 정보 등록', showSubmitButton = true, onSubmitted = null } = {}) {
     const form = document.createElement('form'); form.className = 'stack-form';
     const fields = [
       ui.formField('이름', 'text', 'name', { maxlength: 80, autocomplete: 'name', required: true }),
       ui.formField('연락처', 'tel', 'contact', { maxlength: 32, autocomplete: 'tel', required: true }),
       ui.formField('학교', 'text', 'school', { maxlength: 120, autocomplete: 'organization', required: true }),
     ];
-    fields.forEach(({ label }) => form.appendChild(label));
+    const remembered = top3Drafts.get(router) || {};
+    fields.forEach(({ label, input }) => {
+      input.value = remembered[input.name] || '';
+      input.addEventListener?.('input', () => top3Drafts.set(router, { ...top3Drafts.get(router), [input.name]: input.value }));
+      form.appendChild(label);
+    });
     const consent = document.createElement('label'); consent.className = 'consent-row';
-    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.required = true;
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.required = true; checkbox.checked = remembered.consent === true;
+    checkbox.addEventListener?.('change', () => top3Drafts.set(router, { ...top3Drafts.get(router), consent: checkbox.checked }));
     const consentText = document.createElement('span'); consentText.textContent = '경품 안내와 수령 확인을 위한\n이름·연락처·학교 수집에 동의합니다.';
     consent.append(checkbox, consentText); form.appendChild(consent);
     const accuracyNote = document.createElement('p'); accuracyNote.className = 'result-contact-accuracy';
@@ -275,7 +285,7 @@ export const ResultView = {
     eligibilityNote.textContent = '문의: sea42471@naver.com';
     form.appendChild(eligibilityNote);
     const feedback = document.createElement('p'); feedback.className = 'result-form-status'; feedback.setAttribute('role', 'status');
-    const button = document.createElement('button'); button.type = 'submit'; button.className = 'btn btn-secondary'; button.textContent = '수령 정보 등록';
+    const button = document.createElement('button'); button.type = 'submit'; button.className = 'btn btn-secondary'; button.textContent = submitText; button.hidden = !showSubmitButton;
     form.append(feedback, button);
     let started = false;
     let pending = false;
@@ -284,8 +294,7 @@ export const ResultView = {
       started = true;
       analytics.track('top3_profile_started');
     };
-    form.onsubmit = async (event) => {
-      event.preventDefault();
+    form.submitContact = async () => {
       if (pending || (renderToken != null && router.isCurrent && !router.isCurrent(renderToken))) return;
       if (!checkbox.checked || fields.some(({ input }) => !input.value.trim())) {
         feedback.textContent = '모든 항목을 입력하고 수집에 동의해 주세요.';
@@ -294,24 +303,54 @@ export const ResultView = {
       form.onfocusin();
       pending = true; button.disabled = true; button.textContent = '등록 중…'; feedback.textContent = '';
       try {
-        const submitted = await api.submitTop3Profile({ ...Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])), consent: true, notice_version: 'top3-contact-v1' });
+        const payload = { ...Object.fromEntries(fields.map(({ input }) => [input.name, input.value.trim()])), consent: true, notice_version: 'top3-contact-v1' };
+        top3Drafts.set(router, payload);
+        const submitted = await api.submitTop3Profile(payload);
         const previousProfile = router.state.top3Profile || {};
         router.state.top3Profile = { ...previousProfile, required: false, status: submitted.status || 'SUBMITTED', submitted_at: submitted.submitted_at || previousProfile.submitted_at };
         if (router.state.lastResult) router.state.lastResult.top3Profile = router.state.top3Profile;
         router.announceStateChange?.();
         analytics.track('top3_profile_submitted', {}, { dedupKey: 'top3-profile-submit' });
+        top3Drafts.delete(router);
         if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return;
+        onSubmitted?.(submitted);
         // Replace only this form, keeping score/share controls and scroll position intact.
         form.replaceChildren();
         const done = document.createElement('p'); done.className = 'result-form-status'; done.setAttribute('role', 'status'); done.textContent = '정보 접수 완료';
         form.appendChild(done);
+        return true;
       } catch (error) {
         if (renderToken != null && router.isCurrent && !router.isCurrent(renderToken)) return;
         feedback.textContent = error.message || '등록하지 못했어요. 다시 시도해 주세요.';
+        return false;
       } finally {
-        pending = false; button.disabled = false; button.textContent = '수령 정보 등록';
+        pending = false; button.disabled = false; button.textContent = submitText;
       }
     };
+    form.onsubmit = (event) => { event.preventDefault(); return form.submitContact(); };
     return form;
+  },
+
+  openTop3Modal(router, renderToken = router.renderToken, { force = false } = {}) {
+    const profile = router.state?.top3Profile || router.state?.lastResult?.top3Profile;
+    const result = router.state?.lastResult || {};
+    const rank = result.top3_gap?.rank ?? result.rank;
+    const eligible = profile?.eligible !== false && result.top3_gap?.status !== 'CHASING' && (Number.isInteger(rank) ? rank >= 1 && rank <= 3 : profile?.eligible === true);
+    if (!eligible || profile?.status !== 'REQUESTED' || (!force && top3AutoPrompted.has(router))) return false;
+    top3AutoPrompted.add(router);
+    const form = this.top3Form(router, renderToken, {
+      showSubmitButton: false,
+      onSubmitted: () => ui.hideModal(),
+    });
+    const intro = document.createElement('div'); intro.className = 'claim-immediate-heading';
+    const heading = document.createElement('h2'); heading.textContent = `🏅 현재 ${Number(rank) || 3}위로 TOP3예요!`;
+    const guide = document.createElement('p'); guide.textContent = '최종 경품 지급 순위는 이벤트 종료 시점에 확정돼요.';
+    intro.append(heading, guide);
+    const content = document.createElement('div'); content.className = 'claim-immediate-form'; content.append(intro, form);
+    ui.showModal({
+      title: 'TOP3 수령 정보', content, confirmText: '저장하고 경품 뽑기', cancelText: '나중에 입력', className: 'claim-contact-modal',
+      onConfirm: () => form.submitContact(),
+    });
+    return true;
   },
 };

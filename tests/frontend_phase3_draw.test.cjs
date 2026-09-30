@@ -21,6 +21,7 @@ function loadDraw(prepareResultReferralShare, overrides = {}) {
   const source = fs.readFileSync(path.join(root, 'public/js/views/draw_view.js'), 'utf8')
     .replace(/^import .*;$/gm, '')
     .replace('export const DrawView =', 'globalThis.DrawView =');
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/js/benefit_retry.js'), 'utf8').replace(/export function /g, 'function '), context);
   vm.runInNewContext(source, context, { filename: 'draw_view.js' });
   return context.DrawView;
 }
@@ -39,10 +40,12 @@ function node() {
 function shareHarness(prepare) {
   const button = node();
   const status = node();
+  const again = node();
+  const game = node();
   const routes = [];
   const router = { state: { draw: {} }, isCurrent: () => true, navigate(route) { routes.push(route); } };
-  const container = { querySelector(selector) { return selector === '#btn-draw-share' ? button : selector === '#draw-share-status' ? status : null; } };
-  return { button, container, routes, router, status, view: loadDraw(prepare) };
+  const container = { querySelector(selector) { return selector === '#btn-draw-share' ? button : selector === '#draw-share-status' ? status : selector === '#btn-draw-again' ? again : selector === '#btn-draw-game' ? game : null; } };
+  return { button, again, game, container, routes, router, status, view: loadDraw(prepare) };
 }
 
 test('pouch and scratch hooks report the server round being acted on', () => {
@@ -75,7 +78,7 @@ test('pouch and scratch hooks report the server round being acted on', () => {
   const selectors = [
     '#scratch-title', '#scratch-instruction', '#result-prize-img', '#result-prize-title', '#result-prize-sub',
     '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status',
-    '#scratch-canvas', '#scratch-result-content', '#btn-draw-share', '#draw-share-status',
+    '#scratch-canvas', '#scratch-result-content', '#btn-draw-share', '#draw-share-status', '#btn-draw-again', '#btn-draw-game',
   ];
   const nodes = new Map(selectors.map((selector) => [selector, node()]));
   const scratchContainer = { innerHTML: '', querySelector: (selector) => nodes.get(selector) };
@@ -85,20 +88,44 @@ test('pouch and scratch hooks report the server round being acted on', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(tracked.at(-1)[1])), { round_number: 4 });
 });
 
-test('Gemini benefit result prepares draw_retry and confirmed webhook exposes a direct next action', async () => {
+test('the approved compact B selection keeps the first and repeat prize titles without a lineup image', () => {
+  const view = loadDraw(async () => ({}));
+  const open = node();
+  const pouches = [0, 1, 2].map((index) => ({ ...node(), dataset: { index: String(index) }, classList: { toggle() {} } }));
+  const container = {
+    innerHTML: '',
+    querySelector(selector) { return selector === '#btn-open-pouch' ? open : null; },
+    querySelectorAll() { return pouches; },
+  };
+  const router = { state: { draw: { used_count: 0, max_count: 10, available_credits: 1 } }, isCurrent: () => true };
+  view.renderSelection(container, router, 1);
+  assert.match(container.innerHTML, /이번 판 경품도 받아가세요/);
+  assert.doesNotMatch(container.innerHTML, /prize-lineup|prize-preview/);
+  router.state.draw.used_count = 1;
+  view.renderSelection(container, router, 1);
+  assert.match(container.innerHTML, /경품을 한 번 더 뽑아보세요/);
+  const css = fs.readFileSync(path.join(root, 'public/css/phase2-views.css'), 'utf8');
+  assert.match(css, /\.view-content:has\(\.draw-action-dock\) \.scratch-ticket \{ height: 180px/);
+  assert.match(css, /#btn-open-pouch \{[^}]*background: #188038/);
+});
+
+test('Gemini benefit result prepares combined benefit_retry and confirmed webhook exposes a direct next action', async () => {
   let options;
   const h = shareHarness(async (_router, received) => {
     options = received;
     return { share: async () => ({ method: 'kakao', status: 'pending', shareId: 'share-draw-1' }) };
   });
   await h.view.preparePostDrawShare(h.container, h.router, 4, { round_number: 2, prize: {} }, { used_count: 2, max_count: 10 }, false);
-  assert.equal(options.kind, 'draw_retry');
+  assert.equal(options.kind, 'benefit_retry');
   assert.equal(h.button.hidden, false);
-  assert.match(h.button.textContent, /공유하고\s+한 번 더 뽑기/);
+  assert.match(h.button.textContent, /공유하고\s+다시 도전하기/);
   await h.button.onclick();
-  assert.match(h.status.textContent, /전송 확인 후/);
-  options.onReceipt({ status: 'confirmed', reward_status: 'granted', reward_type: 'DRAW', draw_state: { status: 'AVAILABLE', used_count: 2, max_count: 10, available_credits: 1 } });
+  assert.match(h.status.textContent, /전송 확인 중/);
+  options.onReceipt({ status: 'confirmed', reward_status: 'granted', reward_type: 'BOTH', rewards: { game: { quantity: 1 }, draw: { quantity: 1 } }, tickets: { invitation: 1, available_total: 1 }, draw_state: { status: 'AVAILABLE', used_count: 2, max_count: 10, available_credits: 1 } });
   assert.equal(h.router.state.draw.available_credits, 1);
+  assert.equal(h.again.hidden, false);
+  assert.equal(h.game.hidden, false);
+  assert.equal(h.router.state.tickets.invitation, 1);
   assert.deepEqual(h.routes, [], 'confirmed delivery exposes a direct next action instead of navigating unexpectedly');
 });
 
@@ -109,17 +136,152 @@ test('actual prize result prepares an unrewarded two-line prize boast and never 
   assert.equal(options.kind, 'prize_share');
   assert.equal(options.info.won_prize_name, '소니 ULT WEAR 헤드셋');
   assert.match(h.button.textContent, /당첨 자랑하기/);
+  const css = fs.readFileSync(path.join(root, 'public/css/phase2-views.css'), 'utf8');
+  assert.match(css, /\.actual-prize-result \.post-reveal-actions #btn-draw-share \{ display: block !important; \}/);
   await h.button.onclick();
   assert.deepEqual(h.routes, []);
 });
 
-test('the tenth benefit result ends repeat draws without preparing a new share intent', async () => {
+test('a persisted actual-prize scratch opens direct contact with the authoritative claim', async () => {
+  let received; let manual;
+  const claim = { id: 'claim-1', claim_type: 'DRAW', prize_name: '소니 헤드셋', category: 'SHIPPING', status: 'AWAITING_INFORMATION' };
+  const view = loadDraw(async () => ({}), {
+    api: { getClaims: async () => ({ claims: [claim] }) },
+    PrizeView: {
+      openImmediateClaim: async (...args) => { received = args; return true; },
+      directClaimModal: async (...args) => { manual = args; return true; },
+    },
+  });
+  const router = { isCurrent: () => true, navigate() {} };
+  const draw = { draw_id: 'draw-1', claim_id: 'claim-1', scratch_completed: true, prize: { name: '소니 헤드셋' } };
+  assert.equal(await view.maybeOpenActualPrizeClaim({}, router, 3, draw), true);
+  assert.equal(received[0], claim);
+  assert.equal(received[2], 3);
+  received[3].onSubmitted();
+  assert.equal(await view.maybeOpenActualPrizeClaim({}, router, 3, draw, { force: true }), true);
+  assert.equal(manual[0], claim, 'manual reopening bypasses the one-shot automatic prompt guard');
+});
+
+test('a revisited submitted prize routes its contact CTA to the benefit instead of reopening a dead form', async () => {
+  const claim = { id: 'claim-done', claim_type: 'DRAW', prize_name: '헤드셋', status: 'INFORMATION_RECEIVED', contact_submitted: true };
+  const after = node();
+  const container = { querySelector: (selector) => selector === '#btn-after-draw' ? after : null };
+  const routes = [];
+  const view = loadDraw(async () => ({}), {
+    api: { getClaims: async () => ({ claims: [claim] }) },
+    PrizeView: { openImmediateClaim: async () => assert.fail('submitted claim must not reopen') },
+  });
+  const router = { isCurrent: () => true, navigate: (route) => routes.push(route) };
+  const draw = { draw_id: 'draw-done', claim_id: 'claim-done', scratch_completed: true, prize: { name: '헤드셋' } };
+  assert.equal(await view.maybeOpenActualPrizeClaim(container, router, 7, draw), true);
+  assert.equal(after.textContent, '혜택 보러 가기');
+  after.onclick();
+  assert.deepEqual(routes, ['benefit']);
+});
+
+test('a missing current claim never opens an unrelated pending draw claim', async () => {
+  let opened = 0;
+  const view = loadDraw(async () => ({}), {
+    api: { getClaims: async () => ({ claims: [{ id: 'older-claim', claim_type: 'DRAW', status: 'AWAITING_INFORMATION', contact_submitted: false }] }) },
+    PrizeView: { openImmediateClaim: async () => { opened += 1; return true; } },
+  });
+  const router = { isCurrent: () => true, navigate() {} };
+  const draw = { draw_id: 'current-draw', scratch_completed: true, prize: { name: '현재 경품' } };
+  assert.equal(await view.maybeOpenActualPrizeClaim({}, router, 10, draw), false);
+  assert.equal(opened, 0);
+});
+
+test('an authoritative claim id remains usable while the claims list is briefly stale', async () => {
+  let received;
+  const view = loadDraw(async () => ({}), {
+    api: { getClaims: async () => ({ claims: [{ id: 'older-claim', claim_type: 'DRAW', status: 'AWAITING_INFORMATION' }] }) },
+    PrizeView: { openImmediateClaim: async (claim) => { received = claim; return true; } },
+  });
+  const router = { isCurrent: () => true, navigate() {} };
+  const draw = { draw_id: 'current-draw', claim_id: 'current-claim', scratch_completed: true, prize: { name: '현재 경품', category: 'COUPON' } };
+  assert.equal(await view.maybeOpenActualPrizeClaim({}, router, 11, draw), true);
+  assert.equal(received.id, 'current-claim');
+  assert.equal(received.prize_name, '현재 경품');
+});
+
+test('the fixed draw dock keeps replay primary and prepares a secondary game share before scratching', async () => {
+  let preparedKind;
+  const view = loadDraw(async (_router, options) => {
+    preparedKind = options.kind;
+    return { share: async () => ({ status: 'pending' }) };
+  }, { showGameGuide() {} });
+  const primary = node();
+  const secondary = node();
+  const status = node();
+  const container = { querySelector(selector) {
+    return selector === '#draw-dock-primary' ? primary : selector === '#draw-dock-secondary' ? secondary : selector === '#draw-dock-status' ? status : null;
+  } };
+  const router = {
+    state: { draw: { status: 'AVAILABLE', used_count: 0, max_count: 10, available_credits: 1 }, tickets: { available_total: 1, invitation: 0, invitation_reserved: 0 } },
+    isCurrent: () => true,
+    campaignStatus: () => 'ACTIVE',
+  };
+  await view.updateActionDock(container, router, 8);
+  assert.equal(primary.textContent, '한 판 더 하기');
+  assert.equal(secondary.hidden, false);
+  assert.equal(preparedKind, 'retry_invite');
+  assert.match(status.textContent, /게임권 1장/);
+});
+
+test('a revealed Gemini result upgrades the fixed dock share to the combined retry reward', async () => {
+  let preparedKind;
+  const view = loadDraw(async (_router, options) => { preparedKind = options.kind; return { share: async () => ({ status: 'pending' }) }; });
+  const primary = node(); const secondary = node(); const status = node();
+  const container = { querySelector(selector) {
+    return selector === '#draw-dock-primary' ? primary : selector === '#draw-dock-secondary' ? secondary : selector === '#draw-dock-status' ? status : null;
+  } };
+  const draw = { draw_id: 'benefit-1', scratch_completed: true };
+  const router = {
+    state: { draw: { status: 'AVAILABLE', used_count: 1, max_count: 10, available_credits: 0 }, tickets: { available_total: 0, invitation: 0, invitation_reserved: 0 } },
+    isCurrent: () => true,
+    campaignStatus: () => 'ACTIVE',
+  };
+  view.activeDrawContext = { container, renderToken: 9, draw, drawState: router.state.draw, actualPrize: false, resultRevealed: true };
+  await view.updateActionDock(container, router, 9);
+  assert.equal(preparedKind, 'benefit_retry');
+  assert.match(primary.textContent, /친구에게 공유하고/);
+  assert.match(status.textContent, /게임권 1장 \+ 경품 뽑기 1회/);
+});
+
+test('a failed dock share preparation exposes a working retry instead of a stuck disabled button', async () => {
+  let preparations = 0;
+  const view = loadDraw(async () => { preparations += 1; throw new Error('offline'); });
+  const primary = node(); const secondary = node(); const status = node();
+  const container = { querySelector(selector) {
+    return selector === '#draw-dock-primary' ? primary : selector === '#draw-dock-secondary' ? secondary : selector === '#draw-dock-status' ? status : null;
+  } };
+  const router = {
+    state: { draw: { status: 'AVAILABLE', used_count: 0, max_count: 10 }, tickets: { available_total: 0, invitation: 0, invitation_reserved: 0 } },
+    isCurrent: () => true,
+    campaignStatus: () => 'ACTIVE',
+  };
+  await view.updateActionDock(container, router, 12);
+  assert.equal(primary.disabled, false);
+  assert.match(status.textContent, /공유 준비를 불러오지 못했어요/);
+  primary.onclick();
+  await new Promise(setImmediate);
+  assert.equal(preparations, 2);
+});
+
+test('an actual-prize draw suppresses automatic TOP3 replacement while keeping manual TOP3 recovery', () => {
+  const source = fs.readFileSync(path.join(root, 'public/js/views/draw_view.js'), 'utf8');
+  assert.match(source, /!isActualPrizeDraw\(state\.draw\).*openTop3Modal/);
+  assert.match(source, /renderTop3Result\(container, router\)/);
+});
+
+test('the tenth benefit result permits a game-only retry share', async () => {
   let preparations = 0;
   const h = shareHarness(async () => { preparations += 1; return { share: async () => ({}) }; });
   await h.view.preparePostDrawShare(h.container, h.router, 6, { round_number: 10, prize: {} }, { used_count: 10, max_count: 10 }, false);
-  assert.equal(preparations, 0);
-  assert.equal(h.button.hidden, true);
-  assert.equal(h.status.textContent, '10회 복주머니를 모두 확인했어요.');
+  assert.equal(preparations, 1);
+  assert.equal(h.button.hidden, false);
+  assert.equal(h.again.hidden, true);
+  assert.match(h.status.textContent, /공유하면 게임권 1장/);
 });
 
 test('callout suppression stays scoped to the game controls and preserves press/release handlers', () => {
@@ -207,14 +369,14 @@ test('draw API carries an explicit reusable idempotency key and expected round g
 });
 
 
-test('an existing draw credit renders a direct next draw action without preparing another share', async () => {
+test('an existing draw credit offers a separate direct action alongside optional sharing', async () => {
   let preparations = 0;
   const h = shareHarness(async () => { preparations += 1; return { share: async () => ({}) }; });
   await h.view.preparePostDrawShare(h.container, h.router, 4, { round_number: 2, prize: {} }, { used_count: 2, max_count: 10, available_credits: 1 }, false);
-  assert.equal(preparations, 0);
+  assert.equal(preparations, 1);
   assert.equal(h.button.hidden, false);
-  assert.equal(h.button.textContent, '한 번 더 뽑기');
-  h.button.onclick();
+  assert.equal(h.again.hidden, false);
+  h.again.onclick();
   assert.deepEqual(h.routes, ['draw']);
 });
 
@@ -228,12 +390,12 @@ test('a passive state refresh replaces the share action with a direct draw actio
     drawState: h.router.state.draw, actualPrize: false, resultRevealed: true,
   };
   await h.view.updateState(h.container, h.router, 4);
-  assert.equal(preparations, 1);
+  assert.equal(preparations, 0, 'the fixed dock owns retry sharing and direct actions do not create a second intent');
   h.router.state.draw = { status: 'AVAILABLE', used_count: 2, max_count: 10, available_credits: 1 };
   await h.view.updateState(h.container, h.router, 4);
-  assert.equal(preparations, 1, 'the granted credit must not create another draw_retry intent');
-  assert.equal(h.button.textContent, '한 번 더 뽑기');
-  h.button.onclick();
+  assert.equal(preparations, 0, 'the granted credit must not create another retry intent');
+  assert.equal(h.again.hidden, false);
+  h.again.onclick();
   assert.deepEqual(h.routes, ['draw']);
 });
 
@@ -249,7 +411,7 @@ test('an unrevealed benefit waits for scratch persistence before exposing the ne
   const selectors = [
     '#scratch-title', '#scratch-instruction', '#result-prize-img', '#result-prize-title', '#result-prize-sub',
     '#btn-after-draw', '#btn-instant-reveal', '#restored-pouch', '#post-reveal-actions', '#scratch-save-status',
-    '#scratch-canvas', '#scratch-result-content', '#btn-draw-share', '#draw-share-status',
+    '#scratch-canvas', '#scratch-result-content', '#btn-draw-share', '#draw-share-status', '#btn-draw-again', '#btn-draw-game',
   ];
   const nodes = new Map(selectors.map((selector) => [selector, node()]));
   const container = { innerHTML: '', querySelector: (selector) => nodes.get(selector) };
@@ -270,9 +432,9 @@ test('an unrevealed benefit waits for scratch persistence before exposing the ne
   assert.equal(nodes.get('#btn-draw-share').hidden, true, 'do not advance before the revealed result is durably saved');
   resolveSave({ scratch_completed: true });
   await view.scratchCard.promise;
-  assert.equal(preparations, 0);
-  assert.equal(nodes.get('#btn-draw-share').hidden, false);
-  assert.equal(nodes.get('#btn-draw-share').textContent, '한 번 더 뽑기');
-  nodes.get('#btn-draw-share').onclick();
+  assert.equal(preparations, 0, 'the durable reveal exposes its direct draw action without preparing duplicate sharing');
+  assert.equal(nodes.get('#btn-draw-again').hidden, false);
+
+  nodes.get('#btn-draw-again').onclick();
   assert.deepEqual(routes, ['draw']);
 });

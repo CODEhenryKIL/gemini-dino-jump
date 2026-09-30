@@ -45,16 +45,26 @@
 | --- | --- |
 | `retry_invite`, `record_share` | `GAME` |
 | `draw_retry` | `DRAW` |
+| `benefit_retry` | `BOTH` |
 | `prize_share`, `general_share` | `NONE` |
 
-- 소유한 `claim_id`가 있는 수령 접수용 공유는 항상 `NONE`이다. 이 요청만 본인 `MemoChat` 전송 확인으로 접수를 완료할 수 있고, 추가 권리는 지급하지 않는다. DRAW 수령 요청은 `prize_share`, RANKING은 `prize_share` 또는 `record_share`만 허용한다.
-- 신규 공유는 보상 계약 v2로 저장한다. 기존 v1 전송·접수 기록은 보존한다.
+- 기존 클라이언트가 소유한 `claim_id`를 넣어 만드는 공유는 계속 `NONE`으로 저장되고 추가 권리를 지급하지 않는다. DRAW 수령 요청은 `prize_share`, RANKING은 `prize_share` 또는 `record_share`만 허용한다. 이 공유의 확인 여부는 직접 수령 정보 제출의 조건이 아니다.
+- `benefit_retry`는 최신 결과가 `BENEFIT`이고 실제 상품 당첨이 없는 참가자만 만들 수 있다. 계약 v3 `BOTH`로 저장하며 한 번의 유효한 친구·그룹 전송 확인에서 게임권과 뽑기권을 각각 독립 판정한다. 기존 v1/v2 전송·접수 기록은 그대로 해석한다.
 - 응답은 `share_id`, `status`, `reward_type`, `reward_status`, 만료·확인 시각을 제공한다. 생성 응답의 `callback_args`는 카카오 전달용이며 사용자 화면이나 분석 이벤트에 노출하지 않는다.
 - `GET /api/referrals/share-intents/{id}`는 본인 요청만 조회하며 게임권 상태를 함께 제공한다. `DRAW` 목적에는 `draw_state`도 포함된다.
-- 인증된 카카오 웹훅만 권리를 적립한다. `GAME`·`DRAW`의 나에게 보내기와 위조·만료·다른 환경·중복 요청은 적립하지 않는다. 소유한 `claim_id`의 `NONE` 수령 접수 공유는 본인 `MemoChat`에서도 확인할 수 있지만 적립하지 않는다.
-- 한 공유 요청은 여러 방·중복 웹훅에도 최대 1회만 적립한다. 게임권과 뽑기권은 같은 요청에서 함께 지급하지 않는다.
+- 인증된 카카오 웹훅만 권리를 적립한다. `GAME`·`DRAW`·`BOTH`의 나에게 보내기와 위조·만료·다른 환경·중복 요청은 적립하지 않는다. 소유한 `claim_id`의 기존 `NONE` 공유는 본인 `MemoChat`에서도 확인할 수 있지만 적립하지 않는다.
+- 한 공유 요청은 여러 방·중복 웹훅에도 각 권리를 최대 1회만 적립한다. `BOTH` 응답은 `rewards.game`과 `rewards.draw`에 각각 `status`, `quantity`를 제공하며, 재조회와 중복 웹훅도 저장된 동일 결과를 반환한다. 전체 `reward_status`는 하나라도 지급되면 `granted`다.
 - 게임권은 3장 보유·10시간 규칙을 유지한다. 뽑기권은 사용 수+미사용 권리가 10을 넘지 않고, 실제 상품 당첨 후에는 새로 적립하지 않는다.
 - 공유 확인과 보상 지급은 별개다. `confirmed`여도 `NO_REWARD`, 한도·쿨다운 차단 등일 수 있으므로 `reward_status`까지 확인한다.
+
+## 수령 정보 직접 완료
+
+실제 상품의 `claim_id`는 추첨 생성·조회 응답과 `PATCH /api/draws/{id}/scratch-complete` 응답에서 제공한다. 선택한 흐름에서는 공유 확인 없이 기존 두 API를 순서대로 호출한다.
+
+1. `POST /api/claims/{id}/draft`에 `{name,contact,school,address?,consent:true,notice_version:"claim-contact-v1",event_id?}`를 보내면 `{draft_saved:true}`를 반환한다.
+2. `POST /api/claims/{id}/submit`에 빈 객체 `{}`를 보내면 `{id,status,submitted_at}`를 반환한다. 예전 클라이언트의 `share_intent_id` 필드는 받아도 무시한다.
+
+제출은 참가자·행사·수령 요청 소유권, 참가자 활성 상태, 접수 기한, 종료 상태, 저장된 동의 초안을 서버에서 다시 확인한다. 수령 요청 행을 잠근 한 트랜잭션에서 최종 연락처를 한 번만 저장하고 초안을 삭제한다. 동일·동시 재요청은 기존 `status`와 `submitted_at`을 반환하며 공유 의도나 보상을 만들지 않는다. TOP3는 기존 `POST /api/ranking/profile` 제출이 연락처와 RANKING claim을 함께 확정하고 `{status:"SUBMITTED",submitted_at,claim_id}`를 반환한다.
 
 ## 관리자 수동 지급 확인
 
@@ -89,6 +99,8 @@
 
 ## 배포·호환성
 
+- 보상 계약 v3 migration을 먼저 적용한다. 이 단계는 v1/v2 행의 의미와 기존 API 응답을 바꾸지 않고 `BOTH`용 열·제약만 추가한다.
+- migration 확인 뒤 서버를 배포하고, 마지막으로 `benefit_retry`를 만드는 클라이언트를 배포한다. 서버는 필요한 schema version이 없으면 시작을 거부하므로 새 행을 구 스키마에 쓰지 않는다.
 - 새 migration은 기존 추첨을 1회차로 보존하고 최초 지급·소비 원장을 연결한다. 기존 claim·연락처·지급 상태를 초기화하지 않는다.
 - 새 클라이언트·새 API·새 스키마를 함께 검증한다. 다회차 데이터 생성 후 예전 단일 추첨 코드로 되돌리는 것은 일반 롤백으로 취급하지 않는다.
 - 현재 베타의 합성 재고·무제한 설정과 본행사 재고·환경 승인은 별개다.
