@@ -14,7 +14,7 @@
 
 ## 101점 추첨 자격·Gemini 재도전 수정 — 2026-09-30
 
-브랜치: `fix/share-retry-score-gate-20260930`. 아래 내용은 로컬 수정이며 아직 운영 배포하지 않았다.
+브랜치: `fix/share-retry-score-gate-20260930`. 2026-09-30 11:28:13 KST 정식 주소 반영을 확인했다. [배포 검증 기록](evidence/share-retry-deployment-20260930.md) 참조.
 
 ### 확인한 문제
 
