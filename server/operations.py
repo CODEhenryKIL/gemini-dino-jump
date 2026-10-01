@@ -900,7 +900,7 @@ def _pool_prize(conn,campaign):
     if policy is not None:
         if (not isinstance(policy,dict) or type(policy.get("active_slot_max")) is not int
             or not 1<=policy["active_slot_max"]<=5000
-            or type(policy.get("initial_remaining")) is not int or policy["initial_remaining"]!=3000
+            or type(policy.get("initial_remaining")) is not int or not 1<=policy["initial_remaining"]<=5000
             or not isinstance(policy.get("version"),str) or not policy["version"]
             or policy["version"]!=campaign["probability_version"] or not total):
             raise DomainError("DRAW_CONFIG_INVALID","추첨 확률 설정을 확인하고 있습니다.",503)

@@ -54,5 +54,9 @@
   {
     "file": "20260930134926_draw_pool_active_policy.sql",
     "sha256": "172e14f7a4e044ed12ee089653abfc0cf9f77a9d091254f3c3cad71e187dae2f"
+  },
+  {
+    "file": "20261001023302_draw_pool_variable_window.sql",
+    "sha256": "d45519f5dedd8afb668b0916184c54cc74198b8e37321b00c33121adcf0bbaea"
   }
 ]
